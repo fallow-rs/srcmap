@@ -1,0 +1,17 @@
+[package]
+name = "srcmap-codec"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "High-performance VLQ source map codec"
+
+[lib]
+crate-type = ["lib"]
+
+[dev-dependencies]
+criterion = { version = "0.6", features = ["html_reports"] }
+
+[[bench]]
+name = "vlq"
+harness = false

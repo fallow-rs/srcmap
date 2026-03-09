@@ -1,0 +1,18 @@
+[workspace]
+resolver = "2"
+members = ["crates/*", "packages/codec"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+repository = "https://github.com/bartwaardenburg/srcmap"
+
+[workspace.dependencies]
+srcmap-codec = { path = "crates/codec" }
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = "symbols"
+opt-level = 3

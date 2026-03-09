@@ -1,0 +1,10 @@
+target/
+node_modules/
+*.node
+.DS_Store
+
+# napi-rs artifacts
+packages/codec/srcmap-codec.*.node
+packages/codec/index.js
+packages/codec/index.d.ts
+packages/codec/npm/
