@@ -14,7 +14,8 @@ High-performance source map tooling in Rust, with Node.js bindings via NAPI and 
 | **Phase 5** | CLI tool with 9 subcommands, structured JSON output, agent introspection, input hardening |
 | **Phase 6** | WASM bindings for generator and remapping |
 | **Phase 7** | Scopes & variables — first Rust implementation of the ECMA-426 scopes proposal |
-| **Publishing** | All 6 crates on crates.io, all 5 npm packages published |
+| **Phase 8** | Drop-in `@jridgewell/trace-mapping` compatibility wrapper (`@srcmap/trace-mapping`) |
+| **Publishing** | All 6 crates on crates.io, all 6 npm packages published |
 
 ## Competitive Landscape
 
@@ -33,14 +34,14 @@ High-performance source map tooling in Rust, with Node.js bindings via NAPI and 
 
 A thin wrapper around `@srcmap/sourcemap-wasm` that implements the `@jridgewell/trace-mapping` API surface. Enables zero-effort migration for the 80M+ weekly downloads ecosystem.
 
-- [ ] `TraceMap` class matching `@jridgewell/trace-mapping` API
-- [ ] `originalPositionFor` / `generatedPositionFor` with matching return types
-- [ ] `allGeneratedPositionsFor(source, line, column)` — all generated positions for a given original location (needed for breakpoint setting)
-- [ ] `eachMapping(callback)` iteration API
-- [ ] `sourceContentFor(source)` convenience accessor
-- [ ] `isIgnored(source)` for `ignoreList` checking
-- [ ] `presortedDecodedMap` constructor for pre-decoded input
-- [ ] Drop-in benchmark comparison vs trace-mapping
+- [x] `TraceMap` class matching `@jridgewell/trace-mapping` API
+- [x] `originalPositionFor` / `generatedPositionFor` with matching return types
+- [x] `allGeneratedPositionsFor(source, line, column)` — all generated positions for a given original location (needed for breakpoint setting)
+- [x] `eachMapping(callback)` iteration API
+- [x] `sourceContentFor(source)` convenience accessor
+- [x] `isIgnored(source)` for `ignoreList` checking
+- [x] `presortedDecodedMap` constructor for pre-decoded input
+- [x] Drop-in benchmark comparison vs trace-mapping
 - [ ] Publish as `@srcmap/trace-mapping` to npm
 
 ## Phase 9: Lookup Bias & Range Mapping

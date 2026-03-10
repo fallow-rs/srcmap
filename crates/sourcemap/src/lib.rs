@@ -474,6 +474,46 @@ impl SourceMap {
         })
     }
 
+    /// Find all generated positions for an original source position.
+    ///
+    /// `source` is the source filename. `line` and `column` are 0-based.
+    /// Returns all generated positions that map back to this original location.
+    pub fn all_generated_positions_for(
+        &self,
+        source: &str,
+        line: u32,
+        column: u32,
+    ) -> Vec<GeneratedLocation> {
+        let Some(&source_idx) = self.source_map.get(source) else {
+            return Vec::new();
+        };
+
+        let reverse_index = self
+            .reverse_index
+            .get_or_init(|| build_reverse_index(&self.mappings));
+
+        // Find the first entry matching (source, line, column)
+        let start = reverse_index.partition_point(|&i| {
+            let m = &self.mappings[i as usize];
+            (m.source, m.original_line, m.original_column) < (source_idx, line, column)
+        });
+
+        let mut results = Vec::new();
+
+        for &ri in &reverse_index[start..] {
+            let m = &self.mappings[ri as usize];
+            if m.source != source_idx || m.original_line != line || m.original_column != column {
+                break;
+            }
+            results.push(GeneratedLocation {
+                line: m.generated_line,
+                column: m.generated_column,
+            });
+        }
+
+        results
+    }
+
     /// Resolve a source index to its filename.
     pub fn source(&self, index: u32) -> &str {
         &self.sources[index as usize]
@@ -591,7 +631,7 @@ impl SourceMap {
     }
 
     /// Encode all mappings back to a VLQ mappings string.
-    fn encode_mappings(&self) -> String {
+    pub fn encode_mappings(&self) -> String {
         if self.mappings.is_empty() {
             return String::new();
         }
@@ -1070,6 +1110,45 @@ mod tests {
             );
             assert!(result.is_some(), "reverse lookup failed");
         }
+    }
+
+    #[test]
+    fn all_generated_positions_for_basic() {
+        let sm = SourceMap::from_json(simple_map()).unwrap();
+        let results = sm.all_generated_positions_for("input.js", 0, 0);
+        assert!(!results.is_empty(), "should find at least one position");
+        assert_eq!(results[0].line, 0);
+        assert_eq!(results[0].column, 0);
+    }
+
+    #[test]
+    fn all_generated_positions_for_unknown_source() {
+        let sm = SourceMap::from_json(simple_map()).unwrap();
+        let results = sm.all_generated_positions_for("nonexistent.js", 0, 0);
+        assert!(results.is_empty());
+    }
+
+    #[test]
+    fn all_generated_positions_for_no_match() {
+        let sm = SourceMap::from_json(simple_map()).unwrap();
+        let results = sm.all_generated_positions_for("input.js", 999, 999);
+        assert!(results.is_empty());
+    }
+
+    #[test]
+    fn encode_mappings_roundtrip() {
+        let json = generate_test_sourcemap(50, 10, 3);
+        let sm = SourceMap::from_json(&json).unwrap();
+        let encoded = sm.encode_mappings();
+        // Re-parse with encoded mappings
+        let json2 = format!(
+            r#"{{"version":3,"sources":{sources},"names":{names},"mappings":"{mappings}"}}"#,
+            sources = serde_json::to_string(&sm.sources).unwrap(),
+            names = serde_json::to_string(&sm.names).unwrap(),
+            mappings = encoded,
+        );
+        let sm2 = SourceMap::from_json(&json2).unwrap();
+        assert_eq!(sm2.mapping_count(), sm.mapping_count());
     }
 
     #[test]

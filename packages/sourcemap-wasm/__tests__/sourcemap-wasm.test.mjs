@@ -143,6 +143,165 @@ describe('debugId', () => {
   })
 })
 
+describe('file and sourceRoot getters', () => {
+  it('returns file when present', () => {
+    const map = JSON.stringify({
+      version: 3,
+      file: 'output.js',
+      sources: ['a.js'],
+      names: [],
+      mappings: 'AAAA',
+    })
+    const sm = new SourceMap(map)
+    assert.equal(sm.file, 'output.js')
+    sm.free()
+  })
+
+  it('returns undefined when file is absent', () => {
+    const sm = new SourceMap(SIMPLE_MAP)
+    assert.equal(sm.file, undefined)
+    sm.free()
+  })
+
+  it('returns sourceRoot when present', () => {
+    const map = JSON.stringify({
+      version: 3,
+      sourceRoot: 'src/',
+      sources: ['a.js'],
+      names: [],
+      mappings: 'AAAA',
+    })
+    const sm = new SourceMap(map)
+    assert.equal(sm.sourceRoot, 'src/')
+    sm.free()
+  })
+})
+
+describe('sourcesContent getter', () => {
+  it('returns sources content array', () => {
+    const map = JSON.stringify({
+      version: 3,
+      sources: ['a.js'],
+      sourcesContent: ['const x = 1;'],
+      names: [],
+      mappings: 'AAAA',
+    })
+    const sm = new SourceMap(map)
+    assert.deepEqual(sm.sourcesContent, ['const x = 1;'])
+    sm.free()
+  })
+
+  it('returns null for missing content entries', () => {
+    const map = JSON.stringify({
+      version: 3,
+      sources: ['a.js', 'b.js'],
+      sourcesContent: [null, 'const y = 2;'],
+      names: [],
+      mappings: 'AAAA',
+    })
+    const sm = new SourceMap(map)
+    assert.equal(sm.sourcesContent[0], null)
+    assert.equal(sm.sourcesContent[1], 'const y = 2;')
+    sm.free()
+  })
+})
+
+describe('ignoreList getter', () => {
+  it('returns ignore list', () => {
+    const map = JSON.stringify({
+      version: 3,
+      sources: ['app.js', 'lib.js'],
+      names: [],
+      mappings: 'AAAA',
+      ignoreList: [1],
+    })
+    const sm = new SourceMap(map)
+    assert.deepEqual([...sm.ignoreList], [1])
+    sm.free()
+  })
+})
+
+describe('sourceContentFor', () => {
+  it('returns content for valid index', () => {
+    const map = JSON.stringify({
+      version: 3,
+      sources: ['a.js'],
+      sourcesContent: ['const x = 1;'],
+      names: [],
+      mappings: 'AAAA',
+    })
+    const sm = new SourceMap(map)
+    assert.equal(sm.sourceContentFor(0), 'const x = 1;')
+    sm.free()
+  })
+
+  it('returns null for out-of-range index', () => {
+    const sm = new SourceMap(SIMPLE_MAP)
+    assert.equal(sm.sourceContentFor(999), null)
+    sm.free()
+  })
+})
+
+describe('isIgnoredIndex', () => {
+  it('returns true for ignored source index', () => {
+    const map = JSON.stringify({
+      version: 3,
+      sources: ['app.js', 'lib.js'],
+      names: [],
+      mappings: 'AAAA',
+      ignoreList: [1],
+    })
+    const sm = new SourceMap(map)
+    assert.equal(sm.isIgnoredIndex(0), false)
+    assert.equal(sm.isIgnoredIndex(1), true)
+    sm.free()
+  })
+})
+
+describe('allGeneratedPositionsFor', () => {
+  it('returns positions for a known mapping', () => {
+    const sm = new SourceMap(SIMPLE_MAP)
+    const positions = sm.allGeneratedPositionsFor('input.js', 0, 0)
+    assert.ok(Array.isArray(positions))
+    assert.ok(positions.length >= 1)
+    assert.equal(positions[0].line, 0)
+    assert.equal(positions[0].column, 0)
+    sm.free()
+  })
+
+  it('returns empty for unknown source', () => {
+    const sm = new SourceMap(SIMPLE_MAP)
+    const positions = sm.allGeneratedPositionsFor('nonexistent.js', 0, 0)
+    assert.deepEqual(positions, [])
+    sm.free()
+  })
+})
+
+describe('allMappingsFlat', () => {
+  it('returns flat array of all mappings', () => {
+    const sm = new SourceMap(SIMPLE_MAP)
+    const flat = sm.allMappingsFlat()
+    assert.ok(flat instanceof Int32Array)
+    // 2 segments * 6 fields each = 12
+    assert.equal(flat.length, 12)
+    // First mapping: genLine=0, genCol=0
+    assert.equal(flat[0], 0) // genLine
+    assert.equal(flat[1], 0) // genCol
+    assert.ok(flat[2] >= 0) // source index
+    sm.free()
+  })
+})
+
+describe('encodedMappings', () => {
+  it('returns VLQ mappings string', () => {
+    const sm = new SourceMap(SIMPLE_MAP)
+    const encoded = sm.encodedMappings()
+    assert.equal(typeof encoded, 'string')
+    assert.equal(encoded, 'AAAAA,SACIC')
+    sm.free()
+  })
+})
+
 describe('indexed source maps', () => {
   it('parses an indexed (sectioned) source map', () => {
     const indexedMap = JSON.stringify({

@@ -97,6 +97,7 @@ For Rust consumers — build tools, compilers, and bundlers written in Rust — 
 | Rust build tool / bundler / compiler | **srcmap crate** — 3 ns lookups, full feature set |
 | Few lookups from Node.js (dev server, single error) | **trace-mapping** — fastest for individual calls |
 | Bulk lookups from Node.js (stack traces, coverage, monitoring) | **srcmap WASM batch** — 1.4x faster at scale |
+| Drop-in trace-mapping replacement | **@srcmap/trace-mapping** — same API, WASM-powered |
 | Need generation, remapping, or scopes | **srcmap** — only standalone Rust lib with all features |
 
 ## Architecture
@@ -115,7 +116,8 @@ packages/
 ├── sourcemap         # @srcmap/sourcemap — NAPI bindings for parser
 ├── sourcemap-wasm    # @srcmap/sourcemap-wasm — WASM bindings for parser
 ├── generator-wasm    # @srcmap/generator-wasm — WASM bindings for generator
-└── remapping-wasm    # @srcmap/remapping-wasm — WASM bindings for remapping
+├── remapping-wasm    # @srcmap/remapping-wasm — WASM bindings for remapping
+└── trace-mapping     # @srcmap/trace-mapping — drop-in trace-mapping replacement
 ```
 
 ## Usage
@@ -245,6 +247,34 @@ const source = sm.source(results[0]);
 const name = results[3] >= 0 ? sm.name(results[3]) : null;
 ```
 
+### Node.js (trace-mapping drop-in)
+
+Drop-in replacement for `@jridgewell/trace-mapping` — same API, powered by Rust via WASM:
+
+```js
+// Replace this:
+// import { TraceMap, originalPositionFor } from '@jridgewell/trace-mapping';
+// With this:
+import { TraceMap, originalPositionFor } from '@srcmap/trace-mapping';
+
+const map = new TraceMap(jsonString);
+
+// Same API — 1-based lines, 0-based columns
+const pos = originalPositionFor(map, { line: 42, column: 10 });
+// → { source: 'src/app.ts', line: 10, column: 4, name: 'handleClick' }
+
+// All functions work the same
+import {
+  generatedPositionFor,
+  allGeneratedPositionsFor,
+  eachMapping,
+  sourceContentFor,
+  isIgnored,
+  encodedMappings,
+  decodedMappings,
+} from '@srcmap/trace-mapping';
+```
+
 ### CLI
 
 ```bash
@@ -318,7 +348,7 @@ See [ROADMAP.md](ROADMAP.md) for the full development plan. Current status:
 - [x] Concatenation + composition/remapping with WASM bindings
 - [x] CLI tool with structured JSON output and agent introspection
 - [x] Scopes & variables (first Rust implementation of the ECMA-426 scopes proposal)
-- [ ] Drop-in trace-mapping compatibility wrapper
+- [x] Drop-in trace-mapping compatibility wrapper (`@srcmap/trace-mapping`)
 - [ ] Lookup bias (LEAST_UPPER_BOUND / GREATEST_LOWER_BOUND)
 - [ ] Stack trace symbolication API
 - [ ] Browser WASM target
