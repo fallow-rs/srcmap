@@ -271,7 +271,7 @@ See [ROADMAP.md](ROADMAP.md) for the full development plan. Current status:
 - [x] **Phase 3**: Source map generator
 - [x] **Phase 4**: Concatenation + composition/remapping (first standalone Rust implementation)
 - [x] **Phase 5**: CLI tool with agent-friendly structured output, introspection, and input hardening
-- [ ] **Publish**: Release all crates to crates.io and npm packages to npm
+- [x] **Published**: All crates on crates.io and npm packages on npm (0.1.2)
 - [ ] **Future**: WASM browser target, scopes & variables (ECMA-426 proposal)
 
 ## Development

@@ -67,8 +67,8 @@ NAPI adds ~300ns per function call and ~2ms for large string marshalling. Indivi
 - [x] GitHub Actions CI: test on Linux, macOS, Windows
 - [x] GitHub Actions release workflow: build native binaries for all platforms
 - [x] Add `exports` field to package.json for ESM consumers
-- [ ] Publish `srcmap-codec` to crates.io
-- [ ] Publish `@srcmap/codec` to npm
+- [x] Publish `srcmap-codec` to crates.io (0.1.2)
+- [x] Publish `@srcmap/codec` to npm (0.1.2)
 
 ## Phase 2: Source Map Parser + Consumer ✅
 
@@ -134,14 +134,14 @@ Agent-friendly command-line interface for inspecting, validating, composing, and
 
 ## Publishing
 
-- [ ] Publish `srcmap-codec` to crates.io
-- [ ] Publish `srcmap-sourcemap` to crates.io
-- [ ] Publish `srcmap-generator` to crates.io
-- [ ] Publish `srcmap-remapping` to crates.io
+- [x] Publish `srcmap-codec` to crates.io (0.1.2)
+- [x] Publish `srcmap-sourcemap` to crates.io (0.1.2)
+- [x] Publish `srcmap-generator` to crates.io (0.1.2)
+- [x] Publish `srcmap-remapping` to crates.io (0.1.2)
 - [ ] Publish `srcmap-cli` to crates.io
-- [ ] Publish `@srcmap/codec` to npm
-- [ ] Publish `@srcmap/sourcemap` to npm
-- [ ] Publish `@srcmap/sourcemap-wasm` to npm
+- [x] Publish `@srcmap/codec` to npm (0.1.2)
+- [x] Publish `@srcmap/sourcemap` to npm (0.1.2)
+- [x] Publish `@srcmap/sourcemap-wasm` to npm (0.1.2)
 
 ## Future
 
