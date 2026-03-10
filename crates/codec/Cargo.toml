@@ -5,9 +5,18 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 description = "High-performance VLQ source map codec"
+keywords = ["sourcemap", "vlq", "codec", "base64", "source-map"]
+categories = ["encoding", "development-tools"]
+
+[features]
+default = []
+parallel = ["rayon"]
 
 [lib]
 crate-type = ["lib"]
+
+[dependencies]
+rayon = { version = "1", optional = true }
 
 [dev-dependencies]
 criterion = { version = "0.6", features = ["html_reports"] }

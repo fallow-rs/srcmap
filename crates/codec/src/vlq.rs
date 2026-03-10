@@ -1,8 +1,8 @@
-/// Base64 VLQ encoding/decoding primitives.
-///
-/// VLQ (Variable-Length Quantity) encoding stores arbitrary integers
-/// as sequences of base64 characters. The sign bit is stored in the
-/// least significant bit, and continuation bits indicate multi-char values.
+//! Base64 VLQ encoding/decoding primitives.
+//!
+//! VLQ (Variable-Length Quantity) encoding stores arbitrary integers
+//! as sequences of base64 characters. The sign bit is stored in the
+//! least significant bit, and continuation bits indicate multi-char values.
 
 use crate::DecodeError;
 
@@ -158,7 +158,23 @@ mod tests {
 
     #[test]
     fn roundtrip_values() {
-        let values = [0, 1, -1, 15, -15, 16, -16, 31, 32, 100, -100, 1000, -1000, 100_000, i64::MAX];
+        let values = [
+            0,
+            1,
+            -1,
+            15,
+            -15,
+            16,
+            -16,
+            31,
+            32,
+            100,
+            -100,
+            1000,
+            -1000,
+            100_000,
+            i64::MAX,
+        ];
         for &v in &values {
             let mut buf = Vec::new();
             vlq_encode(&mut buf, v);
@@ -181,14 +197,26 @@ mod tests {
     fn decode_non_ascii_byte() {
         let input = [0xC0u8];
         let err = vlq_decode(&input, 0).unwrap_err();
-        assert_eq!(err, DecodeError::InvalidBase64 { byte: 0xC0, offset: 0 });
+        assert_eq!(
+            err,
+            DecodeError::InvalidBase64 {
+                byte: 0xC0,
+                offset: 0
+            }
+        );
     }
 
     #[test]
     fn decode_invalid_base64_char() {
         let input = b"!";
         let err = vlq_decode(input, 0).unwrap_err();
-        assert_eq!(err, DecodeError::InvalidBase64 { byte: b'!', offset: 0 });
+        assert_eq!(
+            err,
+            DecodeError::InvalidBase64 {
+                byte: b'!',
+                offset: 0
+            }
+        );
     }
 
     #[test]

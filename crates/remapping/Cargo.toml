@@ -1,0 +1,17 @@
+[package]
+name = "srcmap-remapping"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Source map concatenation and composition/remapping"
+keywords = ["sourcemap", "source-map", "remapping", "concatenation", "composition"]
+categories = ["development-tools"]
+
+[lib]
+crate-type = ["lib"]
+
+[dependencies]
+srcmap-codec = { workspace = true }
+srcmap-sourcemap = { workspace = true }
+srcmap-generator = { workspace = true }

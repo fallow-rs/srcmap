@@ -3,10 +3,14 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "bench": "node codec.mjs"
+    "bench:codec": "node codec.mjs",
+    "bench:sourcemap": "node sourcemap.mjs",
+    "bench:wasm": "node sourcemap-wasm.mjs",
+    "bench": "node codec.mjs && node sourcemap.mjs && node sourcemap-wasm.mjs"
   },
   "dependencies": {
     "@jridgewell/sourcemap-codec": "^1.5.0",
+    "@jridgewell/trace-mapping": "^0.3.25",
     "source-map-js": "^1.2.0",
     "tinybench": "^3.0.0"
   }

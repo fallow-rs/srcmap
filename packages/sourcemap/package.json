@@ -1,7 +1,7 @@
 {
-  "name": "@srcmap/codec",
+  "name": "@srcmap/sourcemap",
   "version": "0.1.0",
-  "description": "High-performance VLQ source map codec powered by Rust",
+  "description": "High-performance source map parser and consumer powered by Rust",
   "main": "index.js",
   "types": "index.d.ts",
   "exports": {
@@ -12,7 +12,7 @@
     }
   },
   "napi": {
-    "binaryName": "srcmap-codec",
+    "binaryName": "srcmap-sourcemap",
     "targets": [
       "x86_64-apple-darwin",
       "aarch64-apple-darwin",
@@ -32,11 +32,8 @@
     "@napi-rs/cli": "^3.0.0"
   },
   "scripts": {
-    "artifacts": "napi artifacts",
     "build": "napi build --release --platform",
-    "build:debug": "napi build --platform",
-    "prepublishOnly": "napi prepublish -t npm",
-    "version": "napi version"
+    "build:debug": "napi build --platform"
   },
   "repository": {
     "type": "git",
@@ -45,8 +42,9 @@
   "keywords": [
     "sourcemap",
     "source-map",
-    "vlq",
-    "codec",
+    "parser",
+    "consumer",
+    "lookup",
     "rust",
     "napi",
     "performance"

@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/*", "packages/codec"]
+members = ["crates/*", "packages/codec", "packages/sourcemap", "packages/sourcemap-wasm"]
 
 [workspace.package]
 version = "0.1.0"
@@ -9,7 +9,10 @@ license = "MIT"
 repository = "https://github.com/bartwaardenburg/srcmap"
 
 [workspace.dependencies]
-srcmap-codec = { path = "crates/codec" }
+srcmap-codec = { version = "0.1.0", path = "crates/codec" }
+srcmap-sourcemap = { version = "0.1.0", path = "crates/sourcemap" }
+srcmap-generator = { version = "0.1.0", path = "crates/generator" }
+srcmap-remapping = { version = "0.1.0", path = "crates/remapping" }
 
 [profile.release]
 lto = true

@@ -1,0 +1,30 @@
+[package]
+name = "srcmap-generator"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "High-performance source map generator"
+keywords = ["sourcemap", "source-map", "generator", "builder", "ecma-426"]
+categories = ["development-tools"]
+
+[features]
+default = []
+parallel = ["rayon"]
+
+[lib]
+crate-type = ["lib"]
+
+[dependencies]
+srcmap-codec = { workspace = true }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+rayon = { version = "1", optional = true }
+
+[dev-dependencies]
+srcmap-sourcemap = { workspace = true }
+criterion = "0.5"
+
+[[bench]]
+name = "generate"
+harness = false
