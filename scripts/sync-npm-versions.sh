@@ -8,6 +8,6 @@ VERSION="${2:-$1}"
 ROOT="$(git rev-parse --show-toplevel)"
 
 for pkg in "$ROOT"/packages/*/package.json; do
-  sed -i '' "s/\"version\": \"[^\"]*\"/\"version\": \"$VERSION\"/" "$pkg"
+  sed -i '' '0,/"version": "[^"]*"/{s/"version": "[^"]*"/"version": "'"$VERSION"'"/;}' "$pkg"
   echo "  Updated $(basename "$(dirname "$pkg")")/package.json → $VERSION"
 done
