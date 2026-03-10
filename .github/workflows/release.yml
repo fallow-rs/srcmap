@@ -175,10 +175,12 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          registry-url: https://registry.npmjs.org
 
       - name: Ensure latest npm (for trusted publishing)
         run: npm install -g npm@latest
+
+      - name: Configure npm registry
+        run: npm config set registry https://registry.npmjs.org/
 
       - name: Install @napi-rs/cli
         run: npm install -g @napi-rs/cli
