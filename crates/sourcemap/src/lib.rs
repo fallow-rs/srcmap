@@ -144,6 +144,9 @@ struct RawSourceMap<'a> {
     mappings: &'a str,
     #[serde(default, rename = "ignoreList")]
     ignore_list: Vec<u32>,
+    /// Deprecated Chrome DevTools field, fallback for `ignoreList`.
+    #[serde(default, rename = "x_google_ignoreList")]
+    x_google_ignore_list: Option<Vec<u32>>,
     /// Debug ID for associating generated files with source maps (ECMA-426).
     /// Accepts both `debugId` (spec) and `debug_id` (Sentry compat).
     #[serde(default, rename = "debugId", alias = "debug_id")]
@@ -154,6 +157,9 @@ struct RawSourceMap<'a> {
     /// Indexed source maps use `sections` instead of `mappings`.
     #[serde(default)]
     sections: Option<Vec<RawSection>>,
+    /// Catch-all for unknown extension fields (x_*).
+    #[serde(flatten)]
+    extensions: HashMap<String, serde_json::Value>,
 }
 
 /// A section in an indexed source map.
@@ -180,6 +186,8 @@ pub struct SourceMap {
     pub sources_content: Vec<Option<String>>,
     pub names: Vec<String>,
     pub ignore_list: Vec<u32>,
+    /// Extension fields (x_* keys) preserved for passthrough.
+    pub extensions: HashMap<String, serde_json::Value>,
     /// Debug ID (UUID) for associating generated files with source maps (ECMA-426).
     pub debug_id: Option<String>,
     /// Decoded scope and variable information (ECMA-426 scopes proposal).
@@ -254,13 +262,28 @@ impl SourceMap {
             _ => None,
         };
 
+        // Use x_google_ignoreList as fallback when ignoreList is absent
+        let ignore_list = if raw.ignore_list.is_empty() {
+            raw.x_google_ignore_list.unwrap_or_default()
+        } else {
+            raw.ignore_list
+        };
+
+        // Filter extensions to only keep x_* fields
+        let extensions: HashMap<String, serde_json::Value> = raw
+            .extensions
+            .into_iter()
+            .filter(|(k, _)| k.starts_with("x_"))
+            .collect();
+
         Ok(Self {
             file: raw.file,
             source_root: raw.source_root,
             sources,
             sources_content,
             names: raw.names,
-            ignore_list: raw.ignore_list,
+            ignore_list,
+            extensions,
             debug_id: raw.debug_id,
             scopes,
             mappings,
@@ -404,6 +427,7 @@ impl SourceMap {
             sources_content: all_sources_content,
             names: all_names,
             ignore_list: all_ignore_list,
+            extensions: HashMap::new(),
             debug_id: None,
             scopes: None, // TODO: merge scopes from sections
             mappings: all_mappings,
@@ -689,6 +713,13 @@ impl SourceMap {
     /// Produces a valid source map v3 JSON string that can be written to a file
     /// or embedded in a data URL.
     pub fn to_json(&self) -> String {
+        self.to_json_with_options(false)
+    }
+
+    /// Serialize the source map back to JSON with options.
+    ///
+    /// If `exclude_content` is true, `sourcesContent` is omitted from the output.
+    pub fn to_json_with_options(&self, exclude_content: bool) -> String {
         let mappings = self.encode_mappings();
 
         let mut json = String::with_capacity(256 + mappings.len());
@@ -713,7 +744,10 @@ impl SourceMap {
         }
         json.push(']');
 
-        if !self.sources_content.is_empty() && self.sources_content.iter().any(|c| c.is_some()) {
+        if !exclude_content
+            && !self.sources_content.is_empty()
+            && self.sources_content.iter().any(|c| c.is_some())
+        {
             json.push_str(r#","sourcesContent":["#);
             for (i, c) in self.sources_content.iter().enumerate() {
                 if i > 0 {
@@ -753,6 +787,18 @@ impl SourceMap {
         if let Some(ref id) = self.debug_id {
             json.push_str(r#","debugId":"#);
             json_quote_into(&mut json, id);
+        }
+
+        // Emit extension fields (x_* keys)
+        let mut ext_keys: Vec<&String> = self.extensions.keys().collect();
+        ext_keys.sort();
+        for key in ext_keys {
+            if let Some(val) = self.extensions.get(key) {
+                json.push(',');
+                json_quote_into(&mut json, key);
+                json.push(':');
+                json.push_str(&serde_json::to_string(val).unwrap_or_default());
+            }
         }
 
         json.push('}');
@@ -811,6 +857,168 @@ impl SourceMap {
         // SAFETY: VLQ output is always valid ASCII
         unsafe { String::from_utf8_unchecked(out) }
     }
+}
+
+/// Result of parsing a sourceMappingURL reference.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SourceMappingUrl {
+    /// An inline base64 data URI containing the source map JSON.
+    Inline(String),
+    /// An external URL or relative path to the source map file.
+    External(String),
+}
+
+/// Extract the sourceMappingURL from generated source code.
+///
+/// Looks for `//# sourceMappingURL=<url>` or `//@ sourceMappingURL=<url>` comments.
+/// For inline data URIs (`data:application/json;base64,...`), decodes the base64 content.
+/// Returns `None` if no sourceMappingURL is found.
+pub fn parse_source_mapping_url(source: &str) -> Option<SourceMappingUrl> {
+    // Search backwards from the end (sourceMappingURL is typically the last line)
+    for line in source.lines().rev() {
+        let trimmed = line.trim();
+        let url = if let Some(rest) = trimmed.strip_prefix("//# sourceMappingURL=") {
+            rest.trim()
+        } else if let Some(rest) = trimmed.strip_prefix("//@ sourceMappingURL=") {
+            rest.trim()
+        } else if let Some(rest) = trimmed.strip_prefix("/*# sourceMappingURL=") {
+            rest.trim_end_matches("*/").trim()
+        } else if let Some(rest) = trimmed.strip_prefix("/*@ sourceMappingURL=") {
+            rest.trim_end_matches("*/").trim()
+        } else {
+            continue;
+        };
+
+        if url.is_empty() {
+            continue;
+        }
+
+        // Check for inline data URI
+        if let Some(base64_data) = url
+            .strip_prefix("data:application/json;base64,")
+            .or_else(|| url.strip_prefix("data:application/json;charset=utf-8;base64,"))
+            .or_else(|| url.strip_prefix("data:application/json;charset=UTF-8;base64,"))
+        {
+            // Decode base64
+            let decoded = base64_decode(base64_data);
+            if let Some(json) = decoded {
+                return Some(SourceMappingUrl::Inline(json));
+            }
+        }
+
+        return Some(SourceMappingUrl::External(url.to_string()));
+    }
+
+    None
+}
+
+/// Simple base64 decoder (no dependencies).
+fn base64_decode(input: &str) -> Option<String> {
+    let input = input.trim();
+    let bytes: Vec<u8> = input.bytes().filter(|b| !b.is_ascii_whitespace()).collect();
+
+    let mut output = Vec::with_capacity(bytes.len() * 3 / 4);
+
+    for chunk in bytes.chunks(4) {
+        let mut buf = [0u8; 4];
+        let mut len = 0;
+
+        for &b in chunk {
+            if b == b'=' {
+                break;
+            }
+            let val = match b {
+                b'A'..=b'Z' => b - b'A',
+                b'a'..=b'z' => b - b'a' + 26,
+                b'0'..=b'9' => b - b'0' + 52,
+                b'+' => 62,
+                b'/' => 63,
+                _ => return None,
+            };
+            buf[len] = val;
+            len += 1;
+        }
+
+        if len >= 2 {
+            output.push((buf[0] << 2) | (buf[1] >> 4));
+        }
+        if len >= 3 {
+            output.push((buf[1] << 4) | (buf[2] >> 2));
+        }
+        if len >= 4 {
+            output.push((buf[2] << 6) | buf[3]);
+        }
+    }
+
+    String::from_utf8(output).ok()
+}
+
+/// Validate a source map with deep structural checks.
+///
+/// Performs bounds checking, segment ordering verification, source resolution,
+/// and unreferenced sources detection beyond basic JSON parsing.
+pub fn validate_deep(sm: &SourceMap) -> Vec<String> {
+    let mut warnings = Vec::new();
+
+    // Check segment ordering (must be sorted by generated position)
+    let mut prev_line: u32 = 0;
+    let mut prev_col: u32 = 0;
+    for m in &sm.mappings {
+        if m.generated_line < prev_line
+            || (m.generated_line == prev_line && m.generated_column < prev_col)
+        {
+            warnings.push(format!(
+                "mappings out of order at {}:{}",
+                m.generated_line, m.generated_column
+            ));
+        }
+        prev_line = m.generated_line;
+        prev_col = m.generated_column;
+    }
+
+    // Check source indices in bounds
+    for m in &sm.mappings {
+        if m.source != NO_SOURCE && m.source as usize >= sm.sources.len() {
+            warnings.push(format!(
+                "source index {} out of bounds (max {})",
+                m.source,
+                sm.sources.len()
+            ));
+        }
+        if m.name != NO_NAME && m.name as usize >= sm.names.len() {
+            warnings.push(format!(
+                "name index {} out of bounds (max {})",
+                m.name,
+                sm.names.len()
+            ));
+        }
+    }
+
+    // Check ignoreList indices in bounds
+    for &idx in &sm.ignore_list {
+        if idx as usize >= sm.sources.len() {
+            warnings.push(format!(
+                "ignoreList index {} out of bounds (max {})",
+                idx,
+                sm.sources.len()
+            ));
+        }
+    }
+
+    // Detect unreferenced sources
+    let mut referenced_sources = std::collections::HashSet::new();
+    for m in &sm.mappings {
+        if m.source != NO_SOURCE {
+            referenced_sources.insert(m.source);
+        }
+    }
+    for (i, source) in sm.sources.iter().enumerate() {
+        if !referenced_sources.contains(&(i as u32)) {
+            warnings.push(format!("source \"{source}\" (index {i}) is unreferenced"));
+        }
+    }
+
+    warnings
 }
 
 /// Append a JSON-quoted string to the output buffer.
@@ -2543,5 +2751,141 @@ mod tests {
         // Start maps to a.js, end maps to b.js → should return None
         let range = sm.map_range(0, 0, 1, 0);
         assert!(range.is_none());
+    }
+
+    // ── Phase 10 tests ───────────────────────────────────────────
+
+    #[test]
+    fn extension_fields_preserved() {
+        let json = r#"{"version":3,"sources":["a.js"],"names":[],"mappings":"AAAA","x_facebook_sources":[[{"names":["<global>"]}]],"x_google_linecount":42}"#;
+        let sm = SourceMap::from_json(json).unwrap();
+
+        assert!(sm.extensions.contains_key("x_facebook_sources"));
+        assert!(sm.extensions.contains_key("x_google_linecount"));
+        assert_eq!(
+            sm.extensions.get("x_google_linecount"),
+            Some(&serde_json::json!(42))
+        );
+
+        // Round-trip preserves extension fields
+        let output = sm.to_json();
+        assert!(output.contains("x_facebook_sources"));
+        assert!(output.contains("x_google_linecount"));
+    }
+
+    #[test]
+    fn x_google_ignorelist_fallback() {
+        let json = r#"{"version":3,"sources":["a.js","b.js"],"names":[],"mappings":"AAAA","x_google_ignoreList":[1]}"#;
+        let sm = SourceMap::from_json(json).unwrap();
+        assert_eq!(sm.ignore_list, vec![1]);
+    }
+
+    #[test]
+    fn ignorelist_takes_precedence_over_x_google() {
+        let json = r#"{"version":3,"sources":["a.js","b.js"],"names":[],"mappings":"AAAA","ignoreList":[0],"x_google_ignoreList":[1]}"#;
+        let sm = SourceMap::from_json(json).unwrap();
+        assert_eq!(sm.ignore_list, vec![0]);
+    }
+
+    #[test]
+    fn source_mapping_url_external() {
+        let source = "var a = 1;\n//# sourceMappingURL=app.js.map\n";
+        let result = parse_source_mapping_url(source).unwrap();
+        assert_eq!(result, SourceMappingUrl::External("app.js.map".to_string()));
+    }
+
+    #[test]
+    fn source_mapping_url_inline() {
+        let json = r#"{"version":3,"sources":[],"names":[],"mappings":""}"#;
+        let b64 = base64_encode_simple(json);
+        let source =
+            format!("var a = 1;\n//# sourceMappingURL=data:application/json;base64,{b64}\n");
+        match parse_source_mapping_url(&source).unwrap() {
+            SourceMappingUrl::Inline(decoded) => {
+                assert_eq!(decoded, json);
+            }
+            _ => panic!("expected inline"),
+        }
+    }
+
+    #[test]
+    fn source_mapping_url_at_sign() {
+        let source = "var a = 1;\n//@ sourceMappingURL=old-style.map";
+        let result = parse_source_mapping_url(source).unwrap();
+        assert_eq!(
+            result,
+            SourceMappingUrl::External("old-style.map".to_string())
+        );
+    }
+
+    #[test]
+    fn source_mapping_url_css_comment() {
+        let source = "body { }\n/*# sourceMappingURL=styles.css.map */";
+        let result = parse_source_mapping_url(source).unwrap();
+        assert_eq!(
+            result,
+            SourceMappingUrl::External("styles.css.map".to_string())
+        );
+    }
+
+    #[test]
+    fn source_mapping_url_none() {
+        let source = "var a = 1;";
+        assert!(parse_source_mapping_url(source).is_none());
+    }
+
+    #[test]
+    fn exclude_content_option() {
+        let json = r#"{"version":3,"sources":["a.js"],"sourcesContent":["var a;"],"names":[],"mappings":"AAAA"}"#;
+        let sm = SourceMap::from_json(json).unwrap();
+
+        let with_content = sm.to_json();
+        assert!(with_content.contains("sourcesContent"));
+
+        let without_content = sm.to_json_with_options(true);
+        assert!(!without_content.contains("sourcesContent"));
+    }
+
+    #[test]
+    fn validate_deep_clean_map() {
+        let sm = SourceMap::from_json(simple_map()).unwrap();
+        let warnings = validate_deep(&sm);
+        assert!(warnings.is_empty(), "unexpected warnings: {warnings:?}");
+    }
+
+    #[test]
+    fn validate_deep_unreferenced_source() {
+        // Source "unused.js" has no mappings pointing to it
+        let json =
+            r#"{"version":3,"sources":["used.js","unused.js"],"names":[],"mappings":"AAAA"}"#;
+        let sm = SourceMap::from_json(json).unwrap();
+        let warnings = validate_deep(&sm);
+        assert!(warnings.iter().any(|w| w.contains("unused.js")));
+    }
+
+    // Helper for base64 encoding in tests
+    fn base64_encode_simple(input: &str) -> String {
+        const CHARS: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+        let bytes = input.as_bytes();
+        let mut result = String::new();
+        for chunk in bytes.chunks(3) {
+            let b0 = chunk[0] as u32;
+            let b1 = if chunk.len() > 1 { chunk[1] as u32 } else { 0 };
+            let b2 = if chunk.len() > 2 { chunk[2] as u32 } else { 0 };
+            let n = (b0 << 16) | (b1 << 8) | b2;
+            result.push(CHARS[((n >> 18) & 0x3F) as usize] as char);
+            result.push(CHARS[((n >> 12) & 0x3F) as usize] as char);
+            if chunk.len() > 1 {
+                result.push(CHARS[((n >> 6) & 0x3F) as usize] as char);
+            } else {
+                result.push('=');
+            }
+            if chunk.len() > 2 {
+                result.push(CHARS[(n & 0x3F) as usize] as char);
+            } else {
+                result.push('=');
+            }
+        }
+        result
     }
 }

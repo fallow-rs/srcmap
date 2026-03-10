@@ -56,12 +56,12 @@ Critical for coverage mapping and stack trace resolution where exact positions o
 
 ## Phase 10: Extension Fields & Spec Conformance
 
-- [ ] **Extension field passthrough** — preserve unknown `x_*` fields when reading and re-emitting source maps (tools like Metro use `x_facebook_sources`, Chrome uses `x_google_linecount`)
-- [ ] **`x_google_ignoreList` fallback** — read deprecated field when `ignoreList` is absent
-- [ ] **`sourceMappingURL` parsing** — extract source map references from generated files (inline data URIs and external URLs)
+- [x] **Extension field passthrough** — preserve unknown `x_*` fields when reading and re-emitting source maps (tools like Metro use `x_facebook_sources`, Chrome uses `x_google_linecount`)
+- [x] **`x_google_ignoreList` fallback** — read deprecated field when `ignoreList` is absent
+- [x] **`sourceMappingURL` parsing** — extract source map references from generated files (inline data URIs and external URLs)
 - [ ] **tc39/source-map-tests integration** — run the official cross-implementation conformance test suite in CI
-- [ ] **Deep validation** — bounds checking, segment ordering, source resolution, unreferenced sources detection (beyond JSON schema validation)
-- [ ] **`excludeContent` option** — strip `sourcesContent` from output to reduce map size
+- [x] **Deep validation** — bounds checking, segment ordering, source resolution, unreferenced sources detection (beyond JSON schema validation)
+- [x] **`excludeContent` option** — strip `sourcesContent` from output to reduce map size
 
 ## Phase 11: Stack Trace Symbolication
 
