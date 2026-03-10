@@ -3,8 +3,10 @@
 [![CI](https://github.com/BartWaardenburg/srcmap/actions/workflows/ci.yml/badge.svg)](https://github.com/BartWaardenburg/srcmap/actions/workflows/ci.yml)
 [![Coverage](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/BartWaardenburg/srcmap/badges/coverage.json)](https://github.com/BartWaardenburg/srcmap/actions/workflows/coverage.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Rust](https://img.shields.io/badge/Rust-2024_edition-f74c00.svg?logo=rust)](https://www.rust-lang.org/)
+[![ECMA-426](https://img.shields.io/badge/ECMA--426-compliant-44cc11.svg)](https://tc39.es/ecma426/)
 
-High-performance source map tooling in Rust, with first-class Node.js bindings via NAPI and WebAssembly.
+> High-performance source map tooling in Rust, with first-class Node.js bindings via NAPI and WebAssembly.
 
 Built for the tools that power modern JavaScript: bundlers, compilers, minifiers, and dev servers.
 
@@ -12,8 +14,8 @@ Built for the tools that power modern JavaScript: bundlers, compilers, minifiers
 
 Source maps are on the critical path of every build. Existing Rust implementations are either tightly coupled to specific tools (oxc, parcel, swc) or lack key features. srcmap provides a **standalone**, **spec-compliant**, **fast** foundation that any tool can build on.
 
-| Feature | srcmap | sourcemap | oxc_sourcemap | parcel_sourcemap |
-|---------|--------|-----------|---------------|------------------|
+| Feature | srcmap | [sourcemap] | [oxc_sourcemap] | [parcel_sourcemap] |
+|---------|--------|-------------|-----------------|---------------------|
 | Standalone crate | **yes** | yes | no (Oxc-coupled) | no (Parcel-coupled) |
 | Parse + consume | **yes** | yes | yes | yes |
 | Generate | **yes** | yes | yes | yes |
@@ -24,29 +26,37 @@ Source maps are on the critical path of every build. Existing Rust implementatio
 | Indexed source maps | **yes** | yes | no | no |
 | ECMA-426 compliant | **yes** | partial | partial | partial |
 
+[sourcemap]: https://crates.io/crates/sourcemap
+[oxc_sourcemap]: https://crates.io/crates/oxc_sourcemap
+[parcel_sourcemap]: https://crates.io/crates/parcel-sourcemap
+
 ## Performance
 
-### Rust core
+Compared against [`@jridgewell/trace-mapping`](https://github.com/jridgewell/trace-mapping), the fastest JavaScript implementation (used by Vite, Rollup, Webpack, and most modern bundlers). Benchmarks use synthetic source maps with realistic distributions (varied deltas, multi-byte VLQ sequences, multiple sources, ~20% name mappings). Run `cargo bench` and `cd benchmarks && npm run bench` to reproduce.
 
-Benchmarked against `@jridgewell/trace-mapping`, the fastest JavaScript implementation (used by Vite, Rollup, Webpack, and most modern bundlers).
+### Rust core (Criterion)
+
+For Rust consumers — native build tools, compilers, bundlers written in Rust:
 
 | Operation | srcmap (Rust) | trace-mapping (JS) | Speedup |
 |-----------|--------------|-------------------|---------|
 | Single lookup | **3 ns** | 24 ns | **8x faster** |
-| 1000x lookups | **5.8 μs** | 15 μs | **2.6x faster** |
-| Parse 100K segments | 701 μs | 326 μs | 0.5x (V8 JSON.parse advantage) |
+| 1000x lookups | **5.5 μs** | 15 μs | **2.7x faster** |
+| Parse 100K segments | 718 μs | 326 μs | 0.5x |
 
-### Node.js WASM batch API
+> Parse is slower because V8's native `JSON.parse` is highly optimized C++. The Rust VLQ decoder itself is fast — a single-char fast path covers ~85% of real-world VLQ values. Stripping `sourcesContent` (parse mappings + metadata only) brings Rust parse down to 531 μs.
 
-The WASM batch API amortizes FFI overhead across many lookups — the recommended path for Node.js consumers performing bulk operations.
+### Node.js WASM batch API (tinybench)
+
+For Node.js consumers — the WASM batch API amortizes FFI overhead across many lookups. This is the recommended path for bulk operations like coverage mapping or stack trace resolution.
 
 | Operation | srcmap WASM batch | trace-mapping (JS) | Speedup |
 |-----------|------------------|-------------------|---------|
-| 1000x lookup (medium) | **12.9 μs** | 14.9 μs | **1.15x faster** |
-| 1000x lookup (large) | **14.8 μs** | 22.0 μs | **1.49x faster** |
+| 1000x lookup (medium map) | **12.9 μs** | 14.9 μs | **1.15x faster** |
+| 1000x lookup (large map) | **14.8 μs** | 22.0 μs | **1.49x faster** |
 | Per lookup (amortized) | **13–15 ns** | 15–22 ns | **~1.3x faster** |
 
-> Parse is slower than trace-mapping because V8's `JSON.parse` is a 15-year-old C++ machine. The Rust VLQ decoder itself is highly optimized with a single-char fast path covering ~85% of real-world values.
+> Numbers are from an Apple M-series machine. Results will vary by hardware — run the benchmarks locally to get numbers for your environment.
 
 ## Architecture
 
@@ -219,12 +229,13 @@ See [ROADMAP.md](ROADMAP.md) for the full development plan. Current status:
 - [x] **Phase 2**: Source map parser + consumer with NAPI and WASM bindings
 - [x] **Phase 3**: Source map generator
 - [x] **Phase 4**: Concatenation + composition/remapping (first standalone Rust implementation)
-- [ ] **Phase 5**: CLI tool, streaming decode, scopes proposal
+- [ ] **Publish**: Release all crates to crates.io and npm packages to npm
+- [ ] **Future**: CLI tool, WASM browser target, scopes & variables (ECMA-426 proposal)
 
 ## Development
 
 ```bash
-# Run all Rust tests (127 tests)
+# Run all Rust tests (154 tests)
 cargo test --workspace
 
 # Run Criterion benchmarks

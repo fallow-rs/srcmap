@@ -18,9 +18,9 @@ High-performance source map tooling in Rust, with Node.js bindings via NAPI and 
 ### Rust Core (crates/sourcemap)
 | Operation | srcmap (Rust) | @jridgewell/trace-mapping (JS) |
 |-----------|--------------|-------------------------------|
-| Parse 100K segments | 701μs | 326μs (V8 JSON.parse advantage) |
+| Parse 100K segments | 718μs | 326μs (V8 JSON.parse advantage) |
 | Single lookup | **3ns** | 24ns (**8x faster**) |
-| 1000x lookups | **5.8μs** | 15μs (**2.6x faster**) |
+| 1000x lookups | **5.5μs** | 15μs (**2.7x faster**) |
 
 ### Node.js WASM Binding (batch API)
 | Operation | srcmap WASM batch | trace-mapping JS | Speedup |
@@ -91,7 +91,7 @@ Matches `@jridgewell/trace-mapping` in the JS ecosystem.
 - [x] Support indexed source maps (sections)
 - [x] WASM bindings (`@srcmap/sourcemap-wasm`) — batch API **1.3-1.5x faster** than trace-mapping
 - [x] README with usage examples and benchmark results
-- [x] Comprehensive test suite (90 tests: edge cases, malformed input, spec conformance)
+- [x] Comprehensive test suite (90+ tests: edge cases, malformed input, spec conformance)
 
 ## Phase 3: Source Map Generator ✅
 
@@ -129,7 +129,7 @@ The biggest gap in the Rust ecosystem. Matches `@ampproject/remapping` (39M week
 
 ## Future
 
-- [ ] Debug ID support (ECMA-426 Stage 2 proposal)
+- [ ] Debug ID support (`debugId` field, part of ECMA-426)
 - [ ] Node.js bindings for generator and remapping (NAPI + WASM)
 - [ ] WASM build target for browser (devtools, playgrounds, edge runtimes)
 - [ ] CLI tool: inspect, validate, compose, and manipulate source maps
