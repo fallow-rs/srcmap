@@ -265,23 +265,38 @@ jobs:
         run: ls -R npm/
         working-directory: packages/sourcemap
 
-      - name: Publish @srcmap/codec
+      - name: Publish @srcmap/codec platform packages
         run: |
-          npm publish --access public
+          for dir in npm/*/; do
+            npm publish "$dir" --access public || echo "Skipping $(basename "$dir")"
+          done
         working-directory: packages/codec
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
-      - name: Publish @srcmap/sourcemap
+      - name: Publish @srcmap/codec
+        run: npm publish --access public --ignore-scripts
+        working-directory: packages/codec
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Publish @srcmap/sourcemap platform packages
         run: |
-          npm publish --access public
+          for dir in npm/*/; do
+            npm publish "$dir" --access public || echo "Skipping $(basename "$dir")"
+          done
+        working-directory: packages/sourcemap
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Publish @srcmap/sourcemap
+        run: npm publish --access public --ignore-scripts
         working-directory: packages/sourcemap
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Publish @srcmap/sourcemap-wasm
-        run: |
-          npm publish --access public
+        run: npm publish --access public --ignore-scripts
         working-directory: packages/sourcemap-wasm
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
