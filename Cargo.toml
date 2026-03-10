@@ -3,17 +3,17 @@ resolver = "2"
 members = ["crates/*", "packages/codec", "packages/sourcemap", "packages/sourcemap-wasm", "packages/generator-wasm", "packages/remapping-wasm"]
 
 [workspace.package]
-version = "0.1.2"
+version = "0.1.3"
 edition = "2024"
 license = "MIT"
 repository = "https://github.com/bartwaardenburg/srcmap"
 
 [workspace.dependencies]
-srcmap-codec = { version = "0.1.2", path = "crates/codec" }
-srcmap-sourcemap = { version = "0.1.2", path = "crates/sourcemap" }
-srcmap-generator = { version = "0.1.2", path = "crates/generator" }
-srcmap-remapping = { version = "0.1.2", path = "crates/remapping" }
-srcmap-scopes = { version = "0.1.2", path = "crates/scopes" }
+srcmap-codec = { version = "0.1.3", path = "crates/codec" }
+srcmap-sourcemap = { version = "0.1.3", path = "crates/sourcemap" }
+srcmap-generator = { version = "0.1.3", path = "crates/generator" }
+srcmap-remapping = { version = "0.1.3", path = "crates/remapping" }
+srcmap-scopes = { version = "0.1.3", path = "crates/scopes" }
 
 [profile.release]
 lto = true

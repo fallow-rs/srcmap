@@ -1,6 +1,6 @@
 {
   "name": "@srcmap/codec",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "High-performance VLQ source map codec powered by Rust",
   "main": "index.js",
   "types": "index.d.ts",
@@ -30,13 +30,13 @@
     "README.md"
   ],
   "optionalDependencies": {
-    "@srcmap/codec-darwin-x64": "0.1.2",
-    "@srcmap/codec-darwin-arm64": "0.1.2",
-    "@srcmap/codec-linux-x64-gnu": "0.1.2",
-    "@srcmap/codec-linux-x64-musl": "0.1.2",
-    "@srcmap/codec-linux-arm64-gnu": "0.1.2",
-    "@srcmap/codec-linux-arm64-musl": "0.1.2",
-    "@srcmap/codec-win32-x64-msvc": "0.1.2"
+    "@srcmap/codec-darwin-x64": "0.1.3",
+    "@srcmap/codec-darwin-arm64": "0.1.3",
+    "@srcmap/codec-linux-x64-gnu": "0.1.3",
+    "@srcmap/codec-linux-x64-musl": "0.1.3",
+    "@srcmap/codec-linux-arm64-gnu": "0.1.3",
+    "@srcmap/codec-linux-arm64-musl": "0.1.3",
+    "@srcmap/codec-win32-x64-msvc": "0.1.3"
   },
   "devDependencies": {
     "@napi-rs/cli": "^3.0.0"
