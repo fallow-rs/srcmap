@@ -5,6 +5,7 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 description = "High-performance source map generator"
+readme = "README.md"
 keywords = ["sourcemap", "source-map", "generator", "builder", "ecma-426"]
 categories = ["development-tools"]
 

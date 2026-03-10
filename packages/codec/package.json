@@ -26,7 +26,8 @@
   "license": "MIT",
   "files": [
     "index.js",
-    "index.d.ts"
+    "index.d.ts",
+    "README.md"
   ],
   "optionalDependencies": {
     "@srcmap/codec-darwin-x64": "0.1.2",
@@ -44,6 +45,8 @@
     "artifacts": "napi artifacts",
     "build": "napi build --release --platform",
     "build:debug": "napi build --platform",
+    "test": "node --test __tests__/codec.test.mjs",
+    "test:coverage": "mkdir -p coverage && node --test --experimental-test-coverage --test-reporter=lcov --test-reporter-destination=coverage/lcov.info --test-reporter=spec --test-reporter-destination=stdout __tests__/codec.test.mjs",
     "prepublishOnly": "napi prepublish -t npm",
     "version": "napi version"
   },

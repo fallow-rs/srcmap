@@ -5,6 +5,7 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 description = "High-performance VLQ source map codec"
+readme = "README.md"
 keywords = ["sourcemap", "vlq", "codec", "base64", "source-map"]
 categories = ["encoding", "development-tools"]
 

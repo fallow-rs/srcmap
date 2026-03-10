@@ -5,6 +5,7 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 description = "Source map concatenation and composition/remapping"
+readme = "README.md"
 keywords = ["sourcemap", "source-map", "remapping", "concatenation", "composition"]
 categories = ["development-tools"]
 

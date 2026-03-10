@@ -7,12 +7,15 @@
   "types": "pkg/srcmap_sourcemap_wasm.d.ts",
   "license": "MIT",
   "files": [
-    "pkg/"
+    "pkg/",
+    "README.md"
   ],
   "scripts": {
     "build": "wasm-pack build --target nodejs",
     "build:web": "wasm-pack build --target web",
-    "build:bundler": "wasm-pack build --target bundler"
+    "build:bundler": "wasm-pack build --target bundler",
+    "test": "node --test __tests__/sourcemap-wasm.test.mjs",
+    "test:coverage": "mkdir -p coverage && node --test --experimental-test-coverage --test-reporter=lcov --test-reporter-destination=coverage/lcov.info --test-reporter=spec --test-reporter-destination=stdout __tests__/sourcemap-wasm.test.mjs"
   },
   "repository": {
     "type": "git",

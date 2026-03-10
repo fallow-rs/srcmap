@@ -5,6 +5,7 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 description = "High-performance source map parser and consumer"
+readme = "README.md"
 keywords = ["sourcemap", "source-map", "parser", "consumer", "ecma-426"]
 categories = ["parser-implementations", "development-tools"]
 
