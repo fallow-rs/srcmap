@@ -485,6 +485,56 @@ impl SourceMapGenerator {
     pub fn mapping_count(&self) -> usize {
         self.mappings.len()
     }
+
+    /// Directly construct a `SourceMap` from the generator's internal state.
+    ///
+    /// This avoids the encode-then-decode round-trip (VLQ encode to JSON string,
+    /// then re-parse) that would otherwise be needed in composition pipelines.
+    pub fn to_decoded_map(&self) -> srcmap_sourcemap::SourceMap {
+        // Sort mappings by (generated_line, generated_column) — same as encode_mappings
+        let mut sorted: Vec<&Mapping> = self.mappings.iter().collect();
+        sorted.sort_unstable_by(|a, b| {
+            a.generated_line
+                .cmp(&b.generated_line)
+                .then(a.generated_column.cmp(&b.generated_column))
+        });
+
+        // Convert generator Mapping → sourcemap Mapping
+        let sm_mappings: Vec<srcmap_sourcemap::Mapping> = sorted
+            .iter()
+            .map(|m| srcmap_sourcemap::Mapping {
+                generated_line: m.generated_line,
+                generated_column: m.generated_column,
+                source: m.source.unwrap_or(u32::MAX),
+                original_line: m.original_line,
+                original_column: m.original_column,
+                name: m.name.unwrap_or(u32::MAX),
+            })
+            .collect();
+
+        // Build sources_content: convert Vec<Option<String>> → Vec<Option<String>>
+        let sources_content: Vec<Option<String>> = self.sources_content.clone();
+
+        // Build the source root-prefixed sources (matching what from_json does)
+        let sources: Vec<String> = match &self.source_root {
+            Some(root) if !root.is_empty() => {
+                self.sources.iter().map(|s| format!("{root}{s}")).collect()
+            }
+            _ => self.sources.clone(),
+        };
+
+        srcmap_sourcemap::SourceMap::from_parts(
+            self.file.clone(),
+            self.source_root.clone(),
+            sources,
+            sources_content,
+            self.names.clone(),
+            sm_mappings,
+            self.ignore_list.clone(),
+            self.debug_id.clone(),
+            None, // scopes are not included in decoded map (would need encoding/decoding)
+        )
+    }
 }
 
 /// Encode a slice of mappings for a single line to VLQ bytes.
@@ -782,6 +832,176 @@ mod tests {
         assert!(builder.maybe_add_mapping(0, 5, b, 0, 0));
 
         assert_eq!(builder.mapping_count(), 2);
+    }
+
+    #[test]
+    fn to_decoded_map_basic() {
+        let mut builder = SourceMapGenerator::new(Some("output.js".to_string()));
+        let src = builder.add_source("input.js");
+        builder.add_mapping(0, 0, src, 0, 0);
+        builder.add_mapping(1, 4, src, 1, 2);
+
+        let sm = builder.to_decoded_map();
+        assert_eq!(sm.mapping_count(), 2);
+        assert_eq!(sm.line_count(), 2);
+
+        let loc = sm.original_position_for(0, 0).unwrap();
+        assert_eq!(sm.source(loc.source), "input.js");
+        assert_eq!(loc.line, 0);
+        assert_eq!(loc.column, 0);
+
+        let loc = sm.original_position_for(1, 4).unwrap();
+        assert_eq!(loc.line, 1);
+        assert_eq!(loc.column, 2);
+    }
+
+    #[test]
+    fn to_decoded_map_with_names() {
+        let mut builder = SourceMapGenerator::new(None);
+        let src = builder.add_source("input.js");
+        let name = builder.add_name("myFunction");
+        builder.add_named_mapping(0, 0, src, 0, 0, name);
+
+        let sm = builder.to_decoded_map();
+        let loc = sm.original_position_for(0, 0).unwrap();
+        assert_eq!(loc.name, Some(0));
+        assert_eq!(sm.name(0), "myFunction");
+    }
+
+    #[test]
+    fn to_decoded_map_matches_json_roundtrip() {
+        let mut builder = SourceMapGenerator::new(Some("bundle.js".to_string()));
+        for i in 0..5 {
+            builder.add_source(&format!("src/file{i}.js"));
+        }
+        for i in 0..10 {
+            builder.add_name(&format!("var{i}"));
+        }
+
+        for line in 0..50u32 {
+            for col in 0..10u32 {
+                let src = (line * 10 + col) % 5;
+                let name = if col % 3 == 0 { Some(col % 10) } else { None };
+                match name {
+                    Some(n) => builder.add_named_mapping(line, col * 10, src, line, col * 5, n),
+                    None => builder.add_mapping(line, col * 10, src, line, col * 5),
+                }
+            }
+        }
+
+        // Compare decoded map vs JSON roundtrip
+        let sm_decoded = builder.to_decoded_map();
+        let json = builder.to_json();
+        let sm_json = srcmap_sourcemap::SourceMap::from_json(&json).unwrap();
+
+        assert_eq!(sm_decoded.mapping_count(), sm_json.mapping_count());
+        assert_eq!(sm_decoded.line_count(), sm_json.line_count());
+
+        // Verify all lookups match
+        for m in sm_json.all_mappings() {
+            let a = sm_json.original_position_for(m.generated_line, m.generated_column);
+            let b = sm_decoded.original_position_for(m.generated_line, m.generated_column);
+            match (a, b) {
+                (Some(a), Some(b)) => {
+                    assert_eq!(
+                        a.source, b.source,
+                        "source mismatch at ({}, {})",
+                        m.generated_line, m.generated_column
+                    );
+                    assert_eq!(
+                        a.line, b.line,
+                        "line mismatch at ({}, {})",
+                        m.generated_line, m.generated_column
+                    );
+                    assert_eq!(
+                        a.column, b.column,
+                        "column mismatch at ({}, {})",
+                        m.generated_line, m.generated_column
+                    );
+                    assert_eq!(
+                        a.name, b.name,
+                        "name mismatch at ({}, {})",
+                        m.generated_line, m.generated_column
+                    );
+                }
+                (None, None) => {}
+                _ => panic!(
+                    "lookup mismatch at ({}, {})",
+                    m.generated_line, m.generated_column
+                ),
+            }
+        }
+    }
+
+    #[test]
+    fn to_decoded_map_empty() {
+        let builder = SourceMapGenerator::new(None);
+        let sm = builder.to_decoded_map();
+        assert_eq!(sm.mapping_count(), 0);
+        assert_eq!(sm.line_count(), 0);
+    }
+
+    #[test]
+    fn to_decoded_map_generated_only() {
+        let mut builder = SourceMapGenerator::new(None);
+        builder.add_generated_mapping(0, 0);
+
+        let sm = builder.to_decoded_map();
+        assert_eq!(sm.mapping_count(), 1);
+        // Generated-only mapping has no source info
+        assert!(sm.original_position_for(0, 0).is_none());
+    }
+
+    #[test]
+    fn to_decoded_map_multiple_sources() {
+        let mut builder = SourceMapGenerator::new(None);
+        let a = builder.add_source("a.js");
+        let b = builder.add_source("b.js");
+        builder.add_mapping(0, 0, a, 0, 0);
+        builder.add_mapping(1, 0, b, 0, 0);
+
+        let sm = builder.to_decoded_map();
+        let loc0 = sm.original_position_for(0, 0).unwrap();
+        let loc1 = sm.original_position_for(1, 0).unwrap();
+        assert_eq!(sm.source(loc0.source), "a.js");
+        assert_eq!(sm.source(loc1.source), "b.js");
+    }
+
+    #[test]
+    fn to_decoded_map_with_source_content() {
+        let mut builder = SourceMapGenerator::new(None);
+        let src = builder.add_source("input.js");
+        builder.set_source_content(src, "var x = 1;".to_string());
+        builder.add_mapping(0, 0, src, 0, 0);
+
+        let sm = builder.to_decoded_map();
+        assert_eq!(sm.sources_content[0], Some("var x = 1;".to_string()));
+    }
+
+    #[test]
+    fn to_decoded_map_reverse_lookup() {
+        let mut builder = SourceMapGenerator::new(None);
+        let src = builder.add_source("input.js");
+        builder.add_mapping(0, 0, src, 10, 5);
+
+        let sm = builder.to_decoded_map();
+        let loc = sm.generated_position_for("input.js", 10, 5).unwrap();
+        assert_eq!(loc.line, 0);
+        assert_eq!(loc.column, 0);
+    }
+
+    #[test]
+    fn to_decoded_map_sparse_lines() {
+        let mut builder = SourceMapGenerator::new(None);
+        let src = builder.add_source("input.js");
+        builder.add_mapping(0, 0, src, 0, 0);
+        builder.add_mapping(5, 0, src, 5, 0);
+
+        let sm = builder.to_decoded_map();
+        assert_eq!(sm.line_count(), 6);
+        assert!(sm.original_position_for(0, 0).is_some());
+        assert!(sm.original_position_for(2, 0).is_none());
+        assert!(sm.original_position_for(5, 0).is_some());
     }
 
     #[test]

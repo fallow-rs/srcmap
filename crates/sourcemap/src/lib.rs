@@ -23,7 +23,7 @@
 //! assert_eq!(pos.column, 0);
 //! ```
 
-use std::cell::OnceCell;
+use std::cell::{OnceCell, RefCell};
 use std::collections::HashMap;
 use std::fmt;
 
@@ -805,6 +805,140 @@ impl SourceMap {
         json
     }
 
+    /// Construct a `SourceMap` from pre-built parts.
+    ///
+    /// This avoids the encode-then-decode round-trip used in composition pipelines.
+    /// Mappings must be sorted by (generated_line, generated_column).
+    /// Use `u32::MAX` for `source`/`name` fields to indicate absence.
+    #[allow(clippy::too_many_arguments)]
+    pub fn from_parts(
+        file: Option<String>,
+        source_root: Option<String>,
+        sources: Vec<String>,
+        sources_content: Vec<Option<String>>,
+        names: Vec<String>,
+        mappings: Vec<Mapping>,
+        ignore_list: Vec<u32>,
+        debug_id: Option<String>,
+        scopes: Option<ScopeInfo>,
+    ) -> Self {
+        // Build line_offsets from sorted mappings
+        let line_count = mappings.last().map_or(0, |m| m.generated_line as usize + 1);
+        let mut line_offsets: Vec<u32> = vec![0; line_count + 1];
+        let mut current_line: usize = 0;
+        for (i, m) in mappings.iter().enumerate() {
+            while current_line < m.generated_line as usize {
+                current_line += 1;
+                if current_line < line_offsets.len() {
+                    line_offsets[current_line] = i as u32;
+                }
+            }
+        }
+        // Fill remaining with sentinel
+        if !line_offsets.is_empty() {
+            let last = mappings.len() as u32;
+            for offset in line_offsets.iter_mut().skip(current_line + 1) {
+                *offset = last;
+            }
+        }
+
+        let source_map: HashMap<String, u32> = sources
+            .iter()
+            .enumerate()
+            .map(|(i, s)| (s.clone(), i as u32))
+            .collect();
+
+        Self {
+            file,
+            source_root,
+            sources,
+            sources_content,
+            names,
+            ignore_list,
+            extensions: HashMap::new(),
+            debug_id,
+            scopes,
+            mappings,
+            line_offsets,
+            reverse_index: OnceCell::new(),
+            source_map,
+        }
+    }
+
+    /// Parse a source map from JSON, decoding only mappings for lines in `[start_line, end_line)`.
+    ///
+    /// This is useful for large source maps where only a subset of lines is needed.
+    /// VLQ state is maintained through skipped lines (required for correct delta decoding),
+    /// but `Mapping` structs are only allocated for lines in the requested range.
+    pub fn from_json_lines(json: &str, start_line: u32, end_line: u32) -> Result<Self, ParseError> {
+        let raw: RawSourceMap<'_> = serde_json::from_str(json)?;
+
+        if raw.version != 3 {
+            return Err(ParseError::InvalidVersion(raw.version));
+        }
+
+        // Resolve sources
+        let source_root = raw.source_root.as_deref().unwrap_or("");
+        let sources: Vec<String> = raw
+            .sources
+            .iter()
+            .map(|s| match s {
+                Some(s) if !source_root.is_empty() => format!("{source_root}{s}"),
+                Some(s) => s.clone(),
+                None => String::new(),
+            })
+            .collect();
+
+        let sources_content = raw.sources_content.unwrap_or_default();
+
+        let source_map: HashMap<String, u32> = sources
+            .iter()
+            .enumerate()
+            .map(|(i, s)| (s.clone(), i as u32))
+            .collect();
+
+        // Decode only the requested line range
+        let (mappings, line_offsets) = decode_mappings_range(raw.mappings, start_line, end_line)?;
+
+        // Decode scopes if present
+        let num_sources = sources.len();
+        let scopes = match raw.scopes {
+            Some(scopes_str) if !scopes_str.is_empty() => Some(
+                srcmap_scopes::decode_scopes(scopes_str, &raw.names, num_sources)
+                    .map_err(|e| ParseError::Scopes(e.to_string()))?,
+            ),
+            _ => None,
+        };
+
+        let ignore_list = if raw.ignore_list.is_empty() {
+            raw.x_google_ignore_list.unwrap_or_default()
+        } else {
+            raw.ignore_list
+        };
+
+        let extensions: HashMap<String, serde_json::Value> = raw
+            .extensions
+            .into_iter()
+            .filter(|(k, _)| k.starts_with("x_"))
+            .collect();
+
+        Ok(Self {
+            file: raw.file,
+            source_root: raw.source_root,
+            sources,
+            sources_content,
+            names: raw.names,
+            ignore_list,
+            extensions,
+            debug_id: raw.debug_id,
+            scopes,
+            mappings,
+            line_offsets,
+            reverse_index: OnceCell::new(),
+            source_map,
+        })
+    }
+
     /// Encode all mappings back to a VLQ mappings string.
     pub fn encode_mappings(&self) -> String {
         if self.mappings.is_empty() {
@@ -857,6 +991,404 @@ impl SourceMap {
         // SAFETY: VLQ output is always valid ASCII
         unsafe { String::from_utf8_unchecked(out) }
     }
+}
+
+// ── LazySourceMap ──────────────────────────────────────────────────
+
+/// Cumulative VLQ state at a line boundary.
+#[derive(Debug, Clone, Copy)]
+struct VlqState {
+    source_index: i64,
+    original_line: i64,
+    original_column: i64,
+    name_index: i64,
+}
+
+/// Pre-scanned line info for O(1) random access into the raw mappings string.
+#[derive(Debug, Clone)]
+struct LineInfo {
+    /// Byte offset into the raw mappings string where this line starts.
+    byte_offset: usize,
+    /// Byte offset where this line ends (exclusive, at `;` or end of string).
+    byte_end: usize,
+    /// Cumulative VLQ state at the start of this line.
+    state: VlqState,
+}
+
+/// A lazily-decoded source map that defers VLQ mappings decoding until needed.
+///
+/// For large source maps (100MB+), this avoids decoding all mappings upfront.
+/// JSON metadata (sources, names, etc.) is parsed eagerly, but VLQ mappings
+/// are decoded on a per-line basis on demand.
+///
+/// # Examples
+///
+/// ```
+/// use srcmap_sourcemap::LazySourceMap;
+///
+/// let json = r#"{"version":3,"sources":["input.js"],"names":[],"mappings":"AAAA;AACA"}"#;
+/// let sm = LazySourceMap::from_json(json).unwrap();
+///
+/// // Mappings are only decoded when accessed
+/// let loc = sm.original_position_for(0, 0).unwrap();
+/// assert_eq!(sm.source(loc.source), "input.js");
+/// ```
+#[derive(Debug)]
+pub struct LazySourceMap {
+    pub file: Option<String>,
+    pub source_root: Option<String>,
+    pub sources: Vec<String>,
+    pub sources_content: Vec<Option<String>>,
+    pub names: Vec<String>,
+    pub ignore_list: Vec<u32>,
+    pub extensions: HashMap<String, serde_json::Value>,
+    pub debug_id: Option<String>,
+    pub scopes: Option<ScopeInfo>,
+
+    /// Raw VLQ mappings string (owned).
+    raw_mappings: String,
+
+    /// Pre-scanned line info for O(1) line access.
+    line_info: Vec<LineInfo>,
+
+    /// Cache of decoded lines: line index -> Vec<Mapping>.
+    decoded_lines: RefCell<HashMap<u32, Vec<Mapping>>>,
+
+    /// Source filename -> index for O(1) lookup by name.
+    source_map: HashMap<String, u32>,
+}
+
+impl LazySourceMap {
+    /// Parse a source map from JSON, deferring VLQ mappings decoding.
+    ///
+    /// Parses all JSON metadata eagerly but stores the raw mappings string.
+    /// VLQ mappings are decoded per-line on demand.
+    pub fn from_json(json: &str) -> Result<Self, ParseError> {
+        let raw: RawSourceMap<'_> = serde_json::from_str(json)?;
+
+        if raw.version != 3 {
+            return Err(ParseError::InvalidVersion(raw.version));
+        }
+
+        let source_root = raw.source_root.as_deref().unwrap_or("");
+        let sources: Vec<String> = raw
+            .sources
+            .iter()
+            .map(|s| match s {
+                Some(s) if !source_root.is_empty() => format!("{source_root}{s}"),
+                Some(s) => s.clone(),
+                None => String::new(),
+            })
+            .collect();
+
+        let sources_content = raw.sources_content.unwrap_or_default();
+
+        let source_map: HashMap<String, u32> = sources
+            .iter()
+            .enumerate()
+            .map(|(i, s)| (s.clone(), i as u32))
+            .collect();
+
+        // Pre-scan the raw mappings string to find semicolon positions
+        // and compute cumulative VLQ state at each line boundary.
+        let raw_mappings = raw.mappings.to_string();
+        let line_info = prescan_mappings(&raw_mappings)?;
+
+        // Decode scopes if present
+        let num_sources = sources.len();
+        let scopes = match raw.scopes {
+            Some(scopes_str) if !scopes_str.is_empty() => Some(
+                srcmap_scopes::decode_scopes(scopes_str, &raw.names, num_sources)
+                    .map_err(|e| ParseError::Scopes(e.to_string()))?,
+            ),
+            _ => None,
+        };
+
+        let ignore_list = if raw.ignore_list.is_empty() {
+            raw.x_google_ignore_list.unwrap_or_default()
+        } else {
+            raw.ignore_list
+        };
+
+        let extensions: HashMap<String, serde_json::Value> = raw
+            .extensions
+            .into_iter()
+            .filter(|(k, _)| k.starts_with("x_"))
+            .collect();
+
+        Ok(Self {
+            file: raw.file,
+            source_root: raw.source_root,
+            sources,
+            sources_content,
+            names: raw.names,
+            ignore_list,
+            extensions,
+            debug_id: raw.debug_id,
+            scopes,
+            raw_mappings,
+            line_info,
+            decoded_lines: RefCell::new(HashMap::new()),
+            source_map,
+        })
+    }
+
+    /// Decode a single line's mappings on demand.
+    ///
+    /// Returns the cached result if the line has already been decoded.
+    /// The line index is 0-based.
+    pub fn decode_line(&self, line: u32) -> Result<Vec<Mapping>, DecodeError> {
+        // Check cache first
+        if let Some(cached) = self.decoded_lines.borrow().get(&line) {
+            return Ok(cached.clone());
+        }
+
+        let line_idx = line as usize;
+        if line_idx >= self.line_info.len() {
+            return Ok(Vec::new());
+        }
+
+        let info = &self.line_info[line_idx];
+        let bytes = self.raw_mappings.as_bytes();
+        let slice = &bytes[info.byte_offset..info.byte_end];
+
+        let mut mappings = Vec::new();
+        let mut source_index = info.state.source_index;
+        let mut original_line = info.state.original_line;
+        let mut original_column = info.state.original_column;
+        let mut name_index = info.state.name_index;
+        let mut generated_column: i64 = 0;
+        let mut pos: usize = 0;
+        let len = slice.len();
+
+        // We need to adjust `pos` for vlq_fast which works on the full byte slice.
+        // Instead, create a local helper working on the slice directly.
+        let base_offset = info.byte_offset;
+
+        while pos < len {
+            let byte = slice[pos];
+
+            if byte == b',' {
+                pos += 1;
+                continue;
+            }
+
+            // Use vlq_fast on the full byte buffer with adjusted position
+            let mut abs_pos = base_offset + pos;
+
+            // Field 1: generated column
+            generated_column += vlq_fast(bytes, &mut abs_pos)?;
+
+            if abs_pos < base_offset + len && bytes[abs_pos] != b',' && bytes[abs_pos] != b';' {
+                // Fields 2-4
+                source_index += vlq_fast(bytes, &mut abs_pos)?;
+                original_line += vlq_fast(bytes, &mut abs_pos)?;
+                original_column += vlq_fast(bytes, &mut abs_pos)?;
+
+                // Field 5: name (optional)
+                let name = if abs_pos < base_offset + len
+                    && bytes[abs_pos] != b','
+                    && bytes[abs_pos] != b';'
+                {
+                    name_index += vlq_fast(bytes, &mut abs_pos)?;
+                    name_index as u32
+                } else {
+                    NO_NAME
+                };
+
+                mappings.push(Mapping {
+                    generated_line: line,
+                    generated_column: generated_column as u32,
+                    source: source_index as u32,
+                    original_line: original_line as u32,
+                    original_column: original_column as u32,
+                    name,
+                });
+            } else {
+                // 1-field segment
+                mappings.push(Mapping {
+                    generated_line: line,
+                    generated_column: generated_column as u32,
+                    source: NO_SOURCE,
+                    original_line: 0,
+                    original_column: 0,
+                    name: NO_NAME,
+                });
+            }
+
+            pos = abs_pos - base_offset;
+        }
+
+        // Cache the result
+        self.decoded_lines
+            .borrow_mut()
+            .insert(line, mappings.clone());
+
+        Ok(mappings)
+    }
+
+    /// Look up the original source position for a generated position.
+    ///
+    /// Both `line` and `column` are 0-based.
+    /// Returns `None` if no mapping exists or the mapping has no source.
+    pub fn original_position_for(&self, line: u32, column: u32) -> Option<OriginalLocation> {
+        let line_mappings = self.decode_line(line).ok()?;
+
+        if line_mappings.is_empty() {
+            return None;
+        }
+
+        // Binary search for greatest lower bound
+        let idx = match line_mappings.binary_search_by_key(&column, |m| m.generated_column) {
+            Ok(i) => i,
+            Err(0) => return None,
+            Err(i) => i - 1,
+        };
+
+        let mapping = &line_mappings[idx];
+
+        if mapping.source == NO_SOURCE {
+            return None;
+        }
+
+        Some(OriginalLocation {
+            source: mapping.source,
+            line: mapping.original_line,
+            column: mapping.original_column,
+            name: if mapping.name == NO_NAME {
+                None
+            } else {
+                Some(mapping.name)
+            },
+        })
+    }
+
+    /// Number of generated lines in the source map.
+    pub fn line_count(&self) -> usize {
+        self.line_info.len()
+    }
+
+    /// Resolve a source index to its filename.
+    pub fn source(&self, index: u32) -> &str {
+        &self.sources[index as usize]
+    }
+
+    /// Resolve a name index to its string.
+    pub fn name(&self, index: u32) -> &str {
+        &self.names[index as usize]
+    }
+
+    /// Find the source index for a filename.
+    pub fn source_index(&self, name: &str) -> Option<u32> {
+        self.source_map.get(name).copied()
+    }
+
+    /// Get all mappings for a line (decoding on demand).
+    pub fn mappings_for_line(&self, line: u32) -> Vec<Mapping> {
+        self.decode_line(line).unwrap_or_default()
+    }
+
+    /// Fully decode all mappings into a regular `SourceMap`.
+    ///
+    /// Useful when you need the full map after lazy exploration.
+    pub fn into_sourcemap(self) -> Result<SourceMap, ParseError> {
+        let (mappings, line_offsets) = decode_mappings(&self.raw_mappings)?;
+
+        Ok(SourceMap {
+            file: self.file,
+            source_root: self.source_root,
+            sources: self.sources.clone(),
+            sources_content: self.sources_content,
+            names: self.names,
+            ignore_list: self.ignore_list,
+            extensions: self.extensions,
+            debug_id: self.debug_id,
+            scopes: self.scopes,
+            mappings,
+            line_offsets,
+            reverse_index: OnceCell::new(),
+            source_map: self.source_map,
+        })
+    }
+}
+
+/// Pre-scan the raw mappings string to find semicolon positions and compute
+/// cumulative VLQ state at each line boundary.
+fn prescan_mappings(input: &str) -> Result<Vec<LineInfo>, DecodeError> {
+    if input.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let bytes = input.as_bytes();
+    let len = bytes.len();
+
+    // Count lines for pre-allocation
+    let line_count = bytes.iter().filter(|&&b| b == b';').count() + 1;
+    let mut line_info: Vec<LineInfo> = Vec::with_capacity(line_count);
+
+    let mut source_index: i64 = 0;
+    let mut original_line: i64 = 0;
+    let mut original_column: i64 = 0;
+    let mut name_index: i64 = 0;
+    let mut pos: usize = 0;
+
+    loop {
+        let line_start = pos;
+        let state = VlqState {
+            source_index,
+            original_line,
+            original_column,
+            name_index,
+        };
+
+        let mut saw_semicolon = false;
+
+        // Walk the VLQ data, updating cumulative state but not allocating mappings
+        while pos < len {
+            let byte = bytes[pos];
+
+            if byte == b';' {
+                pos += 1;
+                saw_semicolon = true;
+                break;
+            }
+
+            if byte == b',' {
+                pos += 1;
+                continue;
+            }
+
+            // Field 1: generated column (skip value, it resets per line)
+            vlq_fast(bytes, &mut pos)?;
+
+            if pos < len && bytes[pos] != b',' && bytes[pos] != b';' {
+                // Fields 2-4: source, original line, original column
+                source_index += vlq_fast(bytes, &mut pos)?;
+                original_line += vlq_fast(bytes, &mut pos)?;
+                original_column += vlq_fast(bytes, &mut pos)?;
+
+                // Field 5: name (optional)
+                if pos < len && bytes[pos] != b',' && bytes[pos] != b';' {
+                    name_index += vlq_fast(bytes, &mut pos)?;
+                }
+            }
+        }
+
+        // byte_end is before the semicolon (or end of string)
+        let byte_end = if saw_semicolon { pos - 1 } else { pos };
+
+        line_info.push(LineInfo {
+            byte_offset: line_start,
+            byte_end,
+            state,
+        });
+
+        if !saw_semicolon {
+            break;
+        }
+    }
+
+    Ok(line_info)
 }
 
 /// Result of parsing a sourceMappingURL reference.
@@ -1212,6 +1744,187 @@ fn decode_mappings(input: &str) -> Result<(Vec<Mapping>, Vec<u32>), DecodeError>
 
     // Sentinel for line range computation
     line_offsets.push(mappings.len() as u32);
+
+    Ok((mappings, line_offsets))
+}
+
+/// Decode VLQ mappings for a subset of lines `[start_line, end_line)`.
+///
+/// Walks VLQ state for all lines up to `end_line`, but only allocates Mapping
+/// structs for lines in the requested range. The returned `line_offsets` is
+/// indexed by the actual generated line number (not relative to start_line),
+/// so that `mappings_for_line(line)` works correctly with the real line values.
+fn decode_mappings_range(
+    input: &str,
+    start_line: u32,
+    end_line: u32,
+) -> Result<(Vec<Mapping>, Vec<u32>), DecodeError> {
+    if input.is_empty() || start_line >= end_line {
+        return Ok((Vec::new(), vec![0; end_line as usize + 1]));
+    }
+
+    let bytes = input.as_bytes();
+    let len = bytes.len();
+
+    let mut mappings: Vec<Mapping> = Vec::new();
+
+    let mut source_index: i64 = 0;
+    let mut original_line: i64 = 0;
+    let mut original_column: i64 = 0;
+    let mut name_index: i64 = 0;
+    let mut generated_line: u32 = 0;
+    let mut pos: usize = 0;
+
+    // Track which line each mapping starts at, so we can build line_offsets after
+    // We use a vec of (line, mapping_start_index) pairs for lines in range
+    let mut line_starts: Vec<(u32, u32)> = Vec::new();
+
+    loop {
+        let in_range = generated_line >= start_line && generated_line < end_line;
+        if in_range {
+            line_starts.push((generated_line, mappings.len() as u32));
+        }
+
+        let mut generated_column: i64 = 0;
+        let mut saw_semicolon = false;
+
+        while pos < len {
+            let byte = bytes[pos];
+
+            if byte == b';' {
+                pos += 1;
+                saw_semicolon = true;
+                break;
+            }
+
+            if byte == b',' {
+                pos += 1;
+                continue;
+            }
+
+            // Field 1: generated column
+            generated_column += vlq_fast(bytes, &mut pos)?;
+
+            if pos < len && bytes[pos] != b',' && bytes[pos] != b';' {
+                // Fields 2-4: source, original line, original column
+                source_index += vlq_fast(bytes, &mut pos)?;
+                original_line += vlq_fast(bytes, &mut pos)?;
+                original_column += vlq_fast(bytes, &mut pos)?;
+
+                // Field 5: name (optional)
+                let name = if pos < len && bytes[pos] != b',' && bytes[pos] != b';' {
+                    name_index += vlq_fast(bytes, &mut pos)?;
+                    name_index as u32
+                } else {
+                    NO_NAME
+                };
+
+                if in_range {
+                    mappings.push(Mapping {
+                        generated_line,
+                        generated_column: generated_column as u32,
+                        source: source_index as u32,
+                        original_line: original_line as u32,
+                        original_column: original_column as u32,
+                        name,
+                    });
+                }
+            } else {
+                // 1-field segment: no source info
+                if in_range {
+                    mappings.push(Mapping {
+                        generated_line,
+                        generated_column: generated_column as u32,
+                        source: NO_SOURCE,
+                        original_line: 0,
+                        original_column: 0,
+                        name: NO_NAME,
+                    });
+                }
+            }
+        }
+
+        if !saw_semicolon {
+            break;
+        }
+        generated_line += 1;
+
+        // Stop early once we've passed end_line
+        if generated_line >= end_line {
+            break;
+        }
+    }
+
+    // Build line_offsets indexed by actual line number.
+    // Size = end_line + 1 so that line_offsets[line] and line_offsets[line+1] both exist
+    // for any line < end_line.
+    let total = mappings.len() as u32;
+    let mut line_offsets: Vec<u32> = vec![total; end_line as usize + 1];
+
+    // Fill from our recorded line starts (in reverse so gaps get forward-filled correctly)
+    // First set lines before start_line to 0 (they have no mappings, and 0..0 = empty)
+    for i in 0..=start_line as usize {
+        if i < line_offsets.len() {
+            line_offsets[i] = 0;
+        }
+    }
+
+    // Set each recorded line start
+    for &(line, offset) in &line_starts {
+        line_offsets[line as usize] = offset;
+    }
+
+    // Forward-fill gaps within the range: if a line in [start_line, end_line) wasn't
+    // in line_starts, it should point to the same offset as the next line with mappings.
+    // We do a backward pass: for lines not explicitly set, they should get the offset
+    // of the next line (which means "empty line" since start == end for that range).
+    // Actually, the approach used in decode_mappings is forward: each line offset is
+    // set when we encounter it. Lines not encountered get the sentinel (total).
+    // But we also need lines before start_line to be "empty" (start == end).
+    // Since lines < start_line all have offset 0 and line start_line also starts at 0
+    // (or wherever the first mapping is), lines before start_line correctly have 0..0 = empty.
+
+    // However, there's a subtlety: if start_line has no mappings (empty line in range),
+    // it would have been set to 0 by line_starts but then line_offsets[start_line+1]
+    // might also be 0, making an empty range. Let's just ensure the forward-fill works:
+    // lines within range that have no mappings should have the same offset as the next
+    // line's start.
+
+    // Actually the simplest correct approach: walk forward from start_line to end_line.
+    // For each line not in line_starts, set it to the value of the previous line's end
+    // (which is the current mapping count at that point).
+    // We already recorded line_starts in order, so let's use them directly.
+
+    // Reset line_offsets for lines in [start_line, end_line] to sentinel
+    for i in start_line as usize..=end_line as usize {
+        if i < line_offsets.len() {
+            line_offsets[i] = total;
+        }
+    }
+
+    // Set recorded line starts
+    for &(line, offset) in &line_starts {
+        line_offsets[line as usize] = offset;
+    }
+
+    // Forward-fill: lines in the range that weren't recorded should get
+    // the offset of the next line (so they appear empty)
+    // Walk backward from end_line to start_line
+    let mut next_offset = total;
+    for i in (start_line as usize..end_line as usize).rev() {
+        if line_offsets[i] == total {
+            // This line wasn't in the input at all, point to next_offset
+            line_offsets[i] = next_offset;
+        } else {
+            next_offset = line_offsets[i];
+        }
+    }
+
+    // Lines before start_line should all be empty.
+    // Make consecutive lines point to 0 so start == end == 0.
+    for offset in line_offsets.iter_mut().take(start_line as usize) {
+        *offset = 0;
+    }
 
     Ok((mappings, line_offsets))
 }
@@ -2861,6 +3574,487 @@ mod tests {
         let sm = SourceMap::from_json(json).unwrap();
         let warnings = validate_deep(&sm);
         assert!(warnings.iter().any(|w| w.contains("unused.js")));
+    }
+
+    // ── from_parts tests ──────────────────────────────────────────
+
+    #[test]
+    fn from_parts_basic() {
+        let mappings = vec![
+            Mapping {
+                generated_line: 0,
+                generated_column: 0,
+                source: 0,
+                original_line: 0,
+                original_column: 0,
+                name: NO_NAME,
+            },
+            Mapping {
+                generated_line: 1,
+                generated_column: 4,
+                source: 0,
+                original_line: 1,
+                original_column: 2,
+                name: NO_NAME,
+            },
+        ];
+
+        let sm = SourceMap::from_parts(
+            Some("out.js".to_string()),
+            None,
+            vec!["input.js".to_string()],
+            vec![Some("var x = 1;".to_string())],
+            vec![],
+            mappings,
+            vec![],
+            None,
+            None,
+        );
+
+        assert_eq!(sm.line_count(), 2);
+        assert_eq!(sm.mapping_count(), 2);
+
+        let loc = sm.original_position_for(0, 0).unwrap();
+        assert_eq!(loc.source, 0);
+        assert_eq!(loc.line, 0);
+        assert_eq!(loc.column, 0);
+
+        let loc = sm.original_position_for(1, 4).unwrap();
+        assert_eq!(loc.line, 1);
+        assert_eq!(loc.column, 2);
+    }
+
+    #[test]
+    fn from_parts_empty() {
+        let sm = SourceMap::from_parts(
+            None,
+            None,
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+            None,
+            None,
+        );
+        assert_eq!(sm.line_count(), 0);
+        assert_eq!(sm.mapping_count(), 0);
+        assert!(sm.original_position_for(0, 0).is_none());
+    }
+
+    #[test]
+    fn from_parts_with_names() {
+        let mappings = vec![Mapping {
+            generated_line: 0,
+            generated_column: 0,
+            source: 0,
+            original_line: 0,
+            original_column: 0,
+            name: 0,
+        }];
+
+        let sm = SourceMap::from_parts(
+            None,
+            None,
+            vec!["input.js".to_string()],
+            vec![],
+            vec!["myVar".to_string()],
+            mappings,
+            vec![],
+            None,
+            None,
+        );
+
+        let loc = sm.original_position_for(0, 0).unwrap();
+        assert_eq!(loc.name, Some(0));
+        assert_eq!(sm.name(0), "myVar");
+    }
+
+    #[test]
+    fn from_parts_roundtrip_via_json() {
+        let json = generate_test_sourcemap(50, 10, 3);
+        let sm = SourceMap::from_json(&json).unwrap();
+
+        let sm2 = SourceMap::from_parts(
+            sm.file.clone(),
+            sm.source_root.clone(),
+            sm.sources.clone(),
+            sm.sources_content.clone(),
+            sm.names.clone(),
+            sm.all_mappings().to_vec(),
+            sm.ignore_list.clone(),
+            sm.debug_id.clone(),
+            None,
+        );
+
+        assert_eq!(sm2.mapping_count(), sm.mapping_count());
+        assert_eq!(sm2.line_count(), sm.line_count());
+
+        // Spot-check lookups
+        for m in sm.all_mappings() {
+            if m.source != NO_SOURCE {
+                let a = sm.original_position_for(m.generated_line, m.generated_column);
+                let b = sm2.original_position_for(m.generated_line, m.generated_column);
+                match (a, b) {
+                    (Some(a), Some(b)) => {
+                        assert_eq!(a.source, b.source);
+                        assert_eq!(a.line, b.line);
+                        assert_eq!(a.column, b.column);
+                    }
+                    (None, None) => {}
+                    _ => panic!("mismatch at ({}, {})", m.generated_line, m.generated_column),
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn from_parts_reverse_lookup() {
+        let mappings = vec![
+            Mapping {
+                generated_line: 0,
+                generated_column: 0,
+                source: 0,
+                original_line: 10,
+                original_column: 5,
+                name: NO_NAME,
+            },
+            Mapping {
+                generated_line: 1,
+                generated_column: 8,
+                source: 0,
+                original_line: 20,
+                original_column: 0,
+                name: NO_NAME,
+            },
+        ];
+
+        let sm = SourceMap::from_parts(
+            None,
+            None,
+            vec!["src.js".to_string()],
+            vec![],
+            vec![],
+            mappings,
+            vec![],
+            None,
+            None,
+        );
+
+        let loc = sm.generated_position_for("src.js", 10, 5).unwrap();
+        assert_eq!(loc.line, 0);
+        assert_eq!(loc.column, 0);
+
+        let loc = sm.generated_position_for("src.js", 20, 0).unwrap();
+        assert_eq!(loc.line, 1);
+        assert_eq!(loc.column, 8);
+    }
+
+    #[test]
+    fn from_parts_sparse_lines() {
+        let mappings = vec![
+            Mapping {
+                generated_line: 0,
+                generated_column: 0,
+                source: 0,
+                original_line: 0,
+                original_column: 0,
+                name: NO_NAME,
+            },
+            Mapping {
+                generated_line: 5,
+                generated_column: 0,
+                source: 0,
+                original_line: 5,
+                original_column: 0,
+                name: NO_NAME,
+            },
+        ];
+
+        let sm = SourceMap::from_parts(
+            None,
+            None,
+            vec!["src.js".to_string()],
+            vec![],
+            vec![],
+            mappings,
+            vec![],
+            None,
+            None,
+        );
+
+        assert_eq!(sm.line_count(), 6);
+        assert!(sm.original_position_for(0, 0).is_some());
+        assert!(sm.original_position_for(2, 0).is_none());
+        assert!(sm.original_position_for(5, 0).is_some());
+    }
+
+    // ── from_json_lines tests ────────────────────────────────────
+
+    #[test]
+    fn from_json_lines_basic() {
+        let json = generate_test_sourcemap(10, 5, 2);
+        let sm_full = SourceMap::from_json(&json).unwrap();
+
+        // Decode only lines 3..7
+        let sm_partial = SourceMap::from_json_lines(&json, 3, 7).unwrap();
+
+        // Verify mappings for lines in range match
+        for line in 3..7u32 {
+            let full_mappings = sm_full.mappings_for_line(line);
+            let partial_mappings = sm_partial.mappings_for_line(line);
+            assert_eq!(
+                full_mappings.len(),
+                partial_mappings.len(),
+                "line {line} mapping count mismatch"
+            );
+            for (a, b) in full_mappings.iter().zip(partial_mappings.iter()) {
+                assert_eq!(a.generated_column, b.generated_column);
+                assert_eq!(a.source, b.source);
+                assert_eq!(a.original_line, b.original_line);
+                assert_eq!(a.original_column, b.original_column);
+                assert_eq!(a.name, b.name);
+            }
+        }
+    }
+
+    #[test]
+    fn from_json_lines_first_lines() {
+        let json = generate_test_sourcemap(10, 5, 2);
+        let sm_full = SourceMap::from_json(&json).unwrap();
+        let sm_partial = SourceMap::from_json_lines(&json, 0, 3).unwrap();
+
+        for line in 0..3u32 {
+            let full_mappings = sm_full.mappings_for_line(line);
+            let partial_mappings = sm_partial.mappings_for_line(line);
+            assert_eq!(full_mappings.len(), partial_mappings.len());
+        }
+    }
+
+    #[test]
+    fn from_json_lines_last_lines() {
+        let json = generate_test_sourcemap(10, 5, 2);
+        let sm_full = SourceMap::from_json(&json).unwrap();
+        let sm_partial = SourceMap::from_json_lines(&json, 7, 10).unwrap();
+
+        for line in 7..10u32 {
+            let full_mappings = sm_full.mappings_for_line(line);
+            let partial_mappings = sm_partial.mappings_for_line(line);
+            assert_eq!(full_mappings.len(), partial_mappings.len(), "line {line}");
+        }
+    }
+
+    #[test]
+    fn from_json_lines_empty_range() {
+        let json = generate_test_sourcemap(10, 5, 2);
+        let sm = SourceMap::from_json_lines(&json, 5, 5).unwrap();
+        assert_eq!(sm.mapping_count(), 0);
+    }
+
+    #[test]
+    fn from_json_lines_beyond_end() {
+        let json = generate_test_sourcemap(5, 3, 1);
+        // Request lines beyond what exists
+        let sm = SourceMap::from_json_lines(&json, 3, 100).unwrap();
+        // Should have mappings for lines 3 and 4 (the ones that exist in the range)
+        assert!(sm.mapping_count() > 0);
+    }
+
+    #[test]
+    fn from_json_lines_single_line() {
+        let json = generate_test_sourcemap(10, 5, 2);
+        let sm_full = SourceMap::from_json(&json).unwrap();
+        let sm_partial = SourceMap::from_json_lines(&json, 5, 6).unwrap();
+
+        let full_mappings = sm_full.mappings_for_line(5);
+        let partial_mappings = sm_partial.mappings_for_line(5);
+        assert_eq!(full_mappings.len(), partial_mappings.len());
+    }
+
+    // ── LazySourceMap tests ──────────────────────────────────────
+
+    #[test]
+    fn lazy_basic_lookup() {
+        let json = r#"{"version":3,"sources":["input.js"],"names":[],"mappings":"AAAA;AACA"}"#;
+        let sm = LazySourceMap::from_json(json).unwrap();
+
+        assert_eq!(sm.line_count(), 2);
+        assert_eq!(sm.sources, vec!["input.js"]);
+
+        let loc = sm.original_position_for(0, 0).unwrap();
+        assert_eq!(sm.source(loc.source), "input.js");
+        assert_eq!(loc.line, 0);
+        assert_eq!(loc.column, 0);
+    }
+
+    #[test]
+    fn lazy_multiple_lines() {
+        let json = generate_test_sourcemap(20, 5, 3);
+        let sm_eager = SourceMap::from_json(&json).unwrap();
+        let sm_lazy = LazySourceMap::from_json(&json).unwrap();
+
+        assert_eq!(sm_lazy.line_count(), sm_eager.line_count());
+
+        // Verify lookups match for every mapping
+        for m in sm_eager.all_mappings() {
+            if m.source == NO_SOURCE {
+                continue;
+            }
+            let eager_loc = sm_eager
+                .original_position_for(m.generated_line, m.generated_column)
+                .unwrap();
+            let lazy_loc = sm_lazy
+                .original_position_for(m.generated_line, m.generated_column)
+                .unwrap();
+            assert_eq!(eager_loc.source, lazy_loc.source);
+            assert_eq!(eager_loc.line, lazy_loc.line);
+            assert_eq!(eager_loc.column, lazy_loc.column);
+            assert_eq!(eager_loc.name, lazy_loc.name);
+        }
+    }
+
+    #[test]
+    fn lazy_empty_mappings() {
+        let json = r#"{"version":3,"sources":[],"names":[],"mappings":""}"#;
+        let sm = LazySourceMap::from_json(json).unwrap();
+        assert_eq!(sm.line_count(), 0);
+        assert!(sm.original_position_for(0, 0).is_none());
+    }
+
+    #[test]
+    fn lazy_empty_lines() {
+        let json = r#"{"version":3,"sources":["a.js"],"names":[],"mappings":"AAAA;;;AACA"}"#;
+        let sm = LazySourceMap::from_json(json).unwrap();
+        assert_eq!(sm.line_count(), 4);
+
+        assert!(sm.original_position_for(0, 0).is_some());
+        assert!(sm.original_position_for(1, 0).is_none());
+        assert!(sm.original_position_for(2, 0).is_none());
+        assert!(sm.original_position_for(3, 0).is_some());
+    }
+
+    #[test]
+    fn lazy_decode_line_caching() {
+        let json = r#"{"version":3,"sources":["a.js"],"names":[],"mappings":"AAAA,KACA;AACA"}"#;
+        let sm = LazySourceMap::from_json(json).unwrap();
+
+        // First call decodes
+        let line0_a = sm.decode_line(0).unwrap();
+        // Second call should return cached
+        let line0_b = sm.decode_line(0).unwrap();
+        assert_eq!(line0_a.len(), line0_b.len());
+        assert_eq!(line0_a[0].generated_column, line0_b[0].generated_column);
+    }
+
+    #[test]
+    fn lazy_with_names() {
+        let json = r#"{"version":3,"sources":["input.js"],"names":["foo","bar"],"mappings":"AAAAA,KACAC"}"#;
+        let sm = LazySourceMap::from_json(json).unwrap();
+
+        let loc = sm.original_position_for(0, 0).unwrap();
+        assert_eq!(loc.name, Some(0));
+        assert_eq!(sm.name(0), "foo");
+
+        let loc = sm.original_position_for(0, 5).unwrap();
+        assert_eq!(loc.name, Some(1));
+        assert_eq!(sm.name(1), "bar");
+    }
+
+    #[test]
+    fn lazy_nonexistent_line() {
+        let json = r#"{"version":3,"sources":["a.js"],"names":[],"mappings":"AAAA"}"#;
+        let sm = LazySourceMap::from_json(json).unwrap();
+        assert!(sm.original_position_for(99, 0).is_none());
+        let line = sm.decode_line(99).unwrap();
+        assert!(line.is_empty());
+    }
+
+    #[test]
+    fn lazy_into_sourcemap() {
+        let json = generate_test_sourcemap(20, 5, 3);
+        let sm_eager = SourceMap::from_json(&json).unwrap();
+        let sm_lazy = LazySourceMap::from_json(&json).unwrap();
+        let sm_converted = sm_lazy.into_sourcemap().unwrap();
+
+        assert_eq!(sm_converted.mapping_count(), sm_eager.mapping_count());
+        assert_eq!(sm_converted.line_count(), sm_eager.line_count());
+
+        // Verify all lookups match
+        for m in sm_eager.all_mappings() {
+            let a = sm_eager.original_position_for(m.generated_line, m.generated_column);
+            let b = sm_converted.original_position_for(m.generated_line, m.generated_column);
+            match (a, b) {
+                (Some(a), Some(b)) => {
+                    assert_eq!(a.source, b.source);
+                    assert_eq!(a.line, b.line);
+                    assert_eq!(a.column, b.column);
+                }
+                (None, None) => {}
+                _ => panic!("mismatch at ({}, {})", m.generated_line, m.generated_column),
+            }
+        }
+    }
+
+    #[test]
+    fn lazy_source_index_lookup() {
+        let json = r#"{"version":3,"sources":["a.js","b.js"],"names":[],"mappings":"AAAA;ACAA"}"#;
+        let sm = LazySourceMap::from_json(json).unwrap();
+        assert_eq!(sm.source_index("a.js"), Some(0));
+        assert_eq!(sm.source_index("b.js"), Some(1));
+        assert_eq!(sm.source_index("c.js"), None);
+    }
+
+    #[test]
+    fn lazy_mappings_for_line() {
+        let json = r#"{"version":3,"sources":["a.js"],"names":[],"mappings":"AAAA,KACA;AACA"}"#;
+        let sm = LazySourceMap::from_json(json).unwrap();
+
+        let line0 = sm.mappings_for_line(0);
+        assert_eq!(line0.len(), 2);
+
+        let line1 = sm.mappings_for_line(1);
+        assert_eq!(line1.len(), 1);
+
+        let line99 = sm.mappings_for_line(99);
+        assert!(line99.is_empty());
+    }
+
+    #[test]
+    fn lazy_large_map_selective_decode() {
+        // Generate a large map but only decode a few lines
+        let json = generate_test_sourcemap(100, 10, 5);
+        let sm_eager = SourceMap::from_json(&json).unwrap();
+        let sm_lazy = LazySourceMap::from_json(&json).unwrap();
+
+        // Only decode lines 50 and 75
+        for line in [50, 75] {
+            let eager_mappings = sm_eager.mappings_for_line(line);
+            let lazy_mappings = sm_lazy.mappings_for_line(line);
+            assert_eq!(
+                eager_mappings.len(),
+                lazy_mappings.len(),
+                "line {line} count mismatch"
+            );
+            for (a, b) in eager_mappings.iter().zip(lazy_mappings.iter()) {
+                assert_eq!(a.generated_column, b.generated_column);
+                assert_eq!(a.source, b.source);
+                assert_eq!(a.original_line, b.original_line);
+                assert_eq!(a.original_column, b.original_column);
+                assert_eq!(a.name, b.name);
+            }
+        }
+    }
+
+    #[test]
+    fn lazy_single_field_segments() {
+        let json = r#"{"version":3,"sources":["a.js"],"names":[],"mappings":"A,KAAAA"}"#;
+        let sm = LazySourceMap::from_json(json).unwrap();
+
+        // First segment is single-field (no source info)
+        assert!(sm.original_position_for(0, 0).is_none());
+        // Second segment has source info
+        let loc = sm.original_position_for(0, 5).unwrap();
+        assert_eq!(loc.source, 0);
     }
 
     // Helper for base64 encoding in tests
