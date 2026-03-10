@@ -1555,7 +1555,7 @@ mod tests {
     #[test]
     fn reverse_lookup_skips_single_field_segments() {
         let json = r#"{"version":3,"sources":["a.js"],"names":[],"mappings":"A,KAAAA"}"#;
-        let sm = SourceMap::from_json(&json).unwrap();
+        let sm = SourceMap::from_json(json).unwrap();
 
         let loc = sm.generated_position_for("a.js", 0, 0).unwrap();
         assert_eq!(loc.line, 0);
@@ -2080,7 +2080,7 @@ mod tests {
         let mut gen_col;
         let mut src: i64 = 0;
         let mut src_line: i64 = 0;
-        let mut src_col: i64 = 0;
+        let mut src_col: i64;
         let mut name: i64 = 0;
 
         for _ in 0..lines {
@@ -2095,8 +2095,7 @@ mod tests {
                 src = (src + src_delta) % num_sources as i64;
 
                 src_line += 1;
-                let sc_delta = (s as i64 * 5 + 1) % 30;
-                src_col = sc_delta;
+                src_col = (s as i64 * 5 + 1) % 30;
 
                 let has_name = s % 4 == 0;
                 if has_name {

@@ -20,7 +20,7 @@ fn build_generator(lines: u32, cols_per_line: u32, with_content: bool) -> Source
         for col in 0..cols_per_line {
             let src = (line * cols_per_line + col) % 10;
             if col % 3 == 0 {
-                let name = (col % 20) as u32;
+                let name = col % 20;
                 builder.add_named_mapping(line, col * 10, src, line, col * 5, name);
             } else {
                 builder.add_mapping(line, col * 10, src, line, col * 5);

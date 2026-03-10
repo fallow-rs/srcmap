@@ -680,12 +680,8 @@ mod tests {
         // Add 1000 mappings across 100 lines
         for line in 0..100u32 {
             for col in 0..10u32 {
-                let src = (line as u32 * 10 + col) % 5;
-                let name = if col % 3 == 0 {
-                    Some((col % 10) as u32)
-                } else {
-                    None
-                };
+                let src = (line * 10 + col) % 5;
+                let name = if col % 3 == 0 { Some(col % 10) } else { None };
 
                 match name {
                     Some(n) => builder.add_named_mapping(line, col * 10, src, line, col * 5, n),

@@ -80,6 +80,7 @@ fn bench_decode(c: &mut Criterion) {
     });
 }
 
+#[cfg(feature = "parallel")]
 fn make_large_realistic_mappings() -> srcmap_codec::SourceMapMappings {
     let mut mappings = Vec::with_capacity(5000);
     let mut src: i64 = 0;

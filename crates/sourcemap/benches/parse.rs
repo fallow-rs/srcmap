@@ -13,7 +13,7 @@ fn generate_sourcemap_json(lines: usize, segs_per_line: usize, num_sources: usiz
     let mut mappings_parts: Vec<Vec<Vec<i64>>> = Vec::with_capacity(lines);
     let mut src: i64 = 0;
     let mut src_line: i64 = 0;
-    let mut src_col: i64 = 0;
+    let mut src_col: i64;
     let mut name: i64 = 0;
 
     for _ in 0..lines {
@@ -49,7 +49,7 @@ fn generate_sourcemap_json(lines: usize, segs_per_line: usize, num_sources: usiz
             .join(","),
         sources_content
             .iter()
-            .map(|s| format!("{}", serde_json::to_string(s).unwrap()))
+            .map(|s| serde_json::to_string(s).unwrap())
             .collect::<Vec<_>>()
             .join(","),
         names
@@ -74,7 +74,7 @@ fn generate_sourcemap_json_no_content(
     let mut mappings_parts: Vec<Vec<Vec<i64>>> = Vec::with_capacity(lines);
     let mut src: i64 = 0;
     let mut src_line: i64 = 0;
-    let mut src_col: i64 = 0;
+    let mut src_col: i64;
     let mut name: i64 = 0;
 
     for _ in 0..lines {
@@ -167,10 +167,7 @@ fn bench_lookup(c: &mut Criterion) {
 }
 
 fn bench_vlq_only(c: &mut Criterion) {
-    // Extract just the mappings string to benchmark VLQ decode in isolation
     let json = generate_sourcemap_json_no_content(2000, 50, 10);
-    let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
-    let mappings_str = parsed["mappings"].as_str().unwrap().to_string();
 
     let mut group = c.benchmark_group("vlq_decode");
 

@@ -5,7 +5,7 @@ use std::process::ExitCode;
 
 use clap::{Parser, Subcommand};
 use srcmap_codec::{decode, encode};
-use srcmap_remapping::{remap, ConcatBuilder};
+use srcmap_remapping::{ConcatBuilder, remap};
 use srcmap_sourcemap::SourceMap;
 
 // ── CLI definition ───────────────────────────────────────────────
@@ -237,9 +237,9 @@ fn reject_control_chars(input: &str, label: &str) -> Result<(), CliError> {
 
 /// Validate that a path does not escape the sandbox directory via traversal
 fn validate_safe_path(path: &Path, sandbox: &Path) -> Result<PathBuf, CliError> {
-    let canonical = path.canonicalize().map_err(|e| {
-        CliError::io(format!("failed to resolve path {}: {e}", path.display()))
-    })?;
+    let canonical = path
+        .canonicalize()
+        .map_err(|e| CliError::io(format!("failed to resolve path {}: {e}", path.display())))?;
     let sandbox_canonical = sandbox.canonicalize().map_err(|e| {
         CliError::io(format!(
             "failed to resolve sandbox {}: {e}",
@@ -258,8 +258,7 @@ fn validate_safe_path(path: &Path, sandbox: &Path) -> Result<PathBuf, CliError> 
 
 /// Validate an output path: must be within CWD
 fn validate_output_path(path: &Path) -> Result<(), CliError> {
-    let cwd =
-        std::env::current_dir().map_err(|e| CliError::io(format!("cannot get cwd: {e}")))?;
+    let cwd = std::env::current_dir().map_err(|e| CliError::io(format!("cannot get cwd: {e}")))?;
 
     // For output files that don't exist yet, validate the parent directory
     if let Some(parent) = path.parent() {
@@ -273,9 +272,9 @@ fn validate_output_path(path: &Path) -> Result<(), CliError> {
                 parent.display()
             ))
         })?;
-        let cwd_canonical = cwd.canonicalize().map_err(|e| {
-            CliError::io(format!("failed to resolve cwd: {e}"))
-        })?;
+        let cwd_canonical = cwd
+            .canonicalize()
+            .map_err(|e| CliError::io(format!("failed to resolve cwd: {e}")))?;
         if !parent_canonical.starts_with(&cwd_canonical) {
             return Err(CliError::path_traversal(format!(
                 "output path {} escapes current working directory",
@@ -359,11 +358,7 @@ fn cmd_info(file: &PathBuf, json: bool) -> Result<(), CliError> {
     let (sm, raw) = parse_source_map(file)?;
 
     if json {
-        let has_content = sm
-            .sources_content
-            .iter()
-            .filter(|c| c.is_some())
-            .count();
+        let has_content = sm.sources_content.iter().filter(|c| c.is_some()).count();
         let content_size: usize = sm
             .sources_content
             .iter()
@@ -397,11 +392,7 @@ fn cmd_info(file: &PathBuf, json: bool) -> Result<(), CliError> {
         println!("Lines:        {}", sm.line_count());
         println!("File size:    {}", format_size(raw.len()));
 
-        let has_content = sm
-            .sources_content
-            .iter()
-            .filter(|c| c.is_some())
-            .count();
+        let has_content = sm.sources_content.iter().filter(|c| c.is_some()).count();
         if has_content > 0 {
             let content_size: usize = sm
                 .sources_content
@@ -692,7 +683,12 @@ fn cmd_mappings(
             };
             println!(
                 "{:<8} {:<8} {:<30} {:<8} {:<8} {}",
-                m.generated_line, m.generated_column, source, m.original_line, m.original_column, name
+                m.generated_line,
+                m.generated_column,
+                source,
+                m.original_line,
+                m.original_column,
+                name
             );
         }
 
@@ -818,8 +814,7 @@ fn cmd_remap(
     let (outer, _) = parse_source_map(file)?;
 
     // Validate and resolve search directory
-    let cwd = std::env::current_dir()
-        .map_err(|e| CliError::io(format!("cannot get cwd: {e}")))?;
+    let cwd = std::env::current_dir().map_err(|e| CliError::io(format!("cannot get cwd: {e}")))?;
     let safe_dir = if let Some(d) = dir {
         Some(validate_safe_path(d, &cwd)?)
     } else {
@@ -831,13 +826,11 @@ fn cmd_remap(
         std::collections::HashMap::new();
 
     for entry in upstreams {
-        let (source, path) = entry
-            .split_once('=')
-            .ok_or_else(|| {
-                CliError::validation(format!(
-                    "invalid upstream format: {entry} (expected SOURCE=PATH)"
-                ))
-            })?;
+        let (source, path) = entry.split_once('=').ok_or_else(|| {
+            CliError::validation(format!(
+                "invalid upstream format: {entry} (expected SOURCE=PATH)"
+            ))
+        })?;
         reject_control_chars(source, "upstream source")?;
         upstream_paths.insert(source.to_string(), PathBuf::from(path));
     }
@@ -857,9 +850,7 @@ fn cmd_remap(
 
         // Validate source name before using it in path construction
         if validate_source_name(source).is_err() {
-            skipped_sources
-                .borrow_mut()
-                .push(source.to_string());
+            skipped_sources.borrow_mut().push(source.to_string());
             return None;
         }
 
