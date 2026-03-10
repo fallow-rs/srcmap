@@ -156,7 +156,9 @@ fn bench_encode(c: &mut Criterion) {
                 for seg in 0..segments_per_line {
                     let seg = seg as i64;
                     gen_col += 2 + (seg * 3) % 28;
-                    if seg % 15 == 0 { src += 1; }
+                    if seg % 15 == 0 {
+                        src += 1;
+                    }
                     src_line += if seg % 7 == 0 { -3 } else { 1 };
                     src_line = src_line.max(0);
                     src_col += (seg * 7 + 3) % 50 - 10;

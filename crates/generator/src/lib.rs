@@ -319,8 +319,7 @@ impl SourceMapGenerator {
             .collect();
 
         // Join with semicolons
-        let total_len =
-            encoded_lines.iter().map(|l| l.len()).sum::<usize>() + max_line;
+        let total_len = encoded_lines.iter().map(|l| l.len()).sum::<usize>() + max_line;
         let mut out: Vec<u8> = Vec::with_capacity(total_len);
         for (i, bytes) in encoded_lines.iter().enumerate() {
             if i > 0 {
@@ -777,8 +776,7 @@ mod tests {
         use super::*;
 
         fn build_large_generator(lines: u32, cols_per_line: u32) -> SourceMapGenerator {
-            let mut builder =
-                SourceMapGenerator::new(Some("bundle.js".to_string()));
+            let mut builder = SourceMapGenerator::new(Some("bundle.js".to_string()));
             for i in 0..10 {
                 let src = builder.add_source(&format!("src/file{i}.js"));
                 builder.set_source_content(
@@ -799,21 +797,8 @@ mod tests {
                         None
                     };
                     match name {
-                        Some(n) => builder.add_named_mapping(
-                            line,
-                            col * 10,
-                            src,
-                            line,
-                            col * 5,
-                            n,
-                        ),
-                        None => builder.add_mapping(
-                            line,
-                            col * 10,
-                            src,
-                            line,
-                            col * 5,
-                        ),
+                        Some(n) => builder.add_named_mapping(line, col * 10, src, line, col * 5, n),
+                        None => builder.add_mapping(line, col * 10, src, line, col * 5),
                     }
                 }
             }

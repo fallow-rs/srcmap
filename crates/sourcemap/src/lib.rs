@@ -1709,14 +1709,16 @@ mod tests {
 
     #[test]
     fn source_root_empty_string() {
-        let json = r#"{"version":3,"sourceRoot":"","sources":["a.js"],"names":[],"mappings":"AAAA"}"#;
+        let json =
+            r#"{"version":3,"sourceRoot":"","sources":["a.js"],"names":[],"mappings":"AAAA"}"#;
         let sm = SourceMap::from_json(json).unwrap();
         assert_eq!(sm.sources, vec!["a.js"]);
     }
 
     #[test]
     fn source_root_preserved_in_to_json() {
-        let json = r#"{"version":3,"sourceRoot":"src/","sources":["a.js"],"names":[],"mappings":"AAAA"}"#;
+        let json =
+            r#"{"version":3,"sourceRoot":"src/","sources":["a.js"],"names":[],"mappings":"AAAA"}"#;
         let sm = SourceMap::from_json(json).unwrap();
         let output = sm.to_json();
         assert!(output.contains(r#""sourceRoot":"src/""#));
@@ -1724,7 +1726,8 @@ mod tests {
 
     #[test]
     fn source_root_reverse_lookup_uses_prefixed_name() {
-        let json = r#"{"version":3,"sourceRoot":"src/","sources":["a.js"],"names":[],"mappings":"AAAA"}"#;
+        let json =
+            r#"{"version":3,"sourceRoot":"src/","sources":["a.js"],"names":[],"mappings":"AAAA"}"#;
         let sm = SourceMap::from_json(json).unwrap();
         // Must use the prefixed name for reverse lookups
         assert!(sm.generated_position_for("src/a.js", 0, 0).is_some());
@@ -1733,14 +1736,16 @@ mod tests {
 
     #[test]
     fn source_root_with_trailing_slash() {
-        let json = r#"{"version":3,"sourceRoot":"src/","sources":["a.js"],"names":[],"mappings":"AAAA"}"#;
+        let json =
+            r#"{"version":3,"sourceRoot":"src/","sources":["a.js"],"names":[],"mappings":"AAAA"}"#;
         let sm = SourceMap::from_json(json).unwrap();
         assert_eq!(sm.sources[0], "src/a.js");
     }
 
     #[test]
     fn source_root_without_trailing_slash() {
-        let json = r#"{"version":3,"sourceRoot":"src","sources":["a.js"],"names":[],"mappings":"AAAA"}"#;
+        let json =
+            r#"{"version":3,"sourceRoot":"src","sources":["a.js"],"names":[],"mappings":"AAAA"}"#;
         let sm = SourceMap::from_json(json).unwrap();
         assert_eq!(sm.sources[0], "srca.js"); // No auto-slash — sourceRoot is raw prefix
     }
@@ -1814,7 +1819,10 @@ mod tests {
         let output = sm.to_json();
         let _: serde_json::Value = serde_json::from_str(&output).unwrap();
         let sm2 = SourceMap::from_json(&output).unwrap();
-        assert_eq!(sm2.sources_content[0].as_deref(), Some("line1\nline2\ttab\\backslash"));
+        assert_eq!(
+            sm2.sources_content[0].as_deref(),
+            Some("line1\nline2\ttab\\backslash")
+        );
     }
 
     #[test]
@@ -1841,7 +1849,9 @@ mod tests {
 
         for m in sm2.all_mappings() {
             if m.source != NO_SOURCE && m.name != NO_NAME {
-                let loc = sm2.original_position_for(m.generated_line, m.generated_column).unwrap();
+                let loc = sm2
+                    .original_position_for(m.generated_line, m.generated_column)
+                    .unwrap();
                 assert!(loc.name.is_some());
             }
         }
@@ -2007,7 +2017,8 @@ mod tests {
 
     #[test]
     fn source_with_unicode_path() {
-        let json = r#"{"version":3,"sources":["src/日本語.ts"],"names":["変数"],"mappings":"AAAAA"}"#;
+        let json =
+            r#"{"version":3,"sources":["src/日本語.ts"],"names":["変数"],"mappings":"AAAAA"}"#;
         let sm = SourceMap::from_json(json).unwrap();
         assert_eq!(sm.sources[0], "src/日本語.ts");
         assert_eq!(sm.names[0], "変数");
@@ -2032,9 +2043,13 @@ mod tests {
         // 100 sources, verify source_index works for all
         let sources: Vec<String> = (0..100).map(|i| format!("src/file{i}.js")).collect();
         let source_strs: Vec<&str> = sources.iter().map(|s| s.as_str()).collect();
-        let mappings_data = vec![sources.iter().enumerate().map(|(i, _)| {
-            vec![(i * 10) as i64, i as i64, 0, 0]
-        }).collect::<Vec<_>>()];
+        let mappings_data = vec![
+            sources
+                .iter()
+                .enumerate()
+                .map(|(i, _)| vec![(i * 10) as i64, i as i64, 0, 0])
+                .collect::<Vec<_>>(),
+        ];
         let json = build_sourcemap_json(&source_strs, &[], &mappings_data);
         let sm = SourceMap::from_json(&json).unwrap();
 

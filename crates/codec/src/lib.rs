@@ -289,11 +289,11 @@ mod tests {
                 let mut line_segments = Vec::with_capacity(segments_per_line);
                 for seg in 0..segments_per_line {
                     line_segments.push(vec![
-                        (seg * 10) as i64,        // generated column
-                        (seg % 5) as i64,          // source index
-                        line as i64,               // original line
-                        (seg * 5) as i64,          // original column
-                        (seg % 3) as i64,          // name index
+                        (seg * 10) as i64, // generated column
+                        (seg % 5) as i64,  // source index
+                        line as i64,       // original line
+                        (seg * 5) as i64,  // original column
+                        (seg % 3) as i64,  // name index
                     ]);
                 }
                 mappings.push(line_segments);

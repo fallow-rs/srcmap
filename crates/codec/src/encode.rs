@@ -153,7 +153,12 @@ pub fn encode_parallel(mappings: &SourceMapMappings) -> String {
     let mut prev_name: i64 = 0;
 
     for line in mappings.iter() {
-        states.push((prev_source, prev_original_line, prev_original_column, prev_name));
+        states.push((
+            prev_source,
+            prev_original_line,
+            prev_original_column,
+            prev_name,
+        ));
         for segment in line.iter() {
             if segment.len() >= 4 {
                 prev_source = segment[1];
