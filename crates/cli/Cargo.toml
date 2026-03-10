@@ -1,0 +1,20 @@
+[package]
+name = "srcmap-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "CLI tool to inspect, validate, compose, and manipulate source maps"
+keywords = ["sourcemap", "source-map", "cli", "devtools", "ecma-426"]
+categories = ["command-line-utilities", "development-tools"]
+
+[[bin]]
+name = "srcmap"
+path = "src/main.rs"
+
+[dependencies]
+srcmap-codec = { workspace = true }
+srcmap-sourcemap = { workspace = true }
+srcmap-remapping = { workspace = true }
+clap = { version = "4", features = ["derive"] }
+serde_json = "1"
