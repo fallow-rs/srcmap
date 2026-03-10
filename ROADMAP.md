@@ -78,11 +78,11 @@ High-value feature — no good standalone library exists for this.
 
 WASM builds targeting browsers for DevTools extensions, online playgrounds, and edge runtimes.
 
-- [ ] `--target web` and `--target bundler` builds for all WASM packages
-- [ ] Minimal JS wrapper with async initialization
-- [ ] Bundle size optimization (tree-shaking, wasm-opt)
-- [ ] Published to npm with `browser` and `module` exports
-- [ ] Example: source map visualization web component
+- [x] `--target web` and `--target bundler` builds for all WASM packages
+- [x] Minimal JS wrapper with async initialization
+- [x] Bundle size optimization (tree-shaking, wasm-opt)
+- [x] Published to npm with `browser` and `module` exports
+- [x] Example: source map visualization web component
 
 ## Performance & Scalability
 

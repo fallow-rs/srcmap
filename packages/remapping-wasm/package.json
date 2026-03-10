@@ -5,15 +5,26 @@
   "type": "module",
   "main": "pkg/srcmap_remapping_wasm.js",
   "types": "pkg/srcmap_remapping_wasm.d.ts",
+  "browser": "web/srcmap_remapping_wasm.js",
+  "module": "web/srcmap_remapping_wasm.js",
+  "exports": {
+    ".": {
+      "node": "./pkg/srcmap_remapping_wasm.js",
+      "browser": "./web/srcmap_remapping_wasm.js",
+      "default": "./pkg/srcmap_remapping_wasm.js"
+    }
+  },
   "license": "MIT",
   "files": [
     "pkg/",
+    "web/",
     "README.md"
   ],
   "scripts": {
-    "build": "wasm-pack build --target nodejs",
-    "build:web": "wasm-pack build --target web",
-    "build:bundler": "wasm-pack build --target bundler",
+    "build": "wasm-pack build --target nodejs --out-dir pkg",
+    "build:web": "wasm-pack build --target web --out-dir web",
+    "build:bundler": "wasm-pack build --target bundler --out-dir bundler",
+    "build:all": "npm run build && npm run build:web",
     "test": "node --test __tests__/remapping-wasm.test.mjs"
   },
   "repository": {
@@ -29,6 +40,7 @@
     "rust",
     "wasm",
     "webassembly",
-    "performance"
+    "performance",
+    "browser"
   ]
 }

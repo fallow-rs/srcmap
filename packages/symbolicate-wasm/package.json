@@ -1,0 +1,43 @@
+{
+  "name": "@srcmap/symbolicate-wasm",
+  "version": "0.1.3",
+  "description": "Stack trace symbolication using source maps, powered by Rust (WebAssembly)",
+  "type": "module",
+  "main": "pkg/srcmap_symbolicate_wasm.js",
+  "types": "pkg/srcmap_symbolicate_wasm.d.ts",
+  "browser": "web/srcmap_symbolicate_wasm.js",
+  "module": "web/srcmap_symbolicate_wasm.js",
+  "exports": {
+    ".": {
+      "node": "./pkg/srcmap_symbolicate_wasm.js",
+      "browser": "./web/srcmap_symbolicate_wasm.js",
+      "default": "./pkg/srcmap_symbolicate_wasm.js"
+    }
+  },
+  "license": "MIT",
+  "files": [
+    "pkg/",
+    "web/",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "wasm-pack build --target nodejs --out-dir pkg",
+    "build:web": "wasm-pack build --target web --out-dir web",
+    "build:bundler": "wasm-pack build --target bundler --out-dir bundler",
+    "build:all": "npm run build && npm run build:web"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/BartWaardenburg/srcmap.git"
+  },
+  "keywords": [
+    "sourcemap",
+    "source-map",
+    "symbolication",
+    "stack-trace",
+    "rust",
+    "wasm",
+    "webassembly",
+    "browser"
+  ]
+}

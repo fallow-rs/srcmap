@@ -80,8 +80,7 @@ fn conformance_source_content() {
 
 #[test]
 fn conformance_null_source_content() {
-    let json =
-        r#"{"version":3,"sources":["a.js","b.js"],"sourcesContent":[null,"code"],"names":[],"mappings":"AAAA"}"#;
+    let json = r#"{"version":3,"sources":["a.js","b.js"],"sourcesContent":[null,"code"],"names":[],"mappings":"AAAA"}"#;
     let sm = SourceMap::from_json(json).unwrap();
     assert_eq!(sm.sources_content[0], None);
     assert_eq!(sm.sources_content[1], Some("code".to_string()));
@@ -89,7 +88,8 @@ fn conformance_null_source_content() {
 
 #[test]
 fn conformance_source_root() {
-    let json = r#"{"version":3,"sourceRoot":"src/","sources":["a.js"],"names":[],"mappings":"AAAA"}"#;
+    let json =
+        r#"{"version":3,"sourceRoot":"src/","sources":["a.js"],"names":[],"mappings":"AAAA"}"#;
     let sm = SourceMap::from_json(json).unwrap();
     assert_eq!(sm.source(0), "src/a.js");
 }

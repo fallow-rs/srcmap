@@ -644,6 +644,7 @@ dependencies = [
  "srcmap-codec",
  "srcmap-remapping",
  "srcmap-sourcemap",
+ "srcmap-symbolicate",
 ]
 
 [[package]]
@@ -741,6 +742,26 @@ dependencies = [
  "js-sys",
  "serde-wasm-bindgen",
  "srcmap-sourcemap",
+ "wasm-bindgen",
+]
+
+[[package]]
+name = "srcmap-symbolicate"
+version = "0.1.3"
+dependencies = [
+ "serde",
+ "serde_json",
+ "srcmap-sourcemap",
+]
+
+[[package]]
+name = "srcmap-symbolicate-wasm"
+version = "0.1.3"
+dependencies = [
+ "js-sys",
+ "serde-wasm-bindgen",
+ "srcmap-sourcemap",
+ "srcmap-symbolicate",
  "wasm-bindgen",
 ]
 
