@@ -65,7 +65,8 @@ crates/
 ├── codec         # VLQ encode/decode primitives (srcmap-codec)
 ├── sourcemap     # Parser + consumer with O(log n) lookups (srcmap-sourcemap)
 ├── generator     # Incremental source map builder (srcmap-generator)
-└── remapping     # Concatenation + composition/remapping (srcmap-remapping)
+├── remapping     # Concatenation + composition/remapping (srcmap-remapping)
+└── cli           # CLI tool with structured JSON output (srcmap-cli)
 
 packages/
 ├── codec             # @srcmap/codec — NAPI bindings for codec
@@ -199,6 +200,46 @@ const source = sm.source(results[0]);
 const name = results[3] >= 0 ? sm.name(results[3]) : null;
 ```
 
+### CLI
+
+```bash
+# Install
+cargo install --path crates/cli
+
+# Inspect a source map
+srcmap info bundle.js.map
+srcmap info bundle.js.map --json
+
+# Validate
+srcmap validate bundle.js.map --json
+
+# Look up original position (0-based line:column)
+srcmap lookup bundle.js.map 42 10 --json
+
+# Reverse lookup
+srcmap resolve bundle.js.map --source src/app.ts 10 0 --json
+
+# List mappings with pagination
+srcmap mappings bundle.js.map --limit 100 --offset 0 --json
+
+# Decode/encode VLQ
+srcmap decode "AAAA;AACA"
+echo '[[[0,0,0,0]]]' | srcmap encode --json
+
+# Concatenate source maps
+srcmap concat a.js.map b.js.map -o bundle.js.map
+srcmap concat a.js.map b.js.map --dry-run --json
+
+# Compose/remap through a transform chain
+srcmap remap minified.js.map --dir ./maps -o composed.js.map
+srcmap remap minified.js.map --upstream src/app.ts=app.ts.map --dry-run --json
+
+# Agent introspection — dump all commands/args/flags as JSON
+srcmap schema
+```
+
+All commands support `--json` for structured machine-readable output. Errors are returned as `{"error": "...", "code": "..."}` when `--json` is active. The `schema` command enables runtime introspection for AI agents and tooling.
+
 ## Spec conformance
 
 srcmap targets full compliance with [ECMA-426](https://tc39.es/ecma426/) (Source Map v3):
@@ -229,8 +270,9 @@ See [ROADMAP.md](ROADMAP.md) for the full development plan. Current status:
 - [x] **Phase 2**: Source map parser + consumer with NAPI and WASM bindings
 - [x] **Phase 3**: Source map generator
 - [x] **Phase 4**: Concatenation + composition/remapping (first standalone Rust implementation)
+- [x] **Phase 5**: CLI tool with agent-friendly structured output, introspection, and input hardening
 - [ ] **Publish**: Release all crates to crates.io and npm packages to npm
-- [ ] **Future**: CLI tool, WASM browser target, scopes & variables (ECMA-426 proposal)
+- [ ] **Future**: WASM browser target, scopes & variables (ECMA-426 proposal)
 
 ## Development
 

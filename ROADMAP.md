@@ -117,12 +117,28 @@ The biggest gap in the Rust ecosystem. Matches `@ampproject/remapping` (39M week
   - Loader-based API: `remap(output_map, |source| load_upstream_map(source))`
   - First standalone Rust implementation
 
+## Phase 5: CLI Tool ✅
+
+Agent-friendly command-line interface for inspecting, validating, composing, and manipulating source maps.
+
+- [x] 9 subcommands: `info`, `validate`, `lookup`, `resolve`, `decode`, `encode`, `mappings`, `concat`, `remap`
+- [x] `--json` flag on all commands for structured machine-readable output
+- [x] `srcmap schema` command — runtime introspection of all commands, args, types, and flags as JSON
+- [x] `--dry-run` for mutating commands (`concat`, `remap`) — validate without writing
+- [x] Structured JSON error output with error codes (`IO_ERROR`, `PARSE_ERROR`, `NOT_FOUND`, `VALIDATION_ERROR`, `PATH_TRAVERSAL`, `INVALID_INPUT`)
+- [x] Input hardening: reject control characters, path traversals, percent-encoding, `?`/`#` in source names
+- [x] Output path sandboxing — all file writes validated against CWD
+- [x] Remap directory search sandboxed — canonicalized paths verified within search directory
+- [x] stdin support (`-`) for all file-reading commands
+- [x] Pagination metadata (`total`, `offset`, `hasMore`) in `mappings --json` output
+
 ## Publishing
 
 - [ ] Publish `srcmap-codec` to crates.io
 - [ ] Publish `srcmap-sourcemap` to crates.io
 - [ ] Publish `srcmap-generator` to crates.io
 - [ ] Publish `srcmap-remapping` to crates.io
+- [ ] Publish `srcmap-cli` to crates.io
 - [ ] Publish `@srcmap/codec` to npm
 - [ ] Publish `@srcmap/sourcemap` to npm
 - [ ] Publish `@srcmap/sourcemap-wasm` to npm
@@ -132,7 +148,6 @@ The biggest gap in the Rust ecosystem. Matches `@ampproject/remapping` (39M week
 - [ ] Debug ID support (`debugId` field, part of ECMA-426)
 - [ ] Node.js bindings for generator and remapping (NAPI + WASM)
 - [ ] WASM build target for browser (devtools, playgrounds, edge runtimes)
-- [ ] CLI tool: inspect, validate, compose, and manipulate source maps
 - [ ] Scopes & variables support (ECMA-426 proposal — no library supports this yet)
 - [ ] Streaming/lazy decode for very large source maps
 
