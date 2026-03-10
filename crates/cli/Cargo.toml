@@ -5,6 +5,7 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 description = "CLI tool to inspect, validate, compose, and manipulate source maps"
+readme = "README.md"
 keywords = ["sourcemap", "source-map", "cli", "devtools", "ecma-426"]
 categories = ["command-line-utilities", "development-tools"]
 
