@@ -29,13 +29,13 @@
     "index.d.ts"
   ],
   "optionalDependencies": {
-    "@srcmap/sourcemap-darwin-x64": "0.1.1",
-    "@srcmap/sourcemap-darwin-arm64": "0.1.1",
-    "@srcmap/sourcemap-linux-x64-gnu": "0.1.1",
-    "@srcmap/sourcemap-linux-x64-musl": "0.1.1",
-    "@srcmap/sourcemap-linux-arm64-gnu": "0.1.1",
-    "@srcmap/sourcemap-linux-arm64-musl": "0.1.1",
-    "@srcmap/sourcemap-win32-x64-msvc": "0.1.1"
+    "@srcmap/sourcemap-darwin-x64": "0.1.2",
+    "@srcmap/sourcemap-darwin-arm64": "0.1.2",
+    "@srcmap/sourcemap-linux-x64-gnu": "0.1.2",
+    "@srcmap/sourcemap-linux-x64-musl": "0.1.2",
+    "@srcmap/sourcemap-linux-arm64-gnu": "0.1.2",
+    "@srcmap/sourcemap-linux-arm64-musl": "0.1.2",
+    "@srcmap/sourcemap-win32-x64-msvc": "0.1.2"
   },
   "devDependencies": {
     "@napi-rs/cli": "^3.0.0"

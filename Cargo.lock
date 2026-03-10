@@ -554,7 +554,7 @@ dependencies = [
 
 [[package]]
 name = "srcmap-codec"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "criterion 0.6.0",
  "rayon",
@@ -562,7 +562,7 @@ dependencies = [
 
 [[package]]
 name = "srcmap-codec-napi"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "napi",
  "napi-build",
@@ -572,7 +572,7 @@ dependencies = [
 
 [[package]]
 name = "srcmap-generator"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "criterion 0.5.1",
  "rayon",
@@ -584,7 +584,7 @@ dependencies = [
 
 [[package]]
 name = "srcmap-remapping"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "srcmap-codec",
  "srcmap-generator",
@@ -593,7 +593,7 @@ dependencies = [
 
 [[package]]
 name = "srcmap-sourcemap"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "criterion 0.5.1",
  "serde",
@@ -603,7 +603,7 @@ dependencies = [
 
 [[package]]
 name = "srcmap-sourcemap-napi"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "napi",
  "napi-build",
@@ -613,7 +613,7 @@ dependencies = [
 
 [[package]]
 name = "srcmap-sourcemap-wasm"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "js-sys",
  "serde-wasm-bindgen",

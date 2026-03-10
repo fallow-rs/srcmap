@@ -29,13 +29,13 @@
     "index.d.ts"
   ],
   "optionalDependencies": {
-    "@srcmap/codec-darwin-x64": "0.1.1",
-    "@srcmap/codec-darwin-arm64": "0.1.1",
-    "@srcmap/codec-linux-x64-gnu": "0.1.1",
-    "@srcmap/codec-linux-x64-musl": "0.1.1",
-    "@srcmap/codec-linux-arm64-gnu": "0.1.1",
-    "@srcmap/codec-linux-arm64-musl": "0.1.1",
-    "@srcmap/codec-win32-x64-msvc": "0.1.1"
+    "@srcmap/codec-darwin-x64": "0.1.2",
+    "@srcmap/codec-darwin-arm64": "0.1.2",
+    "@srcmap/codec-linux-x64-gnu": "0.1.2",
+    "@srcmap/codec-linux-x64-musl": "0.1.2",
+    "@srcmap/codec-linux-arm64-gnu": "0.1.2",
+    "@srcmap/codec-linux-arm64-musl": "0.1.2",
+    "@srcmap/codec-win32-x64-msvc": "0.1.2"
   },
   "devDependencies": {
     "@napi-rs/cli": "^3.0.0"
