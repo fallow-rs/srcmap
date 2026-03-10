@@ -177,6 +177,24 @@ enum Command {
         dry_run: bool,
     },
 
+    /// Symbolicate a stack trace using source maps
+    Symbolicate {
+        /// File containing the stack trace (use `-` for stdin)
+        file: PathBuf,
+
+        /// Directory to search for source maps
+        #[arg(long)]
+        dir: Option<PathBuf>,
+
+        /// Explicit source map files (source=path pairs)
+        #[arg(long = "map", value_name = "SOURCE=PATH")]
+        maps: Vec<String>,
+
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
+    },
+
     /// Describe all commands and their arguments as JSON (for agent introspection)
     Schema,
 }
@@ -984,6 +1002,68 @@ fn cmd_remap(
     Ok(())
 }
 
+fn cmd_symbolicate(
+    file: &PathBuf,
+    dir: &Option<PathBuf>,
+    maps: &[String],
+    json: bool,
+) -> Result<(), CliError> {
+    let stack_input = read_file_or_stdin(file)?;
+
+    let cwd = std::env::current_dir().map_err(|e| CliError::io(format!("cannot get cwd: {e}")))?;
+    let safe_dir = if let Some(d) = dir {
+        Some(validate_safe_path(d, &cwd)?)
+    } else {
+        None
+    };
+
+    // Build explicit map: source → SourceMap
+    let mut explicit_maps: std::collections::HashMap<String, SourceMap> =
+        std::collections::HashMap::new();
+    for entry in maps {
+        let (source, path_str) = entry.split_once('=').ok_or_else(|| {
+            CliError::validation(format!(
+                "invalid map format: {entry} (expected SOURCE=PATH)"
+            ))
+        })?;
+        let path = PathBuf::from(path_str);
+        let content = fs::read_to_string(&path)
+            .map_err(|e| CliError::io(format!("failed to read {}: {e}", path.display())))?;
+        let sm = SourceMap::from_json(&content)
+            .map_err(|e| CliError::parse(format!("invalid source map {}: {e}", path.display())))?;
+        explicit_maps.insert(source.to_string(), sm);
+    }
+
+    let result = srcmap_symbolicate::symbolicate(&stack_input, |source| {
+        // Try explicit maps first
+        if let Some(sm) = explicit_maps.get(source) {
+            return Some(sm.clone());
+        }
+
+        // Try directory search
+        if let Some(ref search_dir) = safe_dir {
+            let map_path = search_dir.join(format!("{source}.map"));
+            if let Ok(canonical) = map_path.canonicalize()
+                && canonical.starts_with(search_dir)
+                && let Ok(content) = fs::read_to_string(&canonical)
+                && let Ok(sm) = SourceMap::from_json(&content)
+            {
+                return Some(sm);
+            }
+        }
+
+        None
+    });
+
+    if json {
+        println!("{}", srcmap_symbolicate::to_json(&result));
+    } else {
+        print!("{result}");
+    }
+
+    Ok(())
+}
+
 fn cmd_schema() -> Result<(), CliError> {
     let schema = serde_json::json!({
         "name": "srcmap",
@@ -1103,6 +1183,18 @@ fn cmd_schema() -> Result<(), CliError> {
                 }
             },
             {
+                "name": "symbolicate",
+                "description": "Symbolicate a stack trace using source maps",
+                "args": [
+                    {"name": "file", "type": "path", "required": true, "description": "File containing the stack trace (use `-` for stdin)"}
+                ],
+                "flags": {
+                    "--dir": {"type": "path", "required": false, "description": "Directory to search for source maps"},
+                    "--map": {"type": "string[]", "required": false, "description": "Explicit source map files (SOURCE=PATH pairs, repeatable)"},
+                    "--json": {"type": "bool", "default": false, "description": "Output as JSON"}
+                }
+            },
+            {
                 "name": "schema",
                 "description": "Describe all commands and their arguments as JSON (this output)",
                 "args": [],
@@ -1130,6 +1222,7 @@ fn main() -> ExitCode {
             | Command::Mappings { json: true, .. }
             | Command::Concat { json: true, .. }
             | Command::Remap { json: true, .. }
+            | Command::Symbolicate { json: true, .. }
     );
 
     let result = match &cli.command {
@@ -1178,6 +1271,12 @@ fn main() -> ExitCode {
             json,
             dry_run,
         } => cmd_remap(file, dir, upstreams, output, *json, *dry_run),
+        Command::Symbolicate {
+            file,
+            dir,
+            maps,
+            json,
+        } => cmd_symbolicate(file, dir, maps, *json),
         Command::Schema => cmd_schema(),
     };
 

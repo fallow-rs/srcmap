@@ -67,12 +67,12 @@ Critical for coverage mapping and stack trace resolution where exact positions o
 
 High-value feature — no good standalone library exists for this.
 
-- [ ] **Stack trace parser** — parse V8, SpiderMonkey, and JavaScriptCore stack trace formats into structured frames
-- [ ] **`symbolicate(stackTrace, sourceMapLoader)`** — resolve each frame through source maps, return readable stack trace
-- [ ] **Batch symbolication** — resolve multiple stack traces against pre-loaded source maps efficiently (error monitoring use case)
-- [ ] **Debug ID resolution** — given a `debugId`, look up the corresponding source map
-- [ ] CLI `symbolicate` command with `--json` output
-- [ ] WASM bindings for browser-side symbolication
+- [x] **Stack trace parser** — parse V8, SpiderMonkey, and JavaScriptCore stack trace formats into structured frames
+- [x] **`symbolicate(stackTrace, sourceMapLoader)`** — resolve each frame through source maps, return readable stack trace
+- [x] **Batch symbolication** — resolve multiple stack traces against pre-loaded source maps efficiently (error monitoring use case)
+- [x] **Debug ID resolution** — given a `debugId`, look up the corresponding source map
+- [x] CLI `symbolicate` command with `--json` output
+- [x] WASM bindings for browser-side symbolication
 
 ## Phase 12: Browser WASM Target
 

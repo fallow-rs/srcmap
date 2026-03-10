@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/*", "packages/codec", "packages/sourcemap", "packages/sourcemap-wasm", "packages/generator-wasm", "packages/remapping-wasm"]
+members = ["crates/*", "packages/codec", "packages/sourcemap", "packages/sourcemap-wasm", "packages/generator-wasm", "packages/remapping-wasm", "packages/symbolicate-wasm"]
 
 [workspace.package]
 version = "0.1.3"
@@ -14,6 +14,7 @@ srcmap-sourcemap = { version = "0.1.3", path = "crates/sourcemap" }
 srcmap-generator = { version = "0.1.3", path = "crates/generator" }
 srcmap-remapping = { version = "0.1.3", path = "crates/remapping" }
 srcmap-scopes = { version = "0.1.3", path = "crates/scopes" }
+srcmap-symbolicate = { version = "0.1.3", path = "crates/symbolicate" }
 
 [profile.release]
 lto = true
