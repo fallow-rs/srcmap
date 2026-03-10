@@ -138,12 +138,13 @@ Agent-friendly command-line interface for inspecting, validating, composing, and
 - [x] Publish `srcmap-sourcemap` to crates.io (0.1.2)
 - [x] Publish `srcmap-generator` to crates.io (0.1.2)
 - [x] Publish `srcmap-remapping` to crates.io (0.1.2)
+- [ ] Publish `srcmap-scopes` to crates.io
 - [ ] Publish `srcmap-cli` to crates.io
 - [x] Publish `@srcmap/codec` to npm (0.1.2)
 - [x] Publish `@srcmap/sourcemap` to npm (0.1.2)
 - [x] Publish `@srcmap/sourcemap-wasm` to npm (0.1.2)
-- [ ] Publish `@srcmap/generator-wasm` to npm
-- [ ] Publish `@srcmap/remapping-wasm` to npm
+- [x] Publish `@srcmap/generator-wasm` to npm (0.1.3)
+- [x] Publish `@srcmap/remapping-wasm` to npm (0.1.3)
 
 ## Phase 6: WASM Bindings for Generator + Remapping ✅
 
@@ -153,12 +154,28 @@ Node.js WASM bindings completing the full source map pipeline.
 - [x] `@srcmap/remapping-wasm` — ConcatBuilder + remap() with JS callback for upstream map loading
 - [x] Test suites for both packages (25 tests)
 
+## Phase 7: Scopes & Variables (ECMA-426 Scopes Proposal) ✅
+
+First Rust implementation of the ECMA-426 scopes proposal (Stage 3). Enables debuggers to reconstruct original scope trees, variable bindings, and inlined function call sites.
+
+- [x] New `srcmap-scopes` crate with full encode/decode
+- [x] Tag-based VLQ encoding: B (scope start), C (scope end), D (variables), E (range start), F (range end), G (bindings), H (sub-range bindings), I (call site)
+- [x] Unsigned VLQ primitives added to `srcmap-codec`
+- [x] Original scope trees with nesting, names, kinds, stack frame flags, and variable lists
+- [x] Generated ranges with nesting, definition references, bindings, sub-range bindings, and call sites
+- [x] Delta/relative encoding for positions, names, kinds, variables, and definitions
+- [x] Integration with `srcmap-sourcemap` parser (`scopes` field parsed automatically)
+- [x] Integration with `srcmap-generator` (`set_scopes()` + `scopes` field in JSON output)
+- [x] Full roundtrip encode → decode tests (14 scopes tests + 2 integration tests)
+- [x] Definition resolution helper (`original_scope_for_definition`)
+
 ## Future
 
 - [x] Debug ID support (`debugId` field, part of ECMA-426)
+- [x] Scopes & variables support (ECMA-426 scopes proposal) — **first Rust implementation**
 - [ ] NAPI bindings for generator and remapping
 - [ ] WASM build target for browser (devtools, playgrounds, edge runtimes)
-- [ ] Scopes & variables support (ECMA-426 proposal — no library supports this yet)
+- [ ] WASM bindings for scopes decode/encode
 - [ ] Streaming/lazy decode for very large source maps
 
 ## Non-goals

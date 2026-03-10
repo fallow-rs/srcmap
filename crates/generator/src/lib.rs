@@ -27,6 +27,7 @@
 use std::collections::HashMap;
 
 use srcmap_codec::vlq_encode;
+use srcmap_scopes::ScopeInfo;
 
 // ── Public types ───────────────────────────────────────────────────
 
@@ -52,6 +53,7 @@ pub struct SourceMapGenerator {
     mappings: Vec<Mapping>,
     ignore_list: Vec<u32>,
     debug_id: Option<String>,
+    scopes: Option<ScopeInfo>,
 
     // Dedup maps for O(1) lookup
     source_map: HashMap<String, u32>,
@@ -70,6 +72,7 @@ impl SourceMapGenerator {
             mappings: Vec::new(),
             ignore_list: Vec::new(),
             debug_id: None,
+            scopes: None,
             source_map: HashMap::new(),
             name_map: HashMap::new(),
         }
@@ -83,6 +86,11 @@ impl SourceMapGenerator {
     /// Set the debug ID (UUID) for this source map (ECMA-426).
     pub fn set_debug_id(&mut self, id: String) {
         self.debug_id = Some(id);
+    }
+
+    /// Set scope and variable information (ECMA-426 scopes proposal).
+    pub fn set_scopes(&mut self, scopes: ScopeInfo) {
+        self.scopes = Some(scopes);
     }
 
     /// Register a source file and return its index.
@@ -343,6 +351,15 @@ impl SourceMapGenerator {
     pub fn to_json(&self) -> String {
         let mappings = self.encode_mappings();
 
+        // Encode scopes (may introduce names not yet in self.names)
+        let (scopes_str, names_for_json) = if let Some(ref scopes_info) = self.scopes {
+            let mut names = self.names.clone();
+            let s = srcmap_scopes::encode_scopes(scopes_info, &mut names);
+            (Some(s), names)
+        } else {
+            (None, self.names.clone())
+        };
+
         let mut json = String::with_capacity(256 + mappings.len());
         json.push_str(r#"{"version":3"#);
 
@@ -424,7 +441,7 @@ impl SourceMapGenerator {
 
         // names
         json.push_str(r#","names":["#);
-        for (i, n) in self.names.iter().enumerate() {
+        for (i, n) in names_for_json.iter().enumerate() {
             if i > 0 {
                 json.push(',');
             }
@@ -452,6 +469,12 @@ impl SourceMapGenerator {
         if let Some(ref id) = self.debug_id {
             json.push_str(r#","debugId":"#);
             json.push_str(&json_quote(id));
+        }
+
+        // scopes (ECMA-426 scopes proposal)
+        if let Some(ref s) = scopes_str {
+            json.push_str(r#","scopes":"#);
+            json.push_str(&json_quote(s));
         }
 
         json.push('}');
@@ -794,6 +817,190 @@ mod tests {
         assert_eq!(
             sm.debug_id.as_deref(),
             Some("85314830-023f-4cf1-a267-535f4e37bb17")
+        );
+    }
+
+    #[test]
+    fn scopes_roundtrip() {
+        use srcmap_scopes::{
+            Binding, CallSite, GeneratedRange, OriginalScope, Position, ScopeInfo,
+        };
+
+        let mut builder = SourceMapGenerator::new(Some("bundle.js".to_string()));
+        let src = builder.add_source("input.js");
+        builder.set_source_content(
+            src,
+            "function hello(name) {\n  return name;\n}\nhello('world');".to_string(),
+        );
+        let name_hello = builder.add_name("hello");
+        builder.add_named_mapping(0, 0, src, 0, 0, name_hello);
+        builder.add_mapping(1, 0, src, 1, 0);
+
+        // Set scopes
+        builder.set_scopes(ScopeInfo {
+            scopes: vec![Some(OriginalScope {
+                start: Position { line: 0, column: 0 },
+                end: Position {
+                    line: 3,
+                    column: 14,
+                },
+                name: None,
+                kind: Some("global".to_string()),
+                is_stack_frame: false,
+                variables: vec!["hello".to_string()],
+                children: vec![OriginalScope {
+                    start: Position { line: 0, column: 9 },
+                    end: Position { line: 2, column: 1 },
+                    name: Some("hello".to_string()),
+                    kind: Some("function".to_string()),
+                    is_stack_frame: true,
+                    variables: vec!["name".to_string()],
+                    children: vec![],
+                }],
+            })],
+            ranges: vec![GeneratedRange {
+                start: Position { line: 0, column: 0 },
+                end: Position {
+                    line: 3,
+                    column: 14,
+                },
+                is_stack_frame: false,
+                is_hidden: false,
+                definition: Some(0),
+                call_site: None,
+                bindings: vec![Binding::Expression("hello".to_string())],
+                children: vec![GeneratedRange {
+                    start: Position { line: 0, column: 9 },
+                    end: Position { line: 2, column: 1 },
+                    is_stack_frame: true,
+                    is_hidden: false,
+                    definition: Some(1),
+                    call_site: None,
+                    bindings: vec![Binding::Expression("name".to_string())],
+                    children: vec![],
+                }],
+            }],
+        });
+
+        let json = builder.to_json();
+
+        // Verify scopes field is present
+        assert!(json.contains(r#""scopes":"#));
+
+        // Parse back and verify
+        let sm = srcmap_sourcemap::SourceMap::from_json(&json).unwrap();
+        assert!(sm.scopes.is_some());
+
+        let scopes_info = sm.scopes.unwrap();
+
+        // Verify original scopes
+        assert_eq!(scopes_info.scopes.len(), 1);
+        let root_scope = scopes_info.scopes[0].as_ref().unwrap();
+        assert_eq!(root_scope.kind.as_deref(), Some("global"));
+        assert_eq!(root_scope.variables, vec!["hello"]);
+        assert_eq!(root_scope.children.len(), 1);
+
+        let fn_scope = &root_scope.children[0];
+        assert_eq!(fn_scope.name.as_deref(), Some("hello"));
+        assert_eq!(fn_scope.kind.as_deref(), Some("function"));
+        assert!(fn_scope.is_stack_frame);
+        assert_eq!(fn_scope.variables, vec!["name"]);
+
+        // Verify generated ranges
+        assert_eq!(scopes_info.ranges.len(), 1);
+        let outer = &scopes_info.ranges[0];
+        assert_eq!(outer.definition, Some(0));
+        assert_eq!(
+            outer.bindings,
+            vec![Binding::Expression("hello".to_string())]
+        );
+        assert_eq!(outer.children.len(), 1);
+
+        let inner = &outer.children[0];
+        assert_eq!(inner.definition, Some(1));
+        assert!(inner.is_stack_frame);
+        assert_eq!(
+            inner.bindings,
+            vec![Binding::Expression("name".to_string())]
+        );
+    }
+
+    #[test]
+    fn scopes_with_inlining_roundtrip() {
+        use srcmap_scopes::{
+            Binding, CallSite, GeneratedRange, OriginalScope, Position, ScopeInfo,
+        };
+
+        let mut builder = SourceMapGenerator::new(None);
+        let src = builder.add_source("input.js");
+        builder.add_mapping(0, 0, src, 0, 0);
+
+        builder.set_scopes(ScopeInfo {
+            scopes: vec![Some(OriginalScope {
+                start: Position { line: 0, column: 0 },
+                end: Position {
+                    line: 10,
+                    column: 0,
+                },
+                name: None,
+                kind: None,
+                is_stack_frame: false,
+                variables: vec!["x".to_string()],
+                children: vec![OriginalScope {
+                    start: Position { line: 1, column: 0 },
+                    end: Position { line: 4, column: 1 },
+                    name: Some("greet".to_string()),
+                    kind: Some("function".to_string()),
+                    is_stack_frame: true,
+                    variables: vec!["msg".to_string()],
+                    children: vec![],
+                }],
+            })],
+            ranges: vec![GeneratedRange {
+                start: Position { line: 0, column: 0 },
+                end: Position {
+                    line: 10,
+                    column: 0,
+                },
+                is_stack_frame: false,
+                is_hidden: false,
+                definition: Some(0),
+                call_site: None,
+                bindings: vec![Binding::Expression("_x".to_string())],
+                children: vec![GeneratedRange {
+                    start: Position { line: 6, column: 0 },
+                    end: Position { line: 8, column: 0 },
+                    is_stack_frame: true,
+                    is_hidden: false,
+                    definition: Some(1),
+                    call_site: Some(CallSite {
+                        source_index: 0,
+                        line: 8,
+                        column: 0,
+                    }),
+                    bindings: vec![Binding::Expression("\"Hello\"".to_string())],
+                    children: vec![],
+                }],
+            }],
+        });
+
+        let json = builder.to_json();
+        let sm = srcmap_sourcemap::SourceMap::from_json(&json).unwrap();
+        let info = sm.scopes.unwrap();
+
+        // Verify call site on inlined range
+        let inlined = &info.ranges[0].children[0];
+        assert_eq!(
+            inlined.call_site,
+            Some(CallSite {
+                source_index: 0,
+                line: 8,
+                column: 0,
+            })
+        );
+        assert_eq!(
+            inlined.bindings,
+            vec![Binding::Expression("\"Hello\"".to_string())]
         );
     }
 

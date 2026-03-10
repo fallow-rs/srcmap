@@ -1,0 +1,12 @@
+[package]
+name = "srcmap-scopes"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Scopes and variables decoder/encoder for source maps (ECMA-426)"
+keywords = ["sourcemap", "source-map", "scopes", "variables", "ecma-426"]
+categories = ["development-tools"]
+
+[dependencies]
+srcmap-codec = { workspace = true }

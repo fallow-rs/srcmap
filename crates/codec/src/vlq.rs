@@ -123,6 +123,71 @@ pub fn vlq_decode(input: &[u8], pos: usize) -> Result<(i64, usize), DecodeError>
     Ok((value, i - pos))
 }
 
+/// Encode a single unsigned VLQ value, appending base64 chars to the output buffer.
+///
+/// Unlike signed VLQ, no sign bit is used — all 5 bits per character are data.
+/// Used by the ECMA-426 scopes proposal for tags, flags, and unsigned values.
+#[inline]
+pub fn vlq_encode_unsigned(out: &mut Vec<u8>, value: u64) {
+    let mut vlq = value;
+    loop {
+        let mut digit = vlq & VLQ_BASE_MASK;
+        vlq >>= VLQ_BASE_SHIFT;
+        if vlq > 0 {
+            digit |= VLQ_CONTINUATION_BIT;
+        }
+        out.push(BASE64_ENCODE[digit as usize]);
+        if vlq == 0 {
+            break;
+        }
+    }
+}
+
+/// Decode a single unsigned VLQ value from the input bytes starting at the given position.
+///
+/// Returns `(decoded_value, bytes_consumed)` or a [`DecodeError`].
+/// Unlike signed VLQ, no sign bit extraction is performed.
+#[inline]
+pub fn vlq_decode_unsigned(input: &[u8], pos: usize) -> Result<(u64, usize), DecodeError> {
+    let mut result: u64 = 0;
+    let mut shift: u32 = 0;
+    let mut i = pos;
+
+    loop {
+        if i >= input.len() {
+            return Err(DecodeError::UnexpectedEof { offset: i });
+        }
+
+        let byte = input[i];
+
+        if byte >= 128 {
+            return Err(DecodeError::InvalidBase64 { byte, offset: i });
+        }
+
+        let digit = BASE64_DECODE[byte as usize];
+
+        if digit == 255 {
+            return Err(DecodeError::InvalidBase64 { byte, offset: i });
+        }
+
+        let digit = digit as u64;
+        i += 1;
+
+        if shift >= VLQ_MAX_SHIFT {
+            return Err(DecodeError::VlqOverflow { offset: pos });
+        }
+
+        result += (digit & VLQ_BASE_MASK) << shift;
+        shift += VLQ_BASE_SHIFT;
+
+        if (digit & VLQ_CONTINUATION_BIT) == 0 {
+            break;
+        }
+    }
+
+    Ok((result, i - pos))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -238,6 +303,54 @@ mod tests {
     #[test]
     fn decode_empty_input() {
         let err = vlq_decode(b"", 0).unwrap_err();
+        assert_eq!(err, DecodeError::UnexpectedEof { offset: 0 });
+    }
+
+    // --- Unsigned VLQ tests ---
+
+    #[test]
+    fn unsigned_encode_zero() {
+        let mut buf = Vec::new();
+        vlq_encode_unsigned(&mut buf, 0);
+        assert_eq!(&buf, b"A");
+    }
+
+    #[test]
+    fn unsigned_encode_small_values() {
+        // Value 1 → 'B', value 2 → 'C', ..., value 31 → base64[31] = 'f'
+        let mut buf = Vec::new();
+        vlq_encode_unsigned(&mut buf, 1);
+        assert_eq!(&buf, b"B");
+
+        buf.clear();
+        vlq_encode_unsigned(&mut buf, 8);
+        assert_eq!(&buf, b"I");
+    }
+
+    #[test]
+    fn unsigned_roundtrip() {
+        let values: [u64; 10] = [0, 1, 8, 15, 16, 31, 32, 100, 1000, 100_000];
+        for &v in &values {
+            let mut buf = Vec::new();
+            vlq_encode_unsigned(&mut buf, v);
+            let (decoded, consumed) = vlq_decode_unsigned(&buf, 0).unwrap();
+            assert_eq!(decoded, v, "unsigned roundtrip failed for {v}");
+            assert_eq!(consumed, buf.len());
+        }
+    }
+
+    #[test]
+    fn unsigned_multi_char() {
+        let mut buf = Vec::new();
+        vlq_encode_unsigned(&mut buf, 500);
+        assert!(buf.len() > 1, "500 should need multiple chars");
+        let (decoded, _) = vlq_decode_unsigned(&buf, 0).unwrap();
+        assert_eq!(decoded, 500);
+    }
+
+    #[test]
+    fn unsigned_decode_empty() {
+        let err = vlq_decode_unsigned(b"", 0).unwrap_err();
         assert_eq!(err, DecodeError::UnexpectedEof { offset: 0 });
     }
 }

@@ -13,6 +13,7 @@ srcmap-codec = { version = "0.1.2", path = "crates/codec" }
 srcmap-sourcemap = { version = "0.1.2", path = "crates/sourcemap" }
 srcmap-generator = { version = "0.1.2", path = "crates/generator" }
 srcmap-remapping = { version = "0.1.2", path = "crates/remapping" }
+srcmap-scopes = { version = "0.1.2", path = "crates/scopes" }
 
 [profile.release]
 lto = true

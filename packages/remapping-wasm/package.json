@@ -1,6 +1,6 @@
 {
   "name": "@srcmap/remapping-wasm",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "High-performance source map concatenation and remapping powered by Rust (WebAssembly)",
   "type": "module",
   "main": "pkg/srcmap_remapping_wasm.js",
@@ -18,7 +18,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/BartWaardenburg/srcmap"
+    "url": "git+https://github.com/BartWaardenburg/srcmap.git"
   },
   "keywords": [
     "sourcemap",

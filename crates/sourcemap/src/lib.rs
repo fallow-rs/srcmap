@@ -29,6 +29,7 @@ use std::fmt;
 
 use serde::Deserialize;
 use srcmap_codec::DecodeError;
+use srcmap_scopes::ScopeInfo;
 
 // ── Constants ──────────────────────────────────────────────────────
 
@@ -72,6 +73,7 @@ pub enum ParseError {
     Json(serde_json::Error),
     Vlq(DecodeError),
     InvalidVersion(u32),
+    Scopes(String),
 }
 
 impl fmt::Display for ParseError {
@@ -80,6 +82,7 @@ impl fmt::Display for ParseError {
             Self::Json(e) => write!(f, "JSON parse error: {e}"),
             Self::Vlq(e) => write!(f, "VLQ decode error: {e}"),
             Self::InvalidVersion(v) => write!(f, "unsupported source map version: {v}"),
+            Self::Scopes(e) => write!(f, "scopes decode error: {e}"),
         }
     }
 }
@@ -121,6 +124,9 @@ struct RawSourceMap<'a> {
     /// Accepts both `debugId` (spec) and `debug_id` (Sentry compat).
     #[serde(default, rename = "debugId", alias = "debug_id")]
     debug_id: Option<String>,
+    /// Scopes and variables (ECMA-426 scopes proposal).
+    #[serde(default, borrow)]
+    scopes: Option<&'a str>,
     /// Indexed source maps use `sections` instead of `mappings`.
     #[serde(default)]
     sections: Option<Vec<RawSection>>,
@@ -152,6 +158,8 @@ pub struct SourceMap {
     pub ignore_list: Vec<u32>,
     /// Debug ID (UUID) for associating generated files with source maps (ECMA-426).
     pub debug_id: Option<String>,
+    /// Decoded scope and variable information (ECMA-426 scopes proposal).
+    pub scopes: Option<ScopeInfo>,
 
     /// Flat decoded mappings, ordered by (generated_line, generated_column).
     mappings: Vec<Mapping>,
@@ -212,6 +220,16 @@ impl SourceMap {
         // Decode mappings directly into flat Mapping vec
         let (mappings, line_offsets) = decode_mappings(raw.mappings)?;
 
+        // Decode scopes if present
+        let num_sources = sources.len();
+        let scopes = match raw.scopes {
+            Some(scopes_str) if !scopes_str.is_empty() => Some(
+                srcmap_scopes::decode_scopes(scopes_str, &raw.names, num_sources)
+                    .map_err(|e| ParseError::Scopes(e.to_string()))?,
+            ),
+            _ => None,
+        };
+
         Ok(Self {
             file: raw.file,
             source_root: raw.source_root,
@@ -220,6 +238,7 @@ impl SourceMap {
             names: raw.names,
             ignore_list: raw.ignore_list,
             debug_id: raw.debug_id,
+            scopes,
             mappings,
             line_offsets,
             reverse_index: OnceCell::new(),
@@ -362,6 +381,7 @@ impl SourceMap {
             names: all_names,
             ignore_list: all_ignore_list,
             debug_id: None,
+            scopes: None, // TODO: merge scopes from sections
             mappings: all_mappings,
             line_offsets,
             reverse_index: OnceCell::new(),

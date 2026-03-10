@@ -31,6 +31,14 @@ jobs:
       - name: Wait for crates.io index
         run: sleep 30
 
+      - name: Publish srcmap-scopes
+        run: cargo publish -p srcmap-scopes || echo "Already published, skipping"
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+
+      - name: Wait for crates.io index
+        run: sleep 30
+
       - name: Publish srcmap-sourcemap
         run: cargo publish -p srcmap-sourcemap || echo "Already published, skipping"
         env:
@@ -159,15 +167,40 @@ jobs:
       - name: Install wasm-pack
         run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
 
-      - name: Build WASM package
+      - name: Build sourcemap-wasm
         run: wasm-pack build --target nodejs --release
         working-directory: packages/sourcemap-wasm
 
-      - name: Upload WASM artifact
+      - name: Build generator-wasm
+        run: wasm-pack build --target nodejs --release
+        working-directory: packages/generator-wasm
+
+      - name: Build remapping-wasm
+        run: wasm-pack build --target nodejs --release
+        working-directory: packages/remapping-wasm
+
+      - name: Remove wasm-pack .gitignore files
+        run: rm -f packages/sourcemap-wasm/pkg/.gitignore packages/generator-wasm/pkg/.gitignore packages/remapping-wasm/pkg/.gitignore
+
+      - name: Upload sourcemap-wasm artifact
         uses: actions/upload-artifact@v4
         with:
-          name: wasm-package
+          name: wasm-sourcemap-package
           path: packages/sourcemap-wasm/pkg/
+          if-no-files-found: error
+
+      - name: Upload generator-wasm artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: wasm-generator-package
+          path: packages/generator-wasm/pkg/
+          if-no-files-found: error
+
+      - name: Upload remapping-wasm artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: wasm-remapping-package
+          path: packages/remapping-wasm/pkg/
           if-no-files-found: error
 
   publish-npm:
@@ -204,11 +237,23 @@ jobs:
           pattern: sourcemap-bindings-*
           merge-multiple: false
 
-      - name: Download WASM artifact
+      - name: Download sourcemap-wasm artifact
         uses: actions/download-artifact@v4
         with:
-          name: wasm-package
+          name: wasm-sourcemap-package
           path: packages/sourcemap-wasm/pkg
+
+      - name: Download generator-wasm artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: wasm-generator-package
+          path: packages/generator-wasm/pkg
+
+      - name: Download remapping-wasm artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: wasm-remapping-package
+          path: packages/remapping-wasm/pkg
 
       - name: Move codec artifacts
         run: napi artifacts -d artifacts
@@ -243,6 +288,14 @@ jobs:
       - name: Publish @srcmap/sourcemap-wasm
         run: npm publish --access public --provenance --ignore-scripts || echo "Already published, skipping"
         working-directory: packages/sourcemap-wasm
+
+      - name: Publish @srcmap/generator-wasm
+        run: npm publish --access public --provenance --ignore-scripts || echo "Already published, skipping"
+        working-directory: packages/generator-wasm
+
+      - name: Publish @srcmap/remapping-wasm
+        run: npm publish --access public --provenance --ignore-scripts || echo "Already published, skipping"
+        working-directory: packages/remapping-wasm
 
   create-release:
     name: Create GitHub Release
