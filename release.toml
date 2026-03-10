@@ -1,0 +1,11 @@
+shared-version = true
+consolidate-commits = true
+pre-release-commit-message = "chore: release v{{version}}"
+tag-name = "v{{version}}"
+tag-message = "v{{version}}"
+sign-commit = true
+sign-tag = true
+push = true
+publish = false  # CI handles publishing in correct dependency order
+dependent-version = "upgrade"
+pre-release-hook = ["bash", "-c", "\"$(git rev-parse --show-toplevel)/scripts/sync-npm-versions.sh\" \"$1\" \"$2\"", "--", "{{prev_version}}", "{{version}}"]

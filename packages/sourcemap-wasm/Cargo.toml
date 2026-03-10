@@ -5,6 +5,7 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 description = "WebAssembly bindings for srcmap-sourcemap"
+publish = false
 
 [package.metadata.wasm-pack.profile.release]
 wasm-opt = false

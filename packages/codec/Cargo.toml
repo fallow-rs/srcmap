@@ -5,6 +5,7 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 description = "N-API bindings for srcmap-codec"
+publish = false
 
 [lib]
 crate-type = ["cdylib"]
