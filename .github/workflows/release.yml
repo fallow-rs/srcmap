@@ -99,6 +99,7 @@ jobs:
             build-sourcemap: |
               cd packages/sourcemap
               napi build --release --platform --target aarch64-unknown-linux-gnu
+            linker: aarch64-linux-gnu-gcc
 
           - host: ubuntu-latest
             target: aarch64-unknown-linux-musl
@@ -108,6 +109,7 @@ jobs:
             build-sourcemap: |
               cd packages/sourcemap
               napi build --release --platform --target aarch64-unknown-linux-musl
+            linker: aarch64-linux-gnu-gcc
 
           - host: windows-latest
             target: x86_64-pc-windows-msvc
@@ -155,10 +157,16 @@ jobs:
       - name: Build codec NAPI binary
         run: ${{ matrix.settings.build-codec }}
         shell: bash
+        env:
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: ${{ matrix.settings.linker || '' }}
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER: ${{ matrix.settings.linker || '' }}
 
       - name: Build sourcemap NAPI binary
         run: ${{ matrix.settings.build-sourcemap }}
         shell: bash
+        env:
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: ${{ matrix.settings.linker || '' }}
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER: ${{ matrix.settings.linker || '' }}
 
       - name: Upload codec artifact
         uses: actions/upload-artifact@v4
