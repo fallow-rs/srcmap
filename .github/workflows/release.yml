@@ -250,11 +250,11 @@ jobs:
         run: ls -R packages/sourcemap/artifacts/
 
       - name: Move codec artifacts
-        run: napi artifacts --dir artifacts
+        run: napi artifacts -d artifacts
         working-directory: packages/codec
 
       - name: Move sourcemap artifacts
-        run: napi artifacts --dir artifacts
+        run: napi artifacts -d artifacts
         working-directory: packages/sourcemap
 
       - name: List codec npm directories
