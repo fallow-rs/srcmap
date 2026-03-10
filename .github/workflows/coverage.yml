@@ -42,12 +42,14 @@ jobs:
         working-directory: packages/codec
         run: |
           npm install
+          npm install detect-libc
           npm run build
 
       - name: Build NAPI sourcemap
         working-directory: packages/sourcemap
         run: |
           npm install
+          npm install detect-libc
           npm run build
 
       # Build WASM package for JS tests
