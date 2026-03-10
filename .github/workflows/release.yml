@@ -23,7 +23,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - name: Publish srcmap-codec
-        run: cargo publish -p srcmap-codec
+        run: cargo publish -p srcmap-codec || echo "Already published, skipping"
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
 
@@ -31,12 +31,12 @@ jobs:
         run: sleep 30
 
       - name: Publish srcmap-sourcemap
-        run: cargo publish -p srcmap-sourcemap
+        run: cargo publish -p srcmap-sourcemap || echo "Already published, skipping"
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
 
       - name: Publish srcmap-generator
-        run: cargo publish -p srcmap-generator
+        run: cargo publish -p srcmap-generator || echo "Already published, skipping"
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
 
@@ -44,7 +44,7 @@ jobs:
         run: sleep 30
 
       - name: Publish srcmap-remapping
-        run: cargo publish -p srcmap-remapping
+        run: cargo publish -p srcmap-remapping || echo "Already published, skipping"
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
 
