@@ -22,7 +22,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/bartwaardenburg/srcmap"
+    "url": "https://github.com/BartWaardenburg/srcmap"
   },
   "os": [
     "linux"
