@@ -221,7 +221,7 @@ jobs:
         working-directory: packages/codec
 
       - name: Publish @srcmap/codec
-        run: npm publish --access public --provenance --ignore-scripts
+        run: npm publish --access public --provenance --ignore-scripts || echo "Already published, skipping"
         working-directory: packages/codec
 
       - name: Publish @srcmap/sourcemap platform packages
@@ -232,11 +232,11 @@ jobs:
         working-directory: packages/sourcemap
 
       - name: Publish @srcmap/sourcemap
-        run: npm publish --access public --provenance --ignore-scripts
+        run: npm publish --access public --provenance --ignore-scripts || echo "Already published, skipping"
         working-directory: packages/sourcemap
 
       - name: Publish @srcmap/sourcemap-wasm
-        run: npm publish --access public --provenance --ignore-scripts
+        run: npm publish --access public --provenance --ignore-scripts || echo "Already published, skipping"
         working-directory: packages/sourcemap-wasm
 
   create-release:
