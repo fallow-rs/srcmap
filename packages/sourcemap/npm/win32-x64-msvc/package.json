@@ -1,0 +1,30 @@
+{
+  "name": "@srcmap/sourcemap-win32-x64-msvc",
+  "version": "0.1.1",
+  "cpu": [
+    "x64"
+  ],
+  "main": "srcmap-sourcemap.win32-x64-msvc.node",
+  "files": [
+    "srcmap-sourcemap.win32-x64-msvc.node"
+  ],
+  "description": "High-performance source map parser and consumer powered by Rust",
+  "keywords": [
+    "sourcemap",
+    "source-map",
+    "parser",
+    "consumer",
+    "lookup",
+    "rust",
+    "napi",
+    "performance"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/bartwaardenburg/srcmap"
+  },
+  "os": [
+    "win32"
+  ]
+}

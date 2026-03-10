@@ -3,8 +3,6 @@ node_modules/
 *.node
 .DS_Store
 
-# napi-rs artifacts
-packages/codec/srcmap-codec.*.node
-packages/codec/index.js
-packages/codec/index.d.ts
-packages/codec/npm/
+# napi-rs generated files (rebuilt on publish)
+packages/*/index.js
+packages/*/index.d.ts

@@ -1,0 +1,30 @@
+{
+  "name": "@srcmap/sourcemap-darwin-x64",
+  "version": "0.1.1",
+  "cpu": [
+    "x64"
+  ],
+  "main": "srcmap-sourcemap.darwin-x64.node",
+  "files": [
+    "srcmap-sourcemap.darwin-x64.node"
+  ],
+  "description": "High-performance source map parser and consumer powered by Rust",
+  "keywords": [
+    "sourcemap",
+    "source-map",
+    "parser",
+    "consumer",
+    "lookup",
+    "rust",
+    "napi",
+    "performance"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/bartwaardenburg/srcmap"
+  },
+  "os": [
+    "darwin"
+  ]
+}

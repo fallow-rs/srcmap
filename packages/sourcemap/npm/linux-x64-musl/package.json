@@ -1,0 +1,33 @@
+{
+  "name": "@srcmap/sourcemap-linux-x64-musl",
+  "version": "0.1.1",
+  "cpu": [
+    "x64"
+  ],
+  "main": "srcmap-sourcemap.linux-x64-musl.node",
+  "files": [
+    "srcmap-sourcemap.linux-x64-musl.node"
+  ],
+  "description": "High-performance source map parser and consumer powered by Rust",
+  "keywords": [
+    "sourcemap",
+    "source-map",
+    "parser",
+    "consumer",
+    "lookup",
+    "rust",
+    "napi",
+    "performance"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/bartwaardenburg/srcmap"
+  },
+  "os": [
+    "linux"
+  ],
+  "libc": [
+    "musl"
+  ]
+}

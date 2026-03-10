@@ -1,0 +1,29 @@
+{
+  "name": "@srcmap/codec-darwin-x64",
+  "version": "0.1.1",
+  "cpu": [
+    "x64"
+  ],
+  "main": "srcmap-codec.darwin-x64.node",
+  "files": [
+    "srcmap-codec.darwin-x64.node"
+  ],
+  "description": "High-performance VLQ source map codec powered by Rust",
+  "keywords": [
+    "sourcemap",
+    "source-map",
+    "vlq",
+    "codec",
+    "rust",
+    "napi",
+    "performance"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/bartwaardenburg/srcmap"
+  },
+  "os": [
+    "darwin"
+  ]
+}
