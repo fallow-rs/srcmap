@@ -3,6 +3,8 @@ node_modules/
 *.node
 .DS_Store
 
-# napi-rs generated files (rebuilt on publish)
-packages/*/index.js
-packages/*/index.d.ts
+# Coverage reports
+coverage/
+
+# napi-rs native binaries (rebuilt on publish)
+# Note: index.js and index.d.ts are tracked — they're hand-written loaders
