@@ -134,15 +134,15 @@ Agent-friendly command-line interface for inspecting, validating, composing, and
 
 ## Publishing
 
-- [x] Publish `srcmap-codec` to crates.io (0.1.2)
-- [x] Publish `srcmap-sourcemap` to crates.io (0.1.2)
-- [x] Publish `srcmap-generator` to crates.io (0.1.2)
-- [x] Publish `srcmap-remapping` to crates.io (0.1.2)
-- [ ] Publish `srcmap-scopes` to crates.io
-- [ ] Publish `srcmap-cli` to crates.io
-- [x] Publish `@srcmap/codec` to npm (0.1.2)
-- [x] Publish `@srcmap/sourcemap` to npm (0.1.2)
-- [x] Publish `@srcmap/sourcemap-wasm` to npm (0.1.2)
+- [x] Publish `srcmap-codec` to crates.io (0.1.3)
+- [x] Publish `srcmap-sourcemap` to crates.io (0.1.3)
+- [x] Publish `srcmap-generator` to crates.io (0.1.3)
+- [x] Publish `srcmap-remapping` to crates.io (0.1.3)
+- [x] Publish `srcmap-scopes` to crates.io (0.1.3)
+- [x] Publish `srcmap-cli` to crates.io (0.1.3)
+- [x] Publish `@srcmap/codec` to npm (0.1.3)
+- [x] Publish `@srcmap/sourcemap` to npm (0.1.3)
+- [x] Publish `@srcmap/sourcemap-wasm` to npm (0.1.3)
 - [x] Publish `@srcmap/generator-wasm` to npm (0.1.3)
 - [x] Publish `@srcmap/remapping-wasm` to npm (0.1.3)
 

@@ -66,12 +66,15 @@ crates/
 ├── sourcemap     # Parser + consumer with O(log n) lookups (srcmap-sourcemap)
 ├── generator     # Incremental source map builder (srcmap-generator)
 ├── remapping     # Concatenation + composition/remapping (srcmap-remapping)
+├── scopes        # ECMA-426 scopes & variables encode/decode (srcmap-scopes)
 └── cli           # CLI tool with structured JSON output (srcmap-cli)
 
 packages/
 ├── codec             # @srcmap/codec — NAPI bindings for codec
 ├── sourcemap         # @srcmap/sourcemap — NAPI bindings for parser
-└── sourcemap-wasm    # @srcmap/sourcemap-wasm — WASM bindings for parser
+├── sourcemap-wasm    # @srcmap/sourcemap-wasm — WASM bindings for parser
+├── generator-wasm    # @srcmap/generator-wasm — WASM bindings for generator
+└── remapping-wasm    # @srcmap/remapping-wasm — WASM bindings for remapping
 ```
 
 ## Usage
@@ -85,6 +88,7 @@ Add to your `Cargo.toml`:
 srcmap-sourcemap = "0.1"
 srcmap-generator = "0.1"
 srcmap-remapping = "0.1"       # concatenation + composition
+srcmap-scopes = "0.1"          # ECMA-426 scopes & variables
 srcmap-codec = "0.1"           # only if you need raw VLQ encode/decode
 ```
 
@@ -249,6 +253,8 @@ srcmap targets full compliance with [ECMA-426](https://tc39.es/ecma426/) (Source
 - Indexed source maps with `sections` — flattened with source/name deduplication
 - Proper `sourceRoot` resolution
 - Robust error handling for malformed input (invalid base64, truncated VLQ, overflow)
+- `debugId` for associating generated files with source maps
+- Scopes & variables (first Rust implementation of the ECMA-426 scopes proposal)
 
 ## Internals
 
@@ -271,13 +277,15 @@ See [ROADMAP.md](ROADMAP.md) for the full development plan. Current status:
 - [x] **Phase 3**: Source map generator
 - [x] **Phase 4**: Concatenation + composition/remapping (first standalone Rust implementation)
 - [x] **Phase 5**: CLI tool with agent-friendly structured output, introspection, and input hardening
-- [x] **Published**: All crates on crates.io and npm packages on npm (0.1.2)
-- [ ] **Future**: WASM browser target, scopes & variables (ECMA-426 proposal)
+- [x] **Phase 6**: WASM bindings for generator and remapping
+- [x] **Phase 7**: Scopes & variables (first Rust implementation of the ECMA-426 scopes proposal)
+- [x] **Published**: All crates on crates.io and npm packages on npm (0.1.3)
+- [ ] **Future**: WASM browser target, NAPI bindings for generator/remapping
 
 ## Development
 
 ```bash
-# Run all Rust tests (154 tests)
+# Run all Rust tests (182 tests)
 cargo test --workspace
 
 # Run Criterion benchmarks
@@ -289,8 +297,10 @@ cargo bench -p srcmap-generator
 cd packages/sourcemap && npm run build
 cd packages/codec && npm run build
 
-# Build WASM package
+# Build WASM packages
 cd packages/sourcemap-wasm && wasm-pack build --target nodejs
+cd packages/generator-wasm && wasm-pack build --target nodejs
+cd packages/remapping-wasm && wasm-pack build --target nodejs
 
 # Run JS benchmarks
 cd benchmarks && npm install && npm run bench
