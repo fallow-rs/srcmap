@@ -679,6 +679,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "srcmap-generator-napi"
+version = "0.1.3"
+dependencies = [
+ "napi",
+ "napi-build",
+ "napi-derive",
+ "srcmap-generator",
+ "srcmap-sourcemap",
+]
+
+[[package]]
 name = "srcmap-generator-wasm"
 version = "0.1.3"
 dependencies = [
@@ -698,6 +709,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "srcmap-remapping-napi"
+version = "0.1.3"
+dependencies = [
+ "napi",
+ "napi-build",
+ "napi-derive",
+ "srcmap-remapping",
+ "srcmap-sourcemap",
+]
+
+[[package]]
 name = "srcmap-remapping-wasm"
 version = "0.1.3"
 dependencies = [
@@ -712,6 +734,18 @@ name = "srcmap-scopes"
 version = "0.1.3"
 dependencies = [
  "srcmap-codec",
+]
+
+[[package]]
+name = "srcmap-scopes-wasm"
+version = "0.1.3"
+dependencies = [
+ "js-sys",
+ "serde",
+ "serde-wasm-bindgen",
+ "serde_json",
+ "srcmap-scopes",
+ "wasm-bindgen",
 ]
 
 [[package]]

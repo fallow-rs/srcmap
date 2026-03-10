@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/*", "packages/codec", "packages/sourcemap", "packages/sourcemap-wasm", "packages/generator-wasm", "packages/remapping-wasm", "packages/symbolicate-wasm"]
+members = ["crates/*", "packages/codec", "packages/sourcemap", "packages/sourcemap-wasm", "packages/generator-wasm", "packages/remapping-wasm", "packages/symbolicate-wasm", "packages/scopes-wasm", "packages/generator", "packages/remapping"]
 
 [workspace.package]
 version = "0.1.3"
