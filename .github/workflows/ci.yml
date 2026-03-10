@@ -52,6 +52,16 @@ jobs:
           components: rustfmt
       - run: cargo fmt --all -- --check
 
+  conformance:
+    name: Conformance (tc39/source-map-tests)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Run conformance tests
+        run: cargo test -p srcmap-sourcemap --test conformance
+
   bench:
     name: Benchmarks (compile check)
     runs-on: ubuntu-latest
