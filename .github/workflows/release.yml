@@ -78,7 +78,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -174,8 +174,11 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           registry-url: https://registry.npmjs.org
+
+      - name: Ensure latest npm (for trusted publishing)
+        run: npm install -g npm@latest
 
       - name: Install @napi-rs/cli
         run: npm install -g @napi-rs/cli
@@ -214,14 +217,10 @@ jobs:
             npm publish "$dir" --access public --provenance || echo "Skipping $(basename "$dir")"
           done
         working-directory: packages/codec
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Publish @srcmap/codec
         run: npm publish --access public --provenance --ignore-scripts
         working-directory: packages/codec
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Publish @srcmap/sourcemap platform packages
         run: |
@@ -229,20 +228,14 @@ jobs:
             npm publish "$dir" --access public --provenance || echo "Skipping $(basename "$dir")"
           done
         working-directory: packages/sourcemap
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Publish @srcmap/sourcemap
         run: npm publish --access public --provenance --ignore-scripts
         working-directory: packages/sourcemap
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Publish @srcmap/sourcemap-wasm
         run: npm publish --access public --provenance --ignore-scripts
         working-directory: packages/sourcemap-wasm
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
   create-release:
     name: Create GitHub Release
