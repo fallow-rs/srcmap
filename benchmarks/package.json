@@ -6,6 +6,8 @@
     "bench:codec": "node codec.mjs",
     "bench:sourcemap": "node sourcemap.mjs",
     "bench:wasm": "node sourcemap-wasm.mjs",
+    "download-fixtures": "node download-fixtures.mjs",
+    "bench:real-world": "node real-world.mjs",
     "bench": "node codec.mjs && node sourcemap.mjs && node sourcemap-wasm.mjs"
   },
   "dependencies": {

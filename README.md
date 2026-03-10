@@ -32,11 +32,55 @@ Source maps are on the critical path of every build. Existing Rust implementatio
 
 ## Performance
 
-Compared against [`@jridgewell/trace-mapping`](https://github.com/jridgewell/trace-mapping), the fastest JavaScript implementation (used by Vite, Rollup, Webpack, and most modern bundlers). Benchmarks use synthetic source maps with realistic distributions (varied deltas, multi-byte VLQ sequences, multiple sources, ~20% name mappings). Run `cargo bench` and `cd benchmarks && npm run bench` to reproduce.
+Benchmarked against [`@jridgewell/trace-mapping`](https://github.com/jridgewell/trace-mapping) (used by Vite, Rollup, Webpack) and [`source-map-js`](https://github.com/nicolo-ribaudo/source-map-js) (used by PostCSS, Vite CSS), using real-world source maps from popular open source projects:
+
+| Source map | Size | Segments | Lines | Sources |
+|-----------|------|----------|-------|---------|
+| [Preact](https://preactjs.com/) | 82 KB | 2,775 | 1 | 12 |
+| [Chart.js](https://www.chartjs.org/) | 988 KB | 83,942 | 11,467 | 53 |
+| [PDF.js](https://mozilla.github.io/pdf.js/) | 5.0 MB | 410,455 | 56,284 | 110 |
+
+Run `cd benchmarks && npm run download-fixtures && npm run bench:real-world` to reproduce. Numbers below are from an Apple M-series machine — results will vary by hardware.
+
+### Parsing
+
+trace-mapping is fastest at parsing. V8's native `JSON.parse` is highly optimized C++ and hard to beat from WASM/NAPI where JSON must cross a serialization boundary.
+
+| Source map | trace-mapping | source-map-js | srcmap WASM | srcmap NAPI |
+|-----------|--------------|--------------|-------------|-------------|
+| Preact (82 KB) | **0.06 ms** | 0.06 ms | 0.41 ms | 0.06 ms |
+| Chart.js (988 KB) | **0.69 ms** | 0.79 ms | 2.57 ms | 1.54 ms |
+| PDF.js (5.0 MB) | **3.56 ms** | 4.27 ms | 23.08 ms | 7.84 ms |
+
+### Single lookup
+
+For individual `originalPositionFor` calls, trace-mapping is fastest — pure JS with zero FFI overhead and pre-sorted arrays. srcmap's per-call cost is dominated by the WASM/NAPI boundary crossing (~500–1000 ns overhead), not the actual lookup.
+
+| Source map | trace-mapping | source-map-js | srcmap WASM | srcmap NAPI |
+|-----------|--------------|--------------|-------------|-------------|
+| Preact | **26 ns** | 177 ns | 898 ns | 531 ns |
+| Chart.js | **26 ns** | 318 ns | 1,010 ns | 536 ns |
+| PDF.js | **25 ns** | 257 ns | 809 ns | 385 ns |
+
+**If your workload is parsing a source map and doing a handful of lookups, use trace-mapping** — it's excellent and has no FFI overhead.
+
+### Batch lookup (1000 lookups per call)
+
+This is where srcmap shines. The WASM batch API sends all positions in a single `Int32Array`, performing 1000 lookups in one boundary crossing. This eliminates per-call FFI overhead and is ideal for bulk operations like **stack trace symbolication**, **code coverage mapping**, and **error monitoring pipelines**.
+
+| Source map | trace-mapping | source-map-js | srcmap WASM batch | srcmap NAPI batch |
+|-----------|--------------|--------------|-------------------|-------------------|
+| Preact (82 KB) | 18.5 μs | 206.6 μs | **20.7 μs** | 186.0 μs |
+| Chart.js (988 KB) | 17.2 μs | 328.1 μs | **11.6 μs** | 162.2 μs |
+| PDF.js (5.0 MB) | 16.6 μs | 368.6 μs | **12.1 μs** | 172.7 μs |
+
+Per-lookup amortized cost on a large map: **12 ns** (WASM batch) vs 17 ns (trace-mapping) — **1.4x faster**.
+
+> On small maps where the overhead is a larger fraction of total work, trace-mapping and srcmap WASM batch are roughly equivalent. The advantage grows with map size.
 
 ### Rust core (Criterion)
 
-For Rust consumers — native build tools, compilers, bundlers written in Rust:
+For Rust consumers — build tools, compilers, and bundlers written in Rust — there is no FFI overhead:
 
 | Operation | srcmap (Rust) | trace-mapping (JS) | Speedup |
 |-----------|--------------|-------------------|---------|
@@ -44,19 +88,16 @@ For Rust consumers — native build tools, compilers, bundlers written in Rust:
 | 1000x lookups | **5.5 μs** | 15 μs | **2.7x faster** |
 | Parse 100K segments | 718 μs | 326 μs | 0.5x |
 
-> Parse is slower because V8's native `JSON.parse` is highly optimized C++. The Rust VLQ decoder itself is fast — a single-char fast path covers ~85% of real-world VLQ values. Stripping `sourcesContent` (parse mappings + metadata only) brings Rust parse down to 531 μs.
+> Parse is slower because V8's `JSON.parse` is highly optimized C++. The Rust VLQ decoder itself is fast — a single-char fast path covers ~85% of real-world values. Stripping `sourcesContent` (parse mappings + metadata only) brings parse down to 531 μs.
 
-### Node.js WASM batch API (tinybench)
+### When to use what
 
-For Node.js consumers — the WASM batch API amortizes FFI overhead across many lookups. This is the recommended path for bulk operations like coverage mapping or stack trace resolution.
-
-| Operation | srcmap WASM batch | trace-mapping (JS) | Speedup |
-|-----------|------------------|-------------------|---------|
-| 1000x lookup (medium map) | **12.9 μs** | 14.9 μs | **1.15x faster** |
-| 1000x lookup (large map) | **14.8 μs** | 22.0 μs | **1.49x faster** |
-| Per lookup (amortized) | **13–15 ns** | 15–22 ns | **~1.3x faster** |
-
-> Numbers are from an Apple M-series machine. Results will vary by hardware — run the benchmarks locally to get numbers for your environment.
+| Use case | Recommendation |
+|----------|---------------|
+| Rust build tool / bundler / compiler | **srcmap crate** — 3 ns lookups, full feature set |
+| Few lookups from Node.js (dev server, single error) | **trace-mapping** — fastest for individual calls |
+| Bulk lookups from Node.js (stack traces, coverage, monitoring) | **srcmap WASM batch** — 1.4x faster at scale |
+| Need generation, remapping, or scopes | **srcmap** — only standalone Rust lib with all features |
 
 ## Architecture
 
@@ -194,7 +235,7 @@ import { SourceMap } from '@srcmap/sourcemap-wasm';
 
 const sm = new SourceMap(jsonString);
 
-// Batch API — fastest path, beats trace-mapping by 1.3–1.5x
+// Batch API — amortizes WASM overhead across many lookups
 const positions = new Int32Array([42, 10, 43, 0, 44, 5]);
 const results = sm.originalPositionsFor(positions);
 // → Int32Array [srcIdx, line, col, nameIdx, ...]
@@ -302,8 +343,11 @@ cd packages/sourcemap-wasm && wasm-pack build --target nodejs
 cd packages/generator-wasm && wasm-pack build --target nodejs
 cd packages/remapping-wasm && wasm-pack build --target nodejs
 
-# Run JS benchmarks
+# Run JS benchmarks (synthetic)
 cd benchmarks && npm install && npm run bench
+
+# Run real-world benchmarks (Preact, Chart.js, PDF.js)
+cd benchmarks && npm run download-fixtures && npm run bench:real-world
 ```
 
 ## License
