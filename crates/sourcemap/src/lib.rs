@@ -117,6 +117,10 @@ struct RawSourceMap<'a> {
     mappings: &'a str,
     #[serde(default, rename = "ignoreList")]
     ignore_list: Vec<u32>,
+    /// Debug ID for associating generated files with source maps (ECMA-426).
+    /// Accepts both `debugId` (spec) and `debug_id` (Sentry compat).
+    #[serde(default, rename = "debugId", alias = "debug_id")]
+    debug_id: Option<String>,
     /// Indexed source maps use `sections` instead of `mappings`.
     #[serde(default)]
     sections: Option<Vec<RawSection>>,
@@ -146,6 +150,8 @@ pub struct SourceMap {
     pub sources_content: Vec<Option<String>>,
     pub names: Vec<String>,
     pub ignore_list: Vec<u32>,
+    /// Debug ID (UUID) for associating generated files with source maps (ECMA-426).
+    pub debug_id: Option<String>,
 
     /// Flat decoded mappings, ordered by (generated_line, generated_column).
     mappings: Vec<Mapping>,
@@ -213,6 +219,7 @@ impl SourceMap {
             sources_content,
             names: raw.names,
             ignore_list: raw.ignore_list,
+            debug_id: raw.debug_id,
             mappings,
             line_offsets,
             reverse_index: OnceCell::new(),
@@ -354,6 +361,7 @@ impl SourceMap {
             sources_content: all_sources_content,
             names: all_names,
             ignore_list: all_ignore_list,
+            debug_id: None,
             mappings: all_mappings,
             line_offsets,
             reverse_index: OnceCell::new(),
@@ -551,6 +559,11 @@ impl SourceMap {
                 json.push_str(&idx.to_string());
             }
             json.push(']');
+        }
+
+        if let Some(ref id) = self.debug_id {
+            json.push_str(r#","debugId":"#);
+            json_quote_into(&mut json, id);
         }
 
         json.push('}');
@@ -2067,6 +2080,51 @@ mod tests {
         assert_eq!(sm2.mapping_count(), sm.mapping_count());
         let loc = sm2.original_position_for(0, 0).unwrap();
         assert_eq!(sm2.source(loc.source), "a.js");
+    }
+
+    #[test]
+    fn parse_debug_id() {
+        let json = r#"{"version":3,"sources":["a.js"],"names":[],"mappings":"AAAA","debugId":"85314830-023f-4cf1-a267-535f4e37bb17"}"#;
+        let sm = SourceMap::from_json(json).unwrap();
+        assert_eq!(
+            sm.debug_id.as_deref(),
+            Some("85314830-023f-4cf1-a267-535f4e37bb17")
+        );
+    }
+
+    #[test]
+    fn parse_debug_id_snake_case() {
+        let json = r#"{"version":3,"sources":["a.js"],"names":[],"mappings":"AAAA","debug_id":"85314830-023f-4cf1-a267-535f4e37bb17"}"#;
+        let sm = SourceMap::from_json(json).unwrap();
+        assert_eq!(
+            sm.debug_id.as_deref(),
+            Some("85314830-023f-4cf1-a267-535f4e37bb17")
+        );
+    }
+
+    #[test]
+    fn parse_no_debug_id() {
+        let json = r#"{"version":3,"sources":["a.js"],"names":[],"mappings":"AAAA"}"#;
+        let sm = SourceMap::from_json(json).unwrap();
+        assert_eq!(sm.debug_id, None);
+    }
+
+    #[test]
+    fn debug_id_roundtrip() {
+        let json = r#"{"version":3,"sources":["a.js"],"names":[],"mappings":"AAAA","debugId":"85314830-023f-4cf1-a267-535f4e37bb17"}"#;
+        let sm = SourceMap::from_json(json).unwrap();
+        let output = sm.to_json();
+        assert!(output.contains(r#""debugId":"85314830-023f-4cf1-a267-535f4e37bb17""#));
+        let sm2 = SourceMap::from_json(&output).unwrap();
+        assert_eq!(sm.debug_id, sm2.debug_id);
+    }
+
+    #[test]
+    fn debug_id_not_in_json_when_absent() {
+        let json = r#"{"version":3,"sources":["a.js"],"names":[],"mappings":"AAAA"}"#;
+        let sm = SourceMap::from_json(json).unwrap();
+        let output = sm.to_json();
+        assert!(!output.contains("debugId"));
     }
 
     /// Generate a test source map JSON with realistic structure.

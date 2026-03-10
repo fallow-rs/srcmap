@@ -377,6 +377,7 @@ fn cmd_info(file: &PathBuf, json: bool) -> Result<(), CliError> {
             "totalContentSize": content_size,
             "fileSize": raw.len(),
             "ignoreList": sm.ignore_list,
+            "debugId": sm.debug_id,
         });
         println!("{}", serde_json::to_string_pretty(&obj).unwrap());
     } else {
@@ -405,6 +406,10 @@ fn cmd_info(file: &PathBuf, json: bool) -> Result<(), CliError> {
                 sm.sources.len(),
                 format_size(content_size)
             );
+        }
+
+        if let Some(ref id) = sm.debug_id {
+            println!("Debug ID:     {id}");
         }
 
         if !sm.ignore_list.is_empty() {

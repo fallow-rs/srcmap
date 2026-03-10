@@ -155,7 +155,7 @@ Node.js WASM bindings completing the full source map pipeline.
 
 ## Future
 
-- [ ] Debug ID support (`debugId` field, part of ECMA-426)
+- [x] Debug ID support (`debugId` field, part of ECMA-426)
 - [ ] NAPI bindings for generator and remapping
 - [ ] WASM build target for browser (devtools, playgrounds, edge runtimes)
 - [ ] Scopes & variables support (ECMA-426 proposal — no library supports this yet)

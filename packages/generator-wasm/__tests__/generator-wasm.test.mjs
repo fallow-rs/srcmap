@@ -149,6 +149,28 @@ describe('ignoreList', () => {
   })
 })
 
+describe('debugId', () => {
+  it('sets and outputs debugId', () => {
+    const gen = new SourceMapGenerator()
+    gen.setDebugId('85314830-023f-4cf1-a267-535f4e37bb17')
+    gen.addSource('input.js')
+    gen.addGeneratedMapping(0, 0)
+
+    const map = JSON.parse(gen.toJSON())
+    assert.equal(map.debugId, '85314830-023f-4cf1-a267-535f4e37bb17')
+    gen.free()
+  })
+
+  it('omits debugId when not set', () => {
+    const gen = new SourceMapGenerator()
+    gen.addGeneratedMapping(0, 0)
+
+    const map = JSON.parse(gen.toJSON())
+    assert.equal(map.debugId, undefined)
+    gen.free()
+  })
+})
+
 describe('large roundtrip', () => {
   it('handles 1000 mappings correctly', () => {
     const gen = new SourceMapGenerator('bundle.js')

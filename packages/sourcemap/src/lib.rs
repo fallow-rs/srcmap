@@ -102,6 +102,11 @@ impl JsSourceMap {
     }
 
     #[napi(getter)]
+    pub fn debug_id(&self) -> Option<String> {
+        self.inner.debug_id.clone()
+    }
+
+    #[napi(getter)]
     pub fn mapping_count(&self) -> u32 {
         self.inner.mapping_count() as u32
     }

@@ -122,6 +122,27 @@ describe('originalPositionsFor (batch)', () => {
   })
 })
 
+describe('debugId', () => {
+  it('returns debugId when present', () => {
+    const map = JSON.stringify({
+      version: 3,
+      sources: ['a.js'],
+      names: [],
+      mappings: 'AAAA',
+      debugId: '85314830-023f-4cf1-a267-535f4e37bb17',
+    })
+    const sm = new SourceMap(map)
+    assert.equal(sm.debugId, '85314830-023f-4cf1-a267-535f4e37bb17')
+    sm.free()
+  })
+
+  it('returns undefined when debugId is absent', () => {
+    const sm = new SourceMap(SIMPLE_MAP)
+    assert.equal(sm.debugId, undefined)
+    sm.free()
+  })
+})
+
 describe('indexed source maps', () => {
   it('parses an indexed (sectioned) source map', () => {
     const indexedMap = JSON.stringify({

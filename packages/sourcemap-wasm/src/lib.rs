@@ -85,6 +85,12 @@ impl SourceMap {
             .collect()
     }
 
+    /// Get the debug ID (UUID) if present.
+    #[wasm_bindgen(getter, js_name = "debugId")]
+    pub fn debug_id(&self) -> Option<String> {
+        self.inner.debug_id.clone()
+    }
+
     /// Total number of decoded mappings.
     #[wasm_bindgen(getter, js_name = "mappingCount")]
     pub fn mapping_count(&self) -> u32 {

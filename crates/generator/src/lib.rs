@@ -51,6 +51,7 @@ pub struct SourceMapGenerator {
     names: Vec<String>,
     mappings: Vec<Mapping>,
     ignore_list: Vec<u32>,
+    debug_id: Option<String>,
 
     // Dedup maps for O(1) lookup
     source_map: HashMap<String, u32>,
@@ -68,6 +69,7 @@ impl SourceMapGenerator {
             names: Vec::new(),
             mappings: Vec::new(),
             ignore_list: Vec::new(),
+            debug_id: None,
             source_map: HashMap::new(),
             name_map: HashMap::new(),
         }
@@ -76,6 +78,11 @@ impl SourceMapGenerator {
     /// Set the source root prefix.
     pub fn set_source_root(&mut self, root: String) {
         self.source_root = Some(root);
+    }
+
+    /// Set the debug ID (UUID) for this source map (ECMA-426).
+    pub fn set_debug_id(&mut self, id: String) {
+        self.debug_id = Some(id);
     }
 
     /// Register a source file and return its index.
@@ -441,6 +448,12 @@ impl SourceMapGenerator {
             json.push(']');
         }
 
+        // debugId
+        if let Some(ref id) = self.debug_id {
+            json.push_str(r#","debugId":"#);
+            json.push_str(&json_quote(id));
+        }
+
         json.push('}');
         json
     }
@@ -765,6 +778,23 @@ mod tests {
         assert!(sm.original_position_for(2, 0).is_none());
         // Line 5 should have a mapping
         assert!(sm.original_position_for(5, 0).is_some());
+    }
+
+    #[test]
+    fn debug_id() {
+        let mut builder = SourceMapGenerator::new(None);
+        builder.set_debug_id("85314830-023f-4cf1-a267-535f4e37bb17".to_string());
+        let src = builder.add_source("input.js");
+        builder.add_mapping(0, 0, src, 0, 0);
+
+        let json = builder.to_json();
+        assert!(json.contains(r#""debugId":"85314830-023f-4cf1-a267-535f4e37bb17""#));
+
+        let sm = srcmap_sourcemap::SourceMap::from_json(&json).unwrap();
+        assert_eq!(
+            sm.debug_id.as_deref(),
+            Some("85314830-023f-4cf1-a267-535f4e37bb17")
+        );
     }
 
     #[cfg(feature = "parallel")]

@@ -33,6 +33,12 @@ impl SourceMapGenerator {
         self.inner.set_source_root(root.to_string());
     }
 
+    /// Set the debug ID (UUID) for this source map (ECMA-426).
+    #[wasm_bindgen(js_name = "setDebugId")]
+    pub fn set_debug_id(&mut self, id: &str) {
+        self.inner.set_debug_id(id.to_string());
+    }
+
     /// Set the content for a source file by index.
     #[wasm_bindgen(js_name = "setSourceContent")]
     pub fn set_source_content(&mut self, source_idx: u32, content: &str) {
