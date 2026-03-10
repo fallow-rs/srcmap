@@ -2,6 +2,7 @@
 
 [![npm](https://img.shields.io/npm/v/@srcmap/codec.svg)](https://www.npmjs.com/package/@srcmap/codec)
 [![CI](https://github.com/BartWaardenburg/srcmap/actions/workflows/ci.yml/badge.svg)](https://github.com/BartWaardenburg/srcmap/actions/workflows/ci.yml)
+[![Coverage](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/BartWaardenburg/srcmap/badges/coverage.json)](https://github.com/BartWaardenburg/srcmap/actions/workflows/coverage.yml)
 
 High-performance VLQ source map codec powered by Rust via [NAPI](https://napi.rs).
 

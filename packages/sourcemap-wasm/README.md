@@ -2,6 +2,7 @@
 
 [![npm](https://img.shields.io/npm/v/@srcmap/sourcemap-wasm.svg)](https://www.npmjs.com/package/@srcmap/sourcemap-wasm)
 [![CI](https://github.com/BartWaardenburg/srcmap/actions/workflows/ci.yml/badge.svg)](https://github.com/BartWaardenburg/srcmap/actions/workflows/ci.yml)
+[![Coverage](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/BartWaardenburg/srcmap/badges/coverage.json)](https://github.com/BartWaardenburg/srcmap/actions/workflows/coverage.yml)
 
 High-performance source map parser and consumer powered by Rust via WebAssembly.
 

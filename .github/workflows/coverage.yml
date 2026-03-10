@@ -1,0 +1,136 @@
+name: Coverage
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  coverage:
+    name: Coverage
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - uses: taiki-e/install-action@cargo-llvm-cov
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install wasm-pack
+        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+
+      # Rust coverage (lcov)
+      - name: Rust coverage
+        run: |
+          mkdir -p coverage
+          cargo llvm-cov --workspace --lcov --output-path coverage/rust.lcov
+
+      # Build NAPI packages for JS tests
+      - name: Build NAPI codec
+        working-directory: packages/codec
+        run: |
+          npm install
+          npm run build
+
+      - name: Build NAPI sourcemap
+        working-directory: packages/sourcemap
+        run: |
+          npm install
+          npm run build
+
+      # Build WASM package for JS tests
+      - name: Build WASM sourcemap
+        working-directory: packages/sourcemap-wasm
+        run: wasm-pack build --target nodejs
+
+      # JS coverage (lcov)
+      - name: JS coverage - codec
+        working-directory: packages/codec
+        run: |
+          mkdir -p ../../coverage
+          node --test --experimental-test-coverage \
+            --test-reporter=lcov --test-reporter-destination=../../coverage/js-codec.lcov \
+            --test-reporter=spec --test-reporter-destination=stdout \
+            __tests__/codec.test.mjs
+
+      - name: JS coverage - sourcemap
+        working-directory: packages/sourcemap
+        run: |
+          node --test --experimental-test-coverage \
+            --test-reporter=lcov --test-reporter-destination=../../coverage/js-sourcemap.lcov \
+            --test-reporter=spec --test-reporter-destination=stdout \
+            __tests__/sourcemap.test.mjs
+
+      - name: JS coverage - sourcemap-wasm
+        working-directory: packages/sourcemap-wasm
+        run: |
+          node --test --experimental-test-coverage \
+            --test-reporter=lcov --test-reporter-destination=../../coverage/js-wasm.lcov \
+            --test-reporter=spec --test-reporter-destination=stdout \
+            __tests__/sourcemap-wasm.test.mjs
+
+      # Compute merged coverage percentage from all lcov files
+      - name: Compute coverage
+        run: |
+          COVERAGE=$(awk -F: '
+            /^LF:/ { total += $2 }
+            /^LH:/ { hit += $2 }
+            END { if (total > 0) printf "%.1f", (hit/total)*100; else print "0" }
+          ' coverage/rust.lcov coverage/js-codec.lcov coverage/js-sourcemap.lcov coverage/js-wasm.lcov)
+          echo "COVERAGE=$COVERAGE" >> "$GITHUB_ENV"
+          echo "Total coverage: $COVERAGE%"
+
+          RUST_COV=$(awk -F: '
+            /^LF:/ { total += $2 }
+            /^LH:/ { hit += $2 }
+            END { if (total > 0) printf "%.1f", (hit/total)*100; else print "0" }
+          ' coverage/rust.lcov)
+          echo "RUST_COVERAGE=$RUST_COV" >> "$GITHUB_ENV"
+          echo "Rust coverage: $RUST_COV%"
+
+      # Choose badge color based on coverage percentage
+      - name: Compute badge color
+        run: |
+          color_for() {
+            local cov=$1
+            local int=${cov%.*}
+            if [ "$int" -ge 90 ]; then echo "brightgreen"
+            elif [ "$int" -ge 80 ]; then echo "green"
+            elif [ "$int" -ge 70 ]; then echo "yellowgreen"
+            elif [ "$int" -ge 60 ]; then echo "yellow"
+            elif [ "$int" -ge 50 ]; then echo "orange"
+            else echo "red"
+            fi
+          }
+          echo "BADGE_COLOR=$(color_for "$COVERAGE")" >> "$GITHUB_ENV"
+          echo "RUST_BADGE_COLOR=$(color_for "$RUST_COVERAGE")" >> "$GITHUB_ENV"
+
+      # Update badges branch
+      - name: Update coverage badges
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git fetch origin badges
+          git checkout badges
+
+          echo "{\"schemaVersion\":1,\"label\":\"coverage\",\"message\":\"${COVERAGE}%\",\"color\":\"${BADGE_COLOR}\"}" > coverage.json
+          echo "{\"schemaVersion\":1,\"label\":\"rust coverage\",\"message\":\"${RUST_COVERAGE}%\",\"color\":\"${RUST_BADGE_COLOR}\"}" > rust-coverage.json
+
+          git add coverage.json rust-coverage.json
+          git diff --cached --quiet || git commit -m "chore: update coverage badges to ${COVERAGE}%"
+          git push origin badges
+
+          git checkout main

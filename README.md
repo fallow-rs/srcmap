@@ -1,5 +1,9 @@
 # srcmap
 
+[![CI](https://github.com/BartWaardenburg/srcmap/actions/workflows/ci.yml/badge.svg)](https://github.com/BartWaardenburg/srcmap/actions/workflows/ci.yml)
+[![Coverage](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/BartWaardenburg/srcmap/badges/coverage.json)](https://github.com/BartWaardenburg/srcmap/actions/workflows/coverage.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
 High-performance source map tooling in Rust, with first-class Node.js bindings via NAPI and WebAssembly.
 
 Built for the tools that power modern JavaScript: bundlers, compilers, minifiers, and dev servers.

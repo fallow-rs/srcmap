@@ -3,6 +3,7 @@
 [![crates.io](https://img.shields.io/crates/v/srcmap-generator.svg)](https://crates.io/crates/srcmap-generator)
 [![docs.rs](https://docs.rs/srcmap-generator/badge.svg)](https://docs.rs/srcmap-generator)
 [![CI](https://github.com/BartWaardenburg/srcmap/actions/workflows/ci.yml/badge.svg)](https://github.com/BartWaardenburg/srcmap/actions/workflows/ci.yml)
+[![Coverage](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/BartWaardenburg/srcmap/badges/rust-coverage.json)](https://github.com/BartWaardenburg/srcmap/actions/workflows/coverage.yml)
 
 High-performance source map generator for Rust.
 

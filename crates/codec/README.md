@@ -3,6 +3,7 @@
 [![crates.io](https://img.shields.io/crates/v/srcmap-codec.svg)](https://crates.io/crates/srcmap-codec)
 [![docs.rs](https://docs.rs/srcmap-codec/badge.svg)](https://docs.rs/srcmap-codec)
 [![CI](https://github.com/BartWaardenburg/srcmap/actions/workflows/ci.yml/badge.svg)](https://github.com/BartWaardenburg/srcmap/actions/workflows/ci.yml)
+[![Coverage](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/BartWaardenburg/srcmap/badges/rust-coverage.json)](https://github.com/BartWaardenburg/srcmap/actions/workflows/coverage.yml)
 
 High-performance VLQ source map codec for Rust.
 
