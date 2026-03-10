@@ -42,7 +42,7 @@ A thin wrapper around `@srcmap/sourcemap-wasm` that implements the `@jridgewell/
 - [x] `isIgnored(source)` for `ignoreList` checking
 - [x] `presortedDecodedMap` constructor for pre-decoded input
 - [x] Drop-in benchmark comparison vs trace-mapping
-- [ ] Publish as `@srcmap/trace-mapping` to npm
+- [x] Publish as `@srcmap/trace-mapping` to npm
 
 ## Phase 9: Lookup Bias & Range Mapping
 
