@@ -142,11 +142,21 @@ Agent-friendly command-line interface for inspecting, validating, composing, and
 - [x] Publish `@srcmap/codec` to npm (0.1.2)
 - [x] Publish `@srcmap/sourcemap` to npm (0.1.2)
 - [x] Publish `@srcmap/sourcemap-wasm` to npm (0.1.2)
+- [ ] Publish `@srcmap/generator-wasm` to npm
+- [ ] Publish `@srcmap/remapping-wasm` to npm
+
+## Phase 6: WASM Bindings for Generator + Remapping ✅
+
+Node.js WASM bindings completing the full source map pipeline.
+
+- [x] `@srcmap/generator-wasm` — SourceMapGenerator with full API (addSource, addName, addMapping, addNamedMapping, addGeneratedMapping, maybeAddMapping, setSourceRoot, setSourceContent, addToIgnoreList, toJSON)
+- [x] `@srcmap/remapping-wasm` — ConcatBuilder + remap() with JS callback for upstream map loading
+- [x] Test suites for both packages (25 tests)
 
 ## Future
 
 - [ ] Debug ID support (`debugId` field, part of ECMA-426)
-- [ ] Node.js bindings for generator and remapping (NAPI + WASM)
+- [ ] NAPI bindings for generator and remapping
 - [ ] WASM build target for browser (devtools, playgrounds, edge runtimes)
 - [ ] Scopes & variables support (ECMA-426 proposal — no library supports this yet)
 - [ ] Streaming/lazy decode for very large source maps
