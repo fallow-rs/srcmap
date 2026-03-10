@@ -20,7 +20,19 @@ impl SourceMap {
     /// Returns null if no mapping exists, or an object {source, line, column, name}.
     #[wasm_bindgen(js_name = "originalPositionFor")]
     pub fn original_position_for(&self, line: u32, column: u32) -> JsValue {
-        match self.inner.original_position_for(line, column) {
+        self.original_position_for_with_bias(line, column, 0)
+    }
+
+    /// Look up the original source position with a bias.
+    /// bias: 0 = GREATEST_LOWER_BOUND (default), -1 = LEAST_UPPER_BOUND
+    #[wasm_bindgen(js_name = "originalPositionForWithBias")]
+    pub fn original_position_for_with_bias(&self, line: u32, column: u32, bias: i32) -> JsValue {
+        let b = if bias == -1 {
+            srcmap_sourcemap::Bias::LeastUpperBound
+        } else {
+            srcmap_sourcemap::Bias::GreatestLowerBound
+        };
+        match self.inner.original_position_for_with_bias(line, column, b) {
             Some(loc) => {
                 let obj = js_sys::Object::new();
                 let source = self.inner.source(loc.source);
@@ -42,11 +54,80 @@ impl SourceMap {
     /// Returns null if no mapping exists, or an object {line, column}.
     #[wasm_bindgen(js_name = "generatedPositionFor")]
     pub fn generated_position_for(&self, source: &str, line: u32, column: u32) -> JsValue {
-        match self.inner.generated_position_for(source, line, column) {
+        self.generated_position_for_with_bias(source, line, column, 0)
+    }
+
+    /// Look up the generated position with a bias.
+    /// bias: 0 = default, -1 = LEAST_UPPER_BOUND, 1 = GREATEST_LOWER_BOUND
+    #[wasm_bindgen(js_name = "generatedPositionForWithBias")]
+    pub fn generated_position_for_with_bias(
+        &self,
+        source: &str,
+        line: u32,
+        column: u32,
+        bias: i32,
+    ) -> JsValue {
+        let b = if bias == 1 {
+            srcmap_sourcemap::Bias::GreatestLowerBound
+        } else {
+            srcmap_sourcemap::Bias::LeastUpperBound
+        };
+        match self
+            .inner
+            .generated_position_for_with_bias(source, line, column, b)
+        {
             Some(loc) => {
                 let obj = js_sys::Object::new();
                 js_sys::Reflect::set(&obj, &"line".into(), &loc.line.into()).unwrap_or(false);
                 js_sys::Reflect::set(&obj, &"column".into(), &loc.column.into()).unwrap_or(false);
+                obj.into()
+            }
+            None => JsValue::NULL,
+        }
+    }
+
+    /// Map a generated range to its original range.
+    /// Returns null if either endpoint has no mapping or endpoints map to different sources.
+    #[wasm_bindgen(js_name = "mapRange")]
+    pub fn map_range(
+        &self,
+        start_line: u32,
+        start_column: u32,
+        end_line: u32,
+        end_column: u32,
+    ) -> JsValue {
+        match self
+            .inner
+            .map_range(start_line, start_column, end_line, end_column)
+        {
+            Some(range) => {
+                let obj = js_sys::Object::new();
+                let source = self.inner.source(range.source);
+                js_sys::Reflect::set(&obj, &"source".into(), &source.into()).unwrap_or(false);
+                js_sys::Reflect::set(
+                    &obj,
+                    &"originalStartLine".into(),
+                    &range.original_start_line.into(),
+                )
+                .unwrap_or(false);
+                js_sys::Reflect::set(
+                    &obj,
+                    &"originalStartColumn".into(),
+                    &range.original_start_column.into(),
+                )
+                .unwrap_or(false);
+                js_sys::Reflect::set(
+                    &obj,
+                    &"originalEndLine".into(),
+                    &range.original_end_line.into(),
+                )
+                .unwrap_or(false);
+                js_sys::Reflect::set(
+                    &obj,
+                    &"originalEndColumn".into(),
+                    &range.original_end_column.into(),
+                )
+                .unwrap_or(false);
                 obj.into()
             }
             None => JsValue::NULL,

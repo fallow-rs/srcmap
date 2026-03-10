@@ -42,6 +42,30 @@ impl JsSourceMap {
             })
     }
 
+    /// Look up the original source position with a search bias.
+    /// bias: 0 = GREATEST_LOWER_BOUND (default), -1 = LEAST_UPPER_BOUND
+    #[napi]
+    pub fn original_position_for_with_bias(
+        &self,
+        line: u32,
+        column: u32,
+        bias: i32,
+    ) -> Option<OriginalPosition> {
+        let b = if bias == -1 {
+            srcmap_sourcemap::Bias::LeastUpperBound
+        } else {
+            srcmap_sourcemap::Bias::GreatestLowerBound
+        };
+        self.inner
+            .original_position_for_with_bias(line, column, b)
+            .map(|loc| OriginalPosition {
+                source: Some(self.inner.source(loc.source).to_string()),
+                line: loc.line,
+                column: loc.column,
+                name: loc.name.map(|i| self.inner.name(i).to_string()),
+            })
+    }
+
     /// Look up the generated position for an original source position.
     /// Both line and column are 0-based.
     #[napi]
@@ -53,6 +77,29 @@ impl JsSourceMap {
     ) -> Option<GeneratedPosition> {
         self.inner
             .generated_position_for(&source, line, column)
+            .map(|loc| GeneratedPosition {
+                line: loc.line,
+                column: loc.column,
+            })
+    }
+
+    /// Look up the generated position with a search bias.
+    /// bias: 0 = default, -1 = LEAST_UPPER_BOUND, 1 = GREATEST_LOWER_BOUND
+    #[napi]
+    pub fn generated_position_for_with_bias(
+        &self,
+        source: String,
+        line: u32,
+        column: u32,
+        bias: i32,
+    ) -> Option<GeneratedPosition> {
+        let b = if bias == 1 {
+            srcmap_sourcemap::Bias::GreatestLowerBound
+        } else {
+            srcmap_sourcemap::Bias::LeastUpperBound
+        };
+        self.inner
+            .generated_position_for_with_bias(&source, line, column, b)
             .map(|loc| GeneratedPosition {
                 line: loc.line,
                 column: loc.column,

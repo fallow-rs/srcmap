@@ -67,6 +67,30 @@ pub struct GeneratedLocation {
     pub column: u32,
 }
 
+/// Search bias for position lookups.
+///
+/// Controls how non-exact matches are resolved during binary search:
+/// - `GreatestLowerBound` (default): find the closest mapping at or before the position
+/// - `LeastUpperBound`: find the closest mapping at or after the position
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Bias {
+    /// Return the closest position at or before the requested position (default).
+    #[default]
+    GreatestLowerBound,
+    /// Return the closest position at or after the requested position.
+    LeastUpperBound,
+}
+
+/// A mapped range: original start/end positions for a generated range.
+#[derive(Debug, Clone)]
+pub struct MappedRange {
+    pub source: u32,
+    pub original_start_line: u32,
+    pub original_start_column: u32,
+    pub original_end_line: u32,
+    pub original_end_column: u32,
+}
+
 /// Errors during source map parsing.
 #[derive(Debug)]
 pub enum ParseError {
@@ -398,6 +422,20 @@ impl SourceMap {
     /// Both `line` and `column` are 0-based.
     /// Returns `None` if no mapping exists or the mapping has no source.
     pub fn original_position_for(&self, line: u32, column: u32) -> Option<OriginalLocation> {
+        self.original_position_for_with_bias(line, column, Bias::GreatestLowerBound)
+    }
+
+    /// Look up the original source position with a search bias.
+    ///
+    /// Both `line` and `column` are 0-based.
+    /// - `GreatestLowerBound`: find the closest mapping at or before the column (default)
+    /// - `LeastUpperBound`: find the closest mapping at or after the column
+    pub fn original_position_for_with_bias(
+        &self,
+        line: u32,
+        column: u32,
+        bias: Bias,
+    ) -> Option<OriginalLocation> {
         let line_idx = line as usize;
         if line_idx + 1 >= self.line_offsets.len() {
             return None;
@@ -412,11 +450,27 @@ impl SourceMap {
 
         let line_mappings = &self.mappings[start..end];
 
-        // Binary search: find largest generated_column <= column
-        let idx = match line_mappings.binary_search_by_key(&column, |m| m.generated_column) {
-            Ok(i) => i,
-            Err(0) => return None,
-            Err(i) => i - 1,
+        let idx = match bias {
+            Bias::GreatestLowerBound => {
+                // Find largest generated_column <= column
+                match line_mappings.binary_search_by_key(&column, |m| m.generated_column) {
+                    Ok(i) => i,
+                    Err(0) => return None,
+                    Err(i) => i - 1,
+                }
+            }
+            Bias::LeastUpperBound => {
+                // Find smallest generated_column >= column
+                match line_mappings.binary_search_by_key(&column, |m| m.generated_column) {
+                    Ok(i) => i,
+                    Err(i) => {
+                        if i >= line_mappings.len() {
+                            return None;
+                        }
+                        i
+                    }
+                }
+            }
         };
 
         let mapping = &line_mappings[idx];
@@ -440,11 +494,27 @@ impl SourceMap {
     /// Look up the generated position for an original source position.
     ///
     /// `source` is the source filename. `line` and `column` are 0-based.
+    /// Uses `LeastUpperBound` by default (finds first mapping at or after the position).
     pub fn generated_position_for(
         &self,
         source: &str,
         line: u32,
         column: u32,
+    ) -> Option<GeneratedLocation> {
+        self.generated_position_for_with_bias(source, line, column, Bias::LeastUpperBound)
+    }
+
+    /// Look up the generated position with a search bias.
+    ///
+    /// `source` is the source filename. `line` and `column` are 0-based.
+    /// - `GreatestLowerBound`: find the closest mapping at or before the position (default)
+    /// - `LeastUpperBound`: find the closest mapping at or after the position
+    pub fn generated_position_for_with_bias(
+        &self,
+        source: &str,
+        line: u32,
+        column: u32,
+        bias: Bias,
     ) -> Option<GeneratedLocation> {
         let &source_idx = self.source_map.get(source)?;
 
@@ -458,20 +528,50 @@ impl SourceMap {
             (m.source, m.original_line, m.original_column) < (source_idx, line, column)
         });
 
-        if idx >= reverse_index.len() {
-            return None;
+        match bias {
+            Bias::GreatestLowerBound => {
+                // partition_point gives us the first element >= target.
+                // For GLB, we want the element at or before.
+                // If exact match at idx, use it. Otherwise use idx-1.
+                if idx < reverse_index.len() {
+                    let mapping = &self.mappings[reverse_index[idx] as usize];
+                    if mapping.source == source_idx
+                        && mapping.original_line == line
+                        && mapping.original_column == column
+                    {
+                        return Some(GeneratedLocation {
+                            line: mapping.generated_line,
+                            column: mapping.generated_column,
+                        });
+                    }
+                }
+                // No exact match: use the element before (greatest lower bound)
+                if idx == 0 {
+                    return None;
+                }
+                let mapping = &self.mappings[reverse_index[idx - 1] as usize];
+                if mapping.source != source_idx {
+                    return None;
+                }
+                Some(GeneratedLocation {
+                    line: mapping.generated_line,
+                    column: mapping.generated_column,
+                })
+            }
+            Bias::LeastUpperBound => {
+                if idx >= reverse_index.len() {
+                    return None;
+                }
+                let mapping = &self.mappings[reverse_index[idx] as usize];
+                if mapping.source != source_idx {
+                    return None;
+                }
+                Some(GeneratedLocation {
+                    line: mapping.generated_line,
+                    column: mapping.generated_column,
+                })
+            }
         }
-
-        let mapping = &self.mappings[reverse_index[idx] as usize];
-
-        if mapping.source != source_idx {
-            return None;
-        }
-
-        Some(GeneratedLocation {
-            line: mapping.generated_line,
-            column: mapping.generated_column,
-        })
     }
 
     /// Find all generated positions for an original source position.
@@ -512,6 +612,35 @@ impl SourceMap {
         }
 
         results
+    }
+
+    /// Map a generated range to its original range.
+    ///
+    /// Given a generated range `(start_line:start_column → end_line:end_column)`,
+    /// maps both endpoints through the source map and returns the original range.
+    /// Both endpoints must resolve to the same source file.
+    pub fn map_range(
+        &self,
+        start_line: u32,
+        start_column: u32,
+        end_line: u32,
+        end_column: u32,
+    ) -> Option<MappedRange> {
+        let start = self.original_position_for(start_line, start_column)?;
+        let end = self.original_position_for(end_line, end_column)?;
+
+        // Both endpoints must map to the same source
+        if start.source != end.source {
+            return None;
+        }
+
+        Some(MappedRange {
+            source: start.source,
+            original_start_line: start.line,
+            original_start_column: start.column,
+            original_end_line: end.line,
+            original_end_column: end.column,
+        })
     }
 
     /// Resolve a source index to its filename.
@@ -2288,5 +2417,131 @@ mod tests {
                 .join(","),
             encoded,
         )
+    }
+
+    // ── Bias tests ───────────────────────────────────────────────
+
+    /// Map with multiple mappings per line for bias testing:
+    /// Line 0: col 0 → src:0:0, col 5 → src:0:5, col 10 → src:0:10
+    fn bias_map() -> &'static str {
+        // AAAA = 0,0,0,0  KAAK = 5,0,0,5  KAAK = 5,0,0,5 (delta)
+        r#"{"version":3,"sources":["input.js"],"names":[],"mappings":"AAAA,KAAK,KAAK"}"#
+    }
+
+    #[test]
+    fn original_position_glb_exact_match() {
+        let sm = SourceMap::from_json(bias_map()).unwrap();
+        let loc = sm
+            .original_position_for_with_bias(0, 5, Bias::GreatestLowerBound)
+            .unwrap();
+        assert_eq!(loc.column, 5);
+    }
+
+    #[test]
+    fn original_position_glb_snaps_left() {
+        let sm = SourceMap::from_json(bias_map()).unwrap();
+        // Column 7 should snap to the mapping at column 5
+        let loc = sm
+            .original_position_for_with_bias(0, 7, Bias::GreatestLowerBound)
+            .unwrap();
+        assert_eq!(loc.column, 5);
+    }
+
+    #[test]
+    fn original_position_lub_exact_match() {
+        let sm = SourceMap::from_json(bias_map()).unwrap();
+        let loc = sm
+            .original_position_for_with_bias(0, 5, Bias::LeastUpperBound)
+            .unwrap();
+        assert_eq!(loc.column, 5);
+    }
+
+    #[test]
+    fn original_position_lub_snaps_right() {
+        let sm = SourceMap::from_json(bias_map()).unwrap();
+        // Column 3 with LUB should snap to the mapping at column 5
+        let loc = sm
+            .original_position_for_with_bias(0, 3, Bias::LeastUpperBound)
+            .unwrap();
+        assert_eq!(loc.column, 5);
+    }
+
+    #[test]
+    fn original_position_lub_before_first() {
+        let sm = SourceMap::from_json(bias_map()).unwrap();
+        // Column 0 with LUB should find mapping at column 0
+        let loc = sm
+            .original_position_for_with_bias(0, 0, Bias::LeastUpperBound)
+            .unwrap();
+        assert_eq!(loc.column, 0);
+    }
+
+    #[test]
+    fn original_position_lub_after_last() {
+        let sm = SourceMap::from_json(bias_map()).unwrap();
+        // Column 15 with LUB should return None (no mapping at or after 15)
+        let loc = sm.original_position_for_with_bias(0, 15, Bias::LeastUpperBound);
+        assert!(loc.is_none());
+    }
+
+    #[test]
+    fn original_position_glb_before_first() {
+        let sm = SourceMap::from_json(bias_map()).unwrap();
+        // Column 0 with GLB should find mapping at column 0
+        let loc = sm
+            .original_position_for_with_bias(0, 0, Bias::GreatestLowerBound)
+            .unwrap();
+        assert_eq!(loc.column, 0);
+    }
+
+    #[test]
+    fn generated_position_lub() {
+        let sm = SourceMap::from_json(bias_map()).unwrap();
+        // LUB: find first generated position at or after original col 3
+        let loc = sm
+            .generated_position_for_with_bias("input.js", 0, 3, Bias::LeastUpperBound)
+            .unwrap();
+        assert_eq!(loc.column, 5);
+    }
+
+    #[test]
+    fn generated_position_glb() {
+        let sm = SourceMap::from_json(bias_map()).unwrap();
+        // GLB: find last generated position at or before original col 7
+        let loc = sm
+            .generated_position_for_with_bias("input.js", 0, 7, Bias::GreatestLowerBound)
+            .unwrap();
+        assert_eq!(loc.column, 5);
+    }
+
+    // ── Range mapping tests ──────────────────────────────────────
+
+    #[test]
+    fn map_range_basic() {
+        let sm = SourceMap::from_json(bias_map()).unwrap();
+        let range = sm.map_range(0, 0, 0, 10).unwrap();
+        assert_eq!(range.source, 0);
+        assert_eq!(range.original_start_line, 0);
+        assert_eq!(range.original_start_column, 0);
+        assert_eq!(range.original_end_line, 0);
+        assert_eq!(range.original_end_column, 10);
+    }
+
+    #[test]
+    fn map_range_no_mapping() {
+        let sm = SourceMap::from_json(bias_map()).unwrap();
+        // Line 5 doesn't exist
+        let range = sm.map_range(0, 0, 5, 0);
+        assert!(range.is_none());
+    }
+
+    #[test]
+    fn map_range_different_sources() {
+        // Map with two sources: line 0 → src0, line 1 → src1
+        let json = r#"{"version":3,"sources":["a.js","b.js"],"names":[],"mappings":"AAAA;ACAA"}"#;
+        let sm = SourceMap::from_json(json).unwrap();
+        // Start maps to a.js, end maps to b.js → should return None
+        let range = sm.map_range(0, 0, 1, 0);
+        assert!(range.is_none());
     }
 }

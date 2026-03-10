@@ -48,11 +48,11 @@ A thin wrapper around `@srcmap/sourcemap-wasm` that implements the `@jridgewell/
 
 Critical for coverage mapping and stack trace resolution where exact positions often don't match.
 
-- [ ] **Bias parameter** — `LEAST_UPPER_BOUND` / `GREATEST_LOWER_BOUND` on `originalPositionFor` and `generatedPositionFor`
-- [ ] **Range-to-range mapping** — map a range `(startLine:startCol → endLine:endCol)` through a source map, not just individual positions
-- [ ] **`allGeneratedPositionsFor`** — return all generated positions for a given original location
-- [ ] Expose bias in WASM and NAPI bindings
-- [ ] Expose bias in CLI `lookup` and `resolve` commands
+- [x] **Bias parameter** — `LEAST_UPPER_BOUND` / `GREATEST_LOWER_BOUND` on `originalPositionFor` and `generatedPositionFor`
+- [x] **Range-to-range mapping** — map a range `(startLine:startCol → endLine:endCol)` through a source map, not just individual positions
+- [x] **`allGeneratedPositionsFor`** — return all generated positions for a given original location
+- [x] Expose bias in WASM and NAPI bindings
+- [x] Expose bias in CLI `lookup` and `resolve` commands
 
 ## Phase 10: Extension Fields & Spec Conformance
 

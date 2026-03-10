@@ -6,7 +6,7 @@ use std::process::ExitCode;
 use clap::{Parser, Subcommand};
 use srcmap_codec::{decode, encode};
 use srcmap_remapping::{ConcatBuilder, remap};
-use srcmap_sourcemap::SourceMap;
+use srcmap_sourcemap::{Bias, SourceMap};
 
 // ── CLI definition ───────────────────────────────────────────────
 
@@ -54,6 +54,10 @@ enum Command {
         /// Generated column (0-based)
         column: u32,
 
+        /// Search bias: "glb" (default, greatest lower bound) or "lub" (least upper bound)
+        #[arg(long, default_value = "glb")]
+        bias: String,
+
         /// Output as JSON
         #[arg(long)]
         json: bool,
@@ -73,6 +77,10 @@ enum Command {
 
         /// Original column (0-based)
         column: u32,
+
+        /// Search bias: "lub" (default, least upper bound) or "glb" (greatest lower bound)
+        #[arg(long, default_value = "lub")]
+        bias: String,
 
         /// Output as JSON
         #[arg(long)]
@@ -488,10 +496,27 @@ fn cmd_validate(file: &PathBuf, json: bool) -> Result<bool, CliError> {
     }
 }
 
-fn cmd_lookup(file: &PathBuf, line: u32, column: u32, json: bool) -> Result<(), CliError> {
+fn parse_bias(s: &str) -> Result<Bias, CliError> {
+    match s {
+        "glb" | "greatest-lower-bound" => Ok(Bias::GreatestLowerBound),
+        "lub" | "least-upper-bound" => Ok(Bias::LeastUpperBound),
+        _ => Err(CliError::invalid_input(format!(
+            "invalid bias: {s} (expected \"glb\" or \"lub\")"
+        ))),
+    }
+}
+
+fn cmd_lookup(
+    file: &PathBuf,
+    line: u32,
+    column: u32,
+    bias: &str,
+    json: bool,
+) -> Result<(), CliError> {
+    let b = parse_bias(bias)?;
     let (sm, _) = parse_source_map(file)?;
 
-    match sm.original_position_for(line, column) {
+    match sm.original_position_for_with_bias(line, column, b) {
         Some(loc) => {
             let source = sm.source(loc.source);
             let name = loc.name.map(|n| sm.name(n).to_string());
@@ -526,12 +551,14 @@ fn cmd_resolve(
     source: &str,
     line: u32,
     column: u32,
+    bias: &str,
     json: bool,
 ) -> Result<(), CliError> {
+    let b = parse_bias(bias)?;
     reject_control_chars(source, "source")?;
     let (sm, _) = parse_source_map(file)?;
 
-    match sm.generated_position_for(source, line, column) {
+    match sm.generated_position_for_with_bias(source, line, column, b) {
         Some(loc) => {
             if json {
                 let obj = serde_json::json!({
@@ -997,6 +1024,7 @@ fn cmd_schema() -> Result<(), CliError> {
                     {"name": "column", "type": "u32", "required": true, "description": "Generated column (0-based)"}
                 ],
                 "flags": {
+                    "--bias": {"type": "string", "default": "glb", "description": "Search bias: glb (greatest lower bound) or lub (least upper bound)"},
                     "--json": {"type": "bool", "default": false, "description": "Output as JSON"}
                 }
             },
@@ -1010,6 +1038,7 @@ fn cmd_schema() -> Result<(), CliError> {
                 ],
                 "flags": {
                     "--source": {"type": "string", "required": true, "description": "Source filename to look up"},
+                    "--bias": {"type": "string", "default": "lub", "description": "Search bias: lub (least upper bound) or glb (greatest lower bound)"},
                     "--json": {"type": "bool", "default": false, "description": "Output as JSON"}
                 }
             },
@@ -1114,15 +1143,17 @@ fn main() -> ExitCode {
             file,
             line,
             column,
+            bias,
             json,
-        } => cmd_lookup(file, *line, *column, *json),
+        } => cmd_lookup(file, *line, *column, bias, *json),
         Command::Resolve {
             file,
             source,
             line,
             column,
+            bias,
             json,
-        } => cmd_resolve(file, source, *line, *column, *json),
+        } => cmd_resolve(file, source, *line, *column, bias, *json),
         Command::Decode { mappings, compact } => cmd_decode(mappings.clone(), *compact),
         Command::Encode { file, json } => cmd_encode(file.clone(), *json),
         Command::Mappings {
