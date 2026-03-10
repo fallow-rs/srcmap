@@ -1,4 +1,4 @@
-import { SourceMap } from '../../sourcemap-wasm/pkg/srcmap_sourcemap_wasm.js'
+import { SourceMap } from '@srcmap/sourcemap-wasm'
 
 // ── Constants ────────────────────────────────────────────────────
 

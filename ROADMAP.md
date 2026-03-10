@@ -42,7 +42,7 @@ A thin wrapper around `@srcmap/sourcemap-wasm` that implements the `@jridgewell/
 - [x] `isIgnored(source)` for `ignoreList` checking
 - [x] `presortedDecodedMap` constructor for pre-decoded input
 - [x] Drop-in benchmark comparison vs trace-mapping
-- [ ] Publish as `@srcmap/trace-mapping` to npm
+- [x] Publish as `@srcmap/trace-mapping` to npm
 
 ## Phase 9: Lookup Bias & Range Mapping
 
@@ -86,9 +86,9 @@ WASM builds targeting browsers for DevTools extensions, online playgrounds, and 
 
 ## Performance & Scalability
 
-- [ ] **Streaming/lazy decode** — parse source map JSON lazily, only decoding mappings on demand (for 100MB+ maps)
-- [ ] **Incremental parsing** — decode only a subset of mappings (e.g., lines 100-200) without processing the entire map
-- [ ] **Generator `toDecodedMap`** — output decoded segments directly, avoiding encode-then-decode round-trips in composition pipelines
+- [x] **Streaming/lazy decode** — parse source map JSON lazily, only decoding mappings on demand (for 100MB+ maps)
+- [x] **Incremental parsing** — decode only a subset of mappings (e.g., lines 100-200) without processing the entire map
+- [x] **Generator `toDecodedMap`** — output decoded segments directly, avoiding encode-then-decode round-trips in composition pipelines
 
 ## Binding Gaps
 
@@ -96,13 +96,13 @@ WASM builds targeting browsers for DevTools extensions, online playgrounds, and 
 |---------|------|------|------|
 | Codec | yes | yes | no |
 | Sourcemap | yes | yes | yes |
-| Generator | yes | no | yes |
-| Remapping | yes | no | yes |
-| Scopes | yes | no | no |
+| Generator | yes | yes | yes |
+| Remapping | yes | yes | yes |
+| Scopes | yes | no | yes |
 
-- [ ] WASM bindings for scopes decode/encode
-- [ ] NAPI bindings for generator
-- [ ] NAPI bindings for remapping
+- [x] WASM bindings for scopes decode/encode
+- [x] NAPI bindings for generator
+- [x] NAPI bindings for remapping
 
 ## Non-goals
 
