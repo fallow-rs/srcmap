@@ -208,7 +208,7 @@ const name = results[3] >= 0 ? sm.name(results[3]) : null;
 
 ```bash
 # Install
-cargo install --path crates/cli
+cargo install srcmap-cli
 
 # Inspect a source map
 srcmap info bundle.js.map
@@ -271,21 +271,21 @@ Key design decisions that make srcmap fast:
 
 See [ROADMAP.md](ROADMAP.md) for the full development plan. Current status:
 
-- [x] **Phase 0**: Hardened VLQ codec with error handling and safety guards
-- [x] **Phase 1**: VLQ codec crate + NAPI bindings
-- [x] **Phase 2**: Source map parser + consumer with NAPI and WASM bindings
-- [x] **Phase 3**: Source map generator
-- [x] **Phase 4**: Concatenation + composition/remapping (first standalone Rust implementation)
-- [x] **Phase 5**: CLI tool with agent-friendly structured output, introspection, and input hardening
-- [x] **Phase 6**: WASM bindings for generator and remapping
-- [x] **Phase 7**: Scopes & variables (first Rust implementation of the ECMA-426 scopes proposal)
-- [x] **Published**: All crates on crates.io and npm packages on npm (0.1.3)
-- [ ] **Future**: WASM browser target, NAPI bindings for generator/remapping
+- [x] VLQ codec with error handling, safety guards, and NAPI bindings
+- [x] Source map parser + consumer with NAPI and WASM bindings
+- [x] Source map generator with WASM bindings
+- [x] Concatenation + composition/remapping with WASM bindings
+- [x] CLI tool with structured JSON output and agent introspection
+- [x] Scopes & variables (first Rust implementation of the ECMA-426 scopes proposal)
+- [ ] Drop-in trace-mapping compatibility wrapper
+- [ ] Lookup bias (LEAST_UPPER_BOUND / GREATEST_LOWER_BOUND)
+- [ ] Stack trace symbolication API
+- [ ] Browser WASM target
 
 ## Development
 
 ```bash
-# Run all Rust tests (182 tests)
+# Run all Rust tests
 cargo test --workspace
 
 # Run Criterion benchmarks

@@ -2,6 +2,20 @@
 
 High-performance source map tooling in Rust, with Node.js bindings via NAPI and WASM.
 
+## Completed
+
+| Phase | Description |
+|-------|-------------|
+| **Phase 0** | Hardened VLQ codec with error handling and safety guards |
+| **Phase 1** | VLQ codec crate + NAPI bindings, published to crates.io and npm |
+| **Phase 2** | Source map parser + consumer with NAPI and WASM bindings (batch API 1.3-1.5x faster than trace-mapping) |
+| **Phase 3** | Source map generator with parallel VLQ encoding |
+| **Phase 4** | Concatenation + composition/remapping (first standalone Rust implementation) |
+| **Phase 5** | CLI tool with 9 subcommands, structured JSON output, agent introspection, input hardening |
+| **Phase 6** | WASM bindings for generator and remapping |
+| **Phase 7** | Scopes & variables — first Rust implementation of the ECMA-426 scopes proposal |
+| **Publishing** | All 6 crates on crates.io, all 5 npm packages published |
+
 ## Competitive Landscape
 
 | Crate | Maintainer | Strength | Limitation |
@@ -11,172 +25,83 @@ High-performance source map tooling in Rust, with Node.js bindings via NAPI and 
 | `parcel_sourcemap` | Parcel | WASM target, fast concat | Parcel-specific, no standalone use |
 | `swc_sourcemap` | SWC | Lazy deserialization | SWC-internal, not reusable |
 
-**Gap**: No standalone Rust crate provides parallel encoding + map composition/remapping + concat + both NAPI and WASM targets.
-
-## Performance Status
-
-### Rust Core (crates/sourcemap)
-| Operation | srcmap (Rust) | @jridgewell/trace-mapping (JS) |
-|-----------|--------------|-------------------------------|
-| Parse 100K segments | 718μs | 326μs (V8 JSON.parse advantage) |
-| Single lookup | **3ns** | 24ns (**8x faster**) |
-| 1000x lookups | **5.5μs** | 15μs (**2.7x faster**) |
-
-### Node.js WASM Binding (batch API)
-| Operation | srcmap WASM batch | trace-mapping JS | Speedup |
-|-----------|------------------|-----------------|---------|
-| Medium 1000x lookup | **12.9μs** | 14.9μs | **1.15x faster** |
-| Large 1000x lookup | **14.8μs** | 22.0μs | **1.49x faster** |
-| Per lookup (batch) | **13-15ns** | 15-22ns | **~1.3x faster** |
-
-### Node.js NAPI Binding
-NAPI adds ~300ns per function call and ~2ms for large string marshalling. Individual NAPI lookups are uncompetitive, but batch lookups through WASM beat trace-mapping.
-
-| Operation | srcmap NAPI | srcmap WASM individual | trace-mapping JS |
-|-----------|------------|----------------------|-----------------|
-| Parse 100K | 3,138μs | 3,702μs | 326μs |
-| Single lookup | 351ns | 778ns | 25ns |
-| Batch 1000x | 160μs | **13-15μs** | 15-22μs |
-
-**Strategy**: WASM batch API is the competitive path for Node.js/browser. NAPI for integration with other native modules. Rust crate for build tools.
+**Gap**: No standalone Rust crate provides parallel encoding + map composition/remapping + concat + scopes + both NAPI and WASM targets.
 
 ---
 
-## Phase 0: Harden Codec ✅
+## Phase 8: Drop-in trace-mapping Compatibility
 
-- [x] Error handling: return `Result` from `decode`/`vlq_decode` instead of panicking on malformed input
-- [x] Guard `vlq_decode` against non-ASCII bytes (OOB on `BASE64_DECODE[128]`)
-- [x] Cap VLQ shift to prevent overflow/infinite loop on crafted input
-- [x] Guard `vlq_encode` against `i64::MIN` (negation overflow — uses u64 internally)
-- [x] Fix `encode` emitting dangling commas for empty segments
-- [x] Verify trailing `;` behavior matches `@jridgewell/sourcemap-codec`
-- [x] Add adversarial/fuzz tests (invalid base64, truncated VLQ, non-ASCII, truncated segments)
-- [x] Add realistic benchmark fixture (varied deltas, multi-byte VLQ sequences)
-- [x] Remove unused `serde-json` feature and `serde_json` dependency from NAPI package
+A thin wrapper around `@srcmap/sourcemap-wasm` that implements the `@jridgewell/trace-mapping` API surface. Enables zero-effort migration for the 80M+ weekly downloads ecosystem.
 
-## Phase 1: Publish Codec ✅
+- [ ] `TraceMap` class matching `@jridgewell/trace-mapping` API
+- [ ] `originalPositionFor` / `generatedPositionFor` with matching return types
+- [ ] `allGeneratedPositionsFor(source, line, column)` — all generated positions for a given original location (needed for breakpoint setting)
+- [ ] `eachMapping(callback)` iteration API
+- [ ] `sourceContentFor(source)` convenience accessor
+- [ ] `isIgnored(source)` for `ignoreList` checking
+- [ ] `presortedDecodedMap` constructor for pre-decoded input
+- [ ] Drop-in benchmark comparison vs trace-mapping
+- [ ] Publish as `@srcmap/trace-mapping` to npm
 
-- [x] VLQ encode/decode primitives
-- [x] Source map mappings decode (`mappings` string → structured data)
-- [x] Source map mappings encode (structured data → `mappings` string)
-- [x] Node.js NAPI bindings (`@srcmap/codec`)
-- [x] Criterion benchmarks (Rust)
-- [x] Comparative benchmarks vs `@jridgewell/sourcemap-codec`
-- [x] README with usage examples and benchmark results
-- [x] LICENSE file (MIT)
-- [x] GitHub Actions CI: test on Linux, macOS, Windows
-- [x] GitHub Actions release workflow: build native binaries for all platforms
-- [x] Add `exports` field to package.json for ESM consumers
-- [x] Publish `srcmap-codec` to crates.io (0.1.2)
-- [x] Publish `@srcmap/codec` to npm (0.1.2)
+## Phase 9: Lookup Bias & Range Mapping
 
-## Phase 2: Source Map Parser + Consumer ✅
+Critical for coverage mapping and stack trace resolution where exact positions often don't match.
 
-Parser and consumer are tightly coupled — ship together as one crate.
-Matches `@jridgewell/trace-mapping` in the JS ecosystem.
+- [ ] **Bias parameter** — `LEAST_UPPER_BOUND` / `GREATEST_LOWER_BOUND` on `originalPositionFor` and `generatedPositionFor`
+- [ ] **Range-to-range mapping** — map a range `(startLine:startCol → endLine:endCol)` through a source map, not just individual positions
+- [ ] **`allGeneratedPositionsFor`** — return all generated positions for a given original location
+- [ ] Expose bias in WASM and NAPI bindings
+- [ ] Expose bias in CLI `lookup` and `resolve` commands
 
-- [x] `crates/sourcemap` — full source map v3 parser (ECMA-426)
-- [x] Parse all fields: `version`, `sources`, `sourcesContent`, `names`, `file`, `sourceRoot`, `mappings`
-- [x] Support `ignoreList` field (third-party source filtering)
-- [x] Validation and structured error reporting
-- [x] Original position lookup: `original_position_for(line, col)` — binary search, O(log n)
-- [x] Generated position lookup: `generated_position_for(source, line, col)` — reverse index
-- [x] Iterate all mappings / mappings for a given source file
-- [x] Compact Mapping struct (24 bytes, 6×u32) — cache-friendly flat layout
-- [x] Lazy reverse index — only built on first `generated_position_for` call
-- [x] Inlined VLQ decoder with single-char fast path
-- [x] Node.js NAPI bindings (`@srcmap/sourcemap`) with batch API
-- [x] Criterion benchmarks (Rust) + comparative benchmarks vs trace-mapping
-- [x] Correctness verification against trace-mapping
-- [x] Support indexed source maps (sections)
-- [x] WASM bindings (`@srcmap/sourcemap-wasm`) — batch API **1.3-1.5x faster** than trace-mapping
-- [x] README with usage examples and benchmark results
-- [x] Comprehensive test suite (90+ tests: edge cases, malformed input, spec conformance)
+## Phase 10: Extension Fields & Spec Conformance
 
-## Phase 3: Source Map Generator ✅
+- [ ] **Extension field passthrough** — preserve unknown `x_*` fields when reading and re-emitting source maps (tools like Metro use `x_facebook_sources`, Chrome uses `x_google_linecount`)
+- [ ] **`x_google_ignoreList` fallback** — read deprecated field when `ignoreList` is absent
+- [ ] **`sourceMappingURL` parsing** — extract source map references from generated files (inline data URIs and external URLs)
+- [ ] **tc39/source-map-tests integration** — run the official cross-implementation conformance test suite in CI
+- [ ] **Deep validation** — bounds checking, segment ordering, source resolution, unreferenced sources detection (beyond JSON schema validation)
+- [ ] **`excludeContent` option** — strip `sourcesContent` from output to reduce map size
 
-Matches `@jridgewell/gen-mapping` in the JS ecosystem.
+## Phase 11: Stack Trace Symbolication
 
-- [x] Build source maps from scratch
-- [x] `add_mapping(generated, original, source, name)` — incremental segment addition
-- [x] `maybe_add_mapping` — skip redundant mappings (important for map size)
-- [x] `sourcesContent` embedding
-- [x] Parallel VLQ encoding (encode segments concurrently, join results) — `parallel` feature, 1.2-1.5x faster at scale
-- [x] Parallel `sourcesContent` JSON quoting (expensive for large sources) — `parallel` feature
-- [x] Output to JSON (`to_json`) — generates valid source map v3 JSON
+High-value feature — no good standalone library exists for this.
 
-## Phase 4: Concatenation + Composition ✅
+- [ ] **Stack trace parser** — parse V8, SpiderMonkey, and JavaScriptCore stack trace formats into structured frames
+- [ ] **`symbolicate(stackTrace, sourceMapLoader)`** — resolve each frame through source maps, return readable stack trace
+- [ ] **Batch symbolication** — resolve multiple stack traces against pre-loaded source maps efficiently (error monitoring use case)
+- [ ] **Debug ID resolution** — given a `debugId`, look up the corresponding source map
+- [ ] CLI `symbolicate` command with `--json` output
+- [ ] WASM bindings for browser-side symbolication
 
-The biggest gap in the Rust ecosystem. Matches `@ampproject/remapping` (39M weekly npm downloads).
+## Phase 12: Browser WASM Target
 
-- [x] **Source map concatenation** — merge maps from bundled files, rebase line/column offsets
-  - Used by every bundler (esbuild, Rollup, Webpack, Rolldown)
-  - `ConcatBuilder` API with source/name deduplication
-- [x] **Source map composition/remapping** — chain maps through multiple transforms
-  - TS → JS → minified: compose 2+ maps into one pointing to original source
-  - Loader-based API: `remap(output_map, |source| load_upstream_map(source))`
-  - First standalone Rust implementation
+WASM builds targeting browsers for DevTools extensions, online playgrounds, and edge runtimes.
 
-## Phase 5: CLI Tool ✅
+- [ ] `--target web` and `--target bundler` builds for all WASM packages
+- [ ] Minimal JS wrapper with async initialization
+- [ ] Bundle size optimization (tree-shaking, wasm-opt)
+- [ ] Published to npm with `browser` and `module` exports
+- [ ] Example: source map visualization web component
 
-Agent-friendly command-line interface for inspecting, validating, composing, and manipulating source maps.
+## Performance & Scalability
 
-- [x] 9 subcommands: `info`, `validate`, `lookup`, `resolve`, `decode`, `encode`, `mappings`, `concat`, `remap`
-- [x] `--json` flag on all commands for structured machine-readable output
-- [x] `srcmap schema` command — runtime introspection of all commands, args, types, and flags as JSON
-- [x] `--dry-run` for mutating commands (`concat`, `remap`) — validate without writing
-- [x] Structured JSON error output with error codes (`IO_ERROR`, `PARSE_ERROR`, `NOT_FOUND`, `VALIDATION_ERROR`, `PATH_TRAVERSAL`, `INVALID_INPUT`)
-- [x] Input hardening: reject control characters, path traversals, percent-encoding, `?`/`#` in source names
-- [x] Output path sandboxing — all file writes validated against CWD
-- [x] Remap directory search sandboxed — canonicalized paths verified within search directory
-- [x] stdin support (`-`) for all file-reading commands
-- [x] Pagination metadata (`total`, `offset`, `hasMore`) in `mappings --json` output
+- [ ] **Streaming/lazy decode** — parse source map JSON lazily, only decoding mappings on demand (for 100MB+ maps)
+- [ ] **Incremental parsing** — decode only a subset of mappings (e.g., lines 100-200) without processing the entire map
+- [ ] **Generator `toDecodedMap`** — output decoded segments directly, avoiding encode-then-decode round-trips in composition pipelines
 
-## Publishing
+## Binding Gaps
 
-- [x] Publish `srcmap-codec` to crates.io (0.1.3)
-- [x] Publish `srcmap-sourcemap` to crates.io (0.1.3)
-- [x] Publish `srcmap-generator` to crates.io (0.1.3)
-- [x] Publish `srcmap-remapping` to crates.io (0.1.3)
-- [x] Publish `srcmap-scopes` to crates.io (0.1.3)
-- [x] Publish `srcmap-cli` to crates.io (0.1.3)
-- [x] Publish `@srcmap/codec` to npm (0.1.3)
-- [x] Publish `@srcmap/sourcemap` to npm (0.1.3)
-- [x] Publish `@srcmap/sourcemap-wasm` to npm (0.1.3)
-- [x] Publish `@srcmap/generator-wasm` to npm (0.1.3)
-- [x] Publish `@srcmap/remapping-wasm` to npm (0.1.3)
+| Feature | Rust | NAPI | WASM |
+|---------|------|------|------|
+| Codec | yes | yes | no |
+| Sourcemap | yes | yes | yes |
+| Generator | yes | no | yes |
+| Remapping | yes | no | yes |
+| Scopes | yes | no | no |
 
-## Phase 6: WASM Bindings for Generator + Remapping ✅
-
-Node.js WASM bindings completing the full source map pipeline.
-
-- [x] `@srcmap/generator-wasm` — SourceMapGenerator with full API (addSource, addName, addMapping, addNamedMapping, addGeneratedMapping, maybeAddMapping, setSourceRoot, setSourceContent, addToIgnoreList, toJSON)
-- [x] `@srcmap/remapping-wasm` — ConcatBuilder + remap() with JS callback for upstream map loading
-- [x] Test suites for both packages (25 tests)
-
-## Phase 7: Scopes & Variables (ECMA-426 Scopes Proposal) ✅
-
-First Rust implementation of the ECMA-426 scopes proposal (Stage 3). Enables debuggers to reconstruct original scope trees, variable bindings, and inlined function call sites.
-
-- [x] New `srcmap-scopes` crate with full encode/decode
-- [x] Tag-based VLQ encoding: B (scope start), C (scope end), D (variables), E (range start), F (range end), G (bindings), H (sub-range bindings), I (call site)
-- [x] Unsigned VLQ primitives added to `srcmap-codec`
-- [x] Original scope trees with nesting, names, kinds, stack frame flags, and variable lists
-- [x] Generated ranges with nesting, definition references, bindings, sub-range bindings, and call sites
-- [x] Delta/relative encoding for positions, names, kinds, variables, and definitions
-- [x] Integration with `srcmap-sourcemap` parser (`scopes` field parsed automatically)
-- [x] Integration with `srcmap-generator` (`set_scopes()` + `scopes` field in JSON output)
-- [x] Full roundtrip encode → decode tests (14 scopes tests + 2 integration tests)
-- [x] Definition resolution helper (`original_scope_for_definition`)
-
-## Future
-
-- [x] Debug ID support (`debugId` field, part of ECMA-426)
-- [x] Scopes & variables support (ECMA-426 scopes proposal) — **first Rust implementation**
-- [ ] NAPI bindings for generator and remapping
-- [ ] WASM build target for browser (devtools, playgrounds, edge runtimes)
 - [ ] WASM bindings for scopes decode/encode
-- [ ] Streaming/lazy decode for very large source maps
+- [ ] NAPI bindings for generator
+- [ ] NAPI bindings for remapping
 
 ## Non-goals
 
