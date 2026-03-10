@@ -677,12 +677,32 @@ dependencies = [
 ]
 
 [[package]]
+name = "srcmap-generator-wasm"
+version = "0.1.2"
+dependencies = [
+ "js-sys",
+ "srcmap-generator",
+ "srcmap-sourcemap",
+ "wasm-bindgen",
+]
+
+[[package]]
 name = "srcmap-remapping"
 version = "0.1.2"
 dependencies = [
  "srcmap-codec",
  "srcmap-generator",
  "srcmap-sourcemap",
+]
+
+[[package]]
+name = "srcmap-remapping-wasm"
+version = "0.1.2"
+dependencies = [
+ "js-sys",
+ "srcmap-remapping",
+ "srcmap-sourcemap",
+ "wasm-bindgen",
 ]
 
 [[package]]

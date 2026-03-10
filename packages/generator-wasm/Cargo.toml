@@ -1,0 +1,20 @@
+[package]
+name = "srcmap-generator-wasm"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "WebAssembly bindings for srcmap-generator"
+publish = false
+
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+srcmap-generator = { workspace = true }
+srcmap-sourcemap = { workspace = true }
+wasm-bindgen = "0.2"
+js-sys = "0.3"
