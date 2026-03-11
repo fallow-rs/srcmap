@@ -42,6 +42,7 @@ impl SourceMap {
     /// then only the VLQ mappings string is sent to WASM for decoding.
     /// Avoids copying large sourcesContent into WASM linear memory.
     #[wasm_bindgen(js_name = "fromVlq")]
+    #[allow(clippy::too_many_arguments)]
     pub fn from_vlq(
         mappings: &str,
         sources: Vec<JsValue>,
@@ -60,10 +61,8 @@ impl SourceMap {
             .iter()
             .map(|s| s.as_string().unwrap_or_default())
             .collect();
-        let sources_content: Vec<Option<String>> = sources_content
-            .iter()
-            .map(|s| s.as_string())
-            .collect();
+        let sources_content: Vec<Option<String>> =
+            sources_content.iter().map(|s| s.as_string()).collect();
 
         let inner = srcmap_sourcemap::SourceMap::from_vlq(
             mappings,

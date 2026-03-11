@@ -922,6 +922,7 @@ impl SourceMap {
     /// This is the fast path for WASM: JS does `JSON.parse()` (V8-native speed),
     /// then only the VLQ mappings string crosses into WASM for decoding.
     /// Avoids copying large `sourcesContent` into WASM linear memory.
+    #[allow(clippy::too_many_arguments)]
     pub fn from_vlq(
         mappings_str: &str,
         sources: Vec<String>,
@@ -4306,8 +4307,7 @@ mod tests {
 
     #[test]
     fn to_json_with_ignore_list() {
-        let json =
-            r#"{"version":3,"sources":["vendor.js"],"names":[],"mappings":"AAAA","ignoreList":[0]}"#;
+        let json = r#"{"version":3,"sources":["vendor.js"],"names":[],"mappings":"AAAA","ignoreList":[0]}"#;
         let sm = SourceMap::from_json(json).unwrap();
         let output = sm.to_json();
         assert!(output.contains("\"ignoreList\":[0]"));
@@ -4362,7 +4362,8 @@ mod tests {
 
     #[test]
     fn from_json_lines_basic_coverage() {
-        let json = r#"{"version":3,"sources":["a.js"],"names":[],"mappings":"AAAA;AACA;AACA;AACA;AACA"}"#;
+        let json =
+            r#"{"version":3,"sources":["a.js"],"names":[],"mappings":"AAAA;AACA;AACA;AACA;AACA"}"#;
         let sm = SourceMap::from_json_lines(json, 1, 3).unwrap();
         // Should have mappings for lines 1 and 2
         assert!(sm.original_position_for(1, 0).is_some());
@@ -4371,8 +4372,7 @@ mod tests {
 
     #[test]
     fn from_json_lines_with_source_root() {
-        let json =
-            r#"{"version":3,"sourceRoot":"src/","sources":["a.js"],"names":[],"mappings":"AAAA;AACA"}"#;
+        let json = r#"{"version":3,"sourceRoot":"src/","sources":["a.js"],"names":[],"mappings":"AAAA;AACA"}"#;
         let sm = SourceMap::from_json_lines(json, 0, 2).unwrap();
         assert_eq!(sm.sources[0], "src/a.js");
     }
@@ -4473,8 +4473,11 @@ mod tests {
             scopes: vec![Some(srcmap_scopes::OriginalScope {
                 start: srcmap_scopes::Position { line: 0, column: 0 },
                 end: srcmap_scopes::Position { line: 5, column: 0 },
-                name: None, kind: None, is_stack_frame: false,
-                variables: vec![], children: vec![],
+                name: None,
+                kind: None,
+                is_stack_frame: false,
+                variables: vec![],
+                children: vec![],
             })],
             ranges: vec![],
         };
@@ -4504,7 +4507,8 @@ mod tests {
 
     #[test]
     fn lazy_sourcemap_with_source_root() {
-        let json = r#"{"version":3,"sourceRoot":"src/","sources":["a.js"],"names":[],"mappings":"AAAA"}"#;
+        let json =
+            r#"{"version":3,"sourceRoot":"src/","sources":["a.js"],"names":[],"mappings":"AAAA"}"#;
         let sm = LazySourceMap::from_json(json).unwrap();
         assert_eq!(sm.sources[0], "src/a.js");
     }
@@ -4524,8 +4528,11 @@ mod tests {
             scopes: vec![Some(srcmap_scopes::OriginalScope {
                 start: srcmap_scopes::Position { line: 0, column: 0 },
                 end: srcmap_scopes::Position { line: 5, column: 0 },
-                name: None, kind: None, is_stack_frame: false,
-                variables: vec![], children: vec![],
+                name: None,
+                kind: None,
+                is_stack_frame: false,
+                variables: vec![],
+                children: vec![],
             })],
             ranges: vec![],
         };
@@ -4620,7 +4627,8 @@ mod tests {
     fn validate_deep_unreferenced_coverage() {
         // Map with an unreferenced source
         let sm = SourceMap::from_parts(
-            None, None,
+            None,
+            None,
             vec!["used.js".to_string(), "unused.js".to_string()],
             vec![None, None],
             vec![],
@@ -4632,7 +4640,9 @@ mod tests {
                 original_column: 0,
                 name: NO_NAME,
             }],
-            vec![], None, None,
+            vec![],
+            None,
+            None,
         );
         let warnings = validate_deep(&sm);
         assert!(warnings.iter().any(|w| w.contains("unreferenced")));
@@ -4658,15 +4668,32 @@ mod tests {
     fn from_parts_with_line_gap() {
         // Mappings with a gap between lines to exercise line_offsets forward fill
         let sm = SourceMap::from_parts(
-            None, None,
+            None,
+            None,
             vec!["a.js".to_string()],
             vec![None],
             vec![],
             vec![
-                Mapping { generated_line: 0, generated_column: 0, source: 0, original_line: 0, original_column: 0, name: NO_NAME },
-                Mapping { generated_line: 5, generated_column: 0, source: 0, original_line: 5, original_column: 0, name: NO_NAME },
+                Mapping {
+                    generated_line: 0,
+                    generated_column: 0,
+                    source: 0,
+                    original_line: 0,
+                    original_column: 0,
+                    name: NO_NAME,
+                },
+                Mapping {
+                    generated_line: 5,
+                    generated_column: 0,
+                    source: 0,
+                    original_line: 5,
+                    original_column: 0,
+                    name: NO_NAME,
+                },
             ],
-            vec![], None, None,
+            vec![],
+            None,
+            None,
         );
         assert!(sm.original_position_for(0, 0).is_some());
         assert!(sm.original_position_for(5, 0).is_some());
@@ -4776,12 +4803,22 @@ mod tests {
     #[test]
     fn to_json_with_debug_id() {
         let sm = SourceMap::from_parts(
-            Some("out.js".to_string()), None,
+            Some("out.js".to_string()),
+            None,
             vec!["a.js".to_string()],
             vec![None],
             vec![],
-            vec![Mapping { generated_line: 0, generated_column: 0, source: 0, original_line: 0, original_column: 0, name: NO_NAME }],
-            vec![], Some("abc-123".to_string()), None,
+            vec![Mapping {
+                generated_line: 0,
+                generated_column: 0,
+                source: 0,
+                original_line: 0,
+                original_column: 0,
+                name: NO_NAME,
+            }],
+            vec![],
+            Some("abc-123".to_string()),
+            None,
         );
         let json = sm.to_json();
         assert!(json.contains(r#""debugId":"abc-123""#));
@@ -4790,14 +4827,25 @@ mod tests {
     #[test]
     fn to_json_with_ignore_list_and_extensions() {
         let mut sm = SourceMap::from_parts(
-            None, None,
+            None,
+            None,
             vec!["a.js".to_string(), "b.js".to_string()],
             vec![None, None],
             vec![],
-            vec![Mapping { generated_line: 0, generated_column: 0, source: 0, original_line: 0, original_column: 0, name: NO_NAME }],
-            vec![1], None, None,
+            vec![Mapping {
+                generated_line: 0,
+                generated_column: 0,
+                source: 0,
+                original_line: 0,
+                original_column: 0,
+                name: NO_NAME,
+            }],
+            vec![1],
+            None,
+            None,
         );
-        sm.extensions.insert("x_test".to_string(), serde_json::json!(42));
+        sm.extensions
+            .insert("x_test".to_string(), serde_json::json!(42));
         let json = sm.to_json();
         assert!(json.contains("\"ignoreList\":[1]"));
         assert!(json.contains("\"x_test\":42"));
@@ -4814,7 +4862,8 @@ mod tests {
             vec![Some("content".to_string())],
             vec![0],
             Some("debug-123".to_string()),
-        ).unwrap();
+        )
+        .unwrap();
         assert_eq!(sm.source(0), "a.js");
         assert!(sm.original_position_for(0, 0).is_some());
         assert!(sm.original_position_for(1, 0).is_some());
@@ -4869,7 +4918,8 @@ mod tests {
 
     #[test]
     fn from_json_lines_with_source_root_prefix() {
-        let json = r#"{"version":3,"sourceRoot":"lib/","sources":["b.js"],"names":[],"mappings":"AAAA"}"#;
+        let json =
+            r#"{"version":3,"sourceRoot":"lib/","sources":["b.js"],"names":[],"mappings":"AAAA"}"#;
         let sm = SourceMap::from_json_lines(json, 0, 1).unwrap();
         assert_eq!(sm.source(0), "lib/b.js");
     }
@@ -4896,15 +4946,32 @@ mod tests {
     fn validate_deep_out_of_order_mappings() {
         // Manually construct a map with out-of-order segments
         let sm = SourceMap::from_parts(
-            None, None,
+            None,
+            None,
             vec!["a.js".to_string()],
             vec![None],
             vec![],
             vec![
-                Mapping { generated_line: 1, generated_column: 0, source: 0, original_line: 0, original_column: 0, name: NO_NAME },
-                Mapping { generated_line: 0, generated_column: 0, source: 0, original_line: 0, original_column: 0, name: NO_NAME },
+                Mapping {
+                    generated_line: 1,
+                    generated_column: 0,
+                    source: 0,
+                    original_line: 0,
+                    original_column: 0,
+                    name: NO_NAME,
+                },
+                Mapping {
+                    generated_line: 0,
+                    generated_column: 0,
+                    source: 0,
+                    original_line: 0,
+                    original_column: 0,
+                    name: NO_NAME,
+                },
             ],
-            vec![], None, None,
+            vec![],
+            None,
+            None,
         );
         let warnings = validate_deep(&sm);
         assert!(warnings.iter().any(|w| w.contains("out of order")));
@@ -4913,43 +4980,85 @@ mod tests {
     #[test]
     fn validate_deep_out_of_bounds_source() {
         let sm = SourceMap::from_parts(
-            None, None,
+            None,
+            None,
             vec!["a.js".to_string()],
             vec![None],
             vec![],
-            vec![Mapping { generated_line: 0, generated_column: 0, source: 5, original_line: 0, original_column: 0, name: NO_NAME }],
-            vec![], None, None,
+            vec![Mapping {
+                generated_line: 0,
+                generated_column: 0,
+                source: 5,
+                original_line: 0,
+                original_column: 0,
+                name: NO_NAME,
+            }],
+            vec![],
+            None,
+            None,
         );
         let warnings = validate_deep(&sm);
-        assert!(warnings.iter().any(|w| w.contains("source index") && w.contains("out of bounds")));
+        assert!(
+            warnings
+                .iter()
+                .any(|w| w.contains("source index") && w.contains("out of bounds"))
+        );
     }
 
     #[test]
     fn validate_deep_out_of_bounds_name() {
         let sm = SourceMap::from_parts(
-            None, None,
+            None,
+            None,
             vec!["a.js".to_string()],
             vec![None],
             vec!["foo".to_string()],
-            vec![Mapping { generated_line: 0, generated_column: 0, source: 0, original_line: 0, original_column: 0, name: 5 }],
-            vec![], None, None,
+            vec![Mapping {
+                generated_line: 0,
+                generated_column: 0,
+                source: 0,
+                original_line: 0,
+                original_column: 0,
+                name: 5,
+            }],
+            vec![],
+            None,
+            None,
         );
         let warnings = validate_deep(&sm);
-        assert!(warnings.iter().any(|w| w.contains("name index") && w.contains("out of bounds")));
+        assert!(
+            warnings
+                .iter()
+                .any(|w| w.contains("name index") && w.contains("out of bounds"))
+        );
     }
 
     #[test]
     fn validate_deep_out_of_bounds_ignore_list() {
         let sm = SourceMap::from_parts(
-            None, None,
+            None,
+            None,
             vec!["a.js".to_string()],
             vec![None],
             vec![],
-            vec![Mapping { generated_line: 0, generated_column: 0, source: 0, original_line: 0, original_column: 0, name: NO_NAME }],
-            vec![10], None, None,
+            vec![Mapping {
+                generated_line: 0,
+                generated_column: 0,
+                source: 0,
+                original_line: 0,
+                original_column: 0,
+                name: NO_NAME,
+            }],
+            vec![10],
+            None,
+            None,
         );
         let warnings = validate_deep(&sm);
-        assert!(warnings.iter().any(|w| w.contains("ignoreList") && w.contains("out of bounds")));
+        assert!(
+            warnings
+                .iter()
+                .any(|w| w.contains("ignoreList") && w.contains("out of bounds"))
+        );
     }
 
     #[test]
@@ -4972,7 +5081,8 @@ mod tests {
     fn source_mapping_url_charset_variant() {
         let map_json = r#"{"version":3}"#;
         let encoded = base64_encode_simple(map_json);
-        let input = format!("x\n//# sourceMappingURL=data:application/json;charset=utf-8;base64,{encoded}");
+        let input =
+            format!("x\n//# sourceMappingURL=data:application/json;charset=utf-8;base64,{encoded}");
         let url = parse_source_mapping_url(&input);
         assert!(matches!(url, Some(SourceMappingUrl::Inline(_))));
     }

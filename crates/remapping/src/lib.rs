@@ -593,10 +593,7 @@ mod tests {
 
         let result = builder.build();
         assert_eq!(result.sources.len(), 1);
-        assert_eq!(
-            result.sources_content,
-            vec![Some("var x = 1;".to_string())]
-        );
+        assert_eq!(result.sources_content, vec![Some("var x = 1;".to_string())]);
     }
 
     #[test]
@@ -715,10 +712,7 @@ mod tests {
         let result = remap(&outer, |_| None);
 
         assert_eq!(result.sources, vec!["a.js"]);
-        assert_eq!(
-            result.sources_content,
-            vec![Some("var a;".to_string())]
-        );
+        assert_eq!(result.sources_content, vec![Some("var a;".to_string())]);
         let loc = result.original_position_for(0, 0).unwrap();
         assert!(loc.name.is_some());
         assert_eq!(result.name(loc.name.unwrap()), "fn1");
