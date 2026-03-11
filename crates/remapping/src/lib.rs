@@ -437,9 +437,12 @@ mod tests {
 
     #[test]
     fn remap_single_level() {
-        // outer: output.js → intermediate.js
+        // outer: output.js → intermediate.js + other.js (second source has no upstream)
+        // AAAA maps gen(0,0) → intermediate.js(0,0)
+        // KCAA maps gen(0,5) → other.js(0,0) (source delta +1)
+        // ;ADCA maps gen(1,0) → intermediate.js(1,0) (source delta -1, line delta +1)
         let outer = SourceMap::from_json(
-            r#"{"version":3,"sources":["intermediate.js"],"names":[],"mappings":"AAAA;AACA"}"#,
+            r#"{"version":3,"sources":["intermediate.js","other.js"],"names":[],"mappings":"AAAA,KCAA;ADCA"}"#,
         )
         .unwrap();
 
@@ -457,7 +460,9 @@ mod tests {
             }
         });
 
-        assert_eq!(result.sources, vec!["original.js"]);
+        assert!(result.sources.contains(&"original.js".to_string()));
+        // other.js passes through since loader returns None
+        assert!(result.sources.contains(&"other.js".to_string()));
 
         // Line 0 col 0 in outer → line 0 col 0 in intermediate → line 1 col 0 in original
         let loc = result.original_position_for(0, 0).unwrap();
@@ -569,4 +574,225 @@ mod tests {
     }
 
     // ── Clone needed for SourceMap in tests ──────────────────────
+
+    #[test]
+    fn concat_updates_source_content_on_duplicate() {
+        // First map has no sourcesContent, second has it for same source
+        let a = SourceMap::from_json(
+            r#"{"version":3,"sources":["shared.js"],"names":[],"mappings":"AAAA"}"#,
+        )
+        .unwrap();
+        let b = SourceMap::from_json(
+            r#"{"version":3,"sources":["shared.js"],"sourcesContent":["var x = 1;"],"names":[],"mappings":"AAAA"}"#,
+        )
+        .unwrap();
+
+        let mut builder = ConcatBuilder::new(None);
+        builder.add_map(&a, 0);
+        builder.add_map(&b, 1);
+
+        let result = builder.build();
+        assert_eq!(result.sources.len(), 1);
+        assert_eq!(
+            result.sources_content,
+            vec![Some("var x = 1;".to_string())]
+        );
+    }
+
+    #[test]
+    fn concat_deduplicates_names() {
+        let a = SourceMap::from_json(
+            r#"{"version":3,"sources":["a.js"],"names":["sharedName"],"mappings":"AAAAA"}"#,
+        )
+        .unwrap();
+        let b = SourceMap::from_json(
+            r#"{"version":3,"sources":["b.js"],"names":["sharedName"],"mappings":"AAAAA"}"#,
+        )
+        .unwrap();
+
+        let mut builder = ConcatBuilder::new(None);
+        builder.add_map(&a, 0);
+        builder.add_map(&b, 1);
+
+        let result = builder.build();
+        // Names should be deduplicated
+        assert_eq!(result.names.len(), 1);
+        assert_eq!(result.names[0], "sharedName");
+    }
+
+    #[test]
+    fn concat_with_ignore_list() {
+        let a = SourceMap::from_json(
+            r#"{"version":3,"sources":["vendor.js"],"names":[],"mappings":"AAAA","ignoreList":[0]}"#,
+        )
+        .unwrap();
+
+        let mut builder = ConcatBuilder::new(None);
+        builder.add_map(&a, 0);
+
+        let result = builder.build();
+        assert_eq!(result.ignore_list, vec![0]);
+    }
+
+    #[test]
+    fn concat_with_generated_only_mappings() {
+        // Map with a generated-only segment (1-field segment, no source info)
+        let a = SourceMap::from_json(
+            r#"{"version":3,"sources":["a.js"],"names":[],"mappings":"A,AAAA"}"#,
+        )
+        .unwrap();
+
+        let mut builder = ConcatBuilder::new(None);
+        builder.add_map(&a, 0);
+
+        let result = builder.build();
+        // Should have both mappings, including the generated-only one
+        assert!(result.mapping_count() >= 1);
+    }
+
+    #[test]
+    fn remap_generated_only_passthrough() {
+        // Outer map with a generated-only segment and two sources (second has no upstream)
+        // A = generated-only segment at col 0
+        // ,AAAA = gen(0,4)→a.js(0,0)
+        // ,KCAA = gen(0,9)→other.js(0,0) (source delta +1)
+        let outer = SourceMap::from_json(
+            r#"{"version":3,"sources":["a.js","other.js"],"names":[],"mappings":"A,AAAA,KCAA"}"#,
+        )
+        .unwrap();
+
+        let inner = SourceMap::from_json(
+            r#"{"version":3,"sources":["original.js"],"names":[],"mappings":"AAAA"}"#,
+        )
+        .unwrap();
+
+        let result = remap(&outer, |source| {
+            if source == "a.js" {
+                Some(inner.clone())
+            } else {
+                None
+            }
+        });
+
+        // Result should have mappings for the generated-only, remapped, and passthrough
+        assert!(result.mapping_count() >= 2);
+        assert!(result.sources.contains(&"original.js".to_string()));
+        assert!(result.sources.contains(&"other.js".to_string()));
+    }
+
+    #[test]
+    fn remap_no_upstream_mapping_with_name() {
+        // Outer has named mapping but upstream lookup finds no match at that position
+        let outer = SourceMap::from_json(
+            r#"{"version":3,"sources":["compiled.js"],"names":["myFunc"],"mappings":"AAAAA"}"#,
+        )
+        .unwrap();
+
+        // Inner map maps different position (line 5, not line 0)
+        let inner = SourceMap::from_json(
+            r#"{"version":3,"sources":["original.ts"],"names":[],"mappings":";;;;AAAA"}"#,
+        )
+        .unwrap();
+
+        let result = remap(&outer, |_| Some(inner.clone()));
+
+        // The outer mapping at (0,0) maps to (0,0) in compiled.js
+        // Inner doesn't have a mapping at (0,0), so it falls through
+        // The name from outer should be preserved
+        let loc = result.original_position_for(0, 0).unwrap();
+        assert!(loc.name.is_some());
+        assert_eq!(result.name(loc.name.unwrap()), "myFunc");
+    }
+
+    #[test]
+    fn remap_no_upstream_with_sources_content_and_name() {
+        let outer = SourceMap::from_json(
+            r#"{"version":3,"sources":["a.js"],"sourcesContent":["var a;"],"names":["fn1"],"mappings":"AAAAA"}"#,
+        )
+        .unwrap();
+
+        // No upstream — everything passes through
+        let result = remap(&outer, |_| None);
+
+        assert_eq!(result.sources, vec!["a.js"]);
+        assert_eq!(
+            result.sources_content,
+            vec![Some("var a;".to_string())]
+        );
+        let loc = result.original_position_for(0, 0).unwrap();
+        assert!(loc.name.is_some());
+        assert_eq!(result.name(loc.name.unwrap()), "fn1");
+    }
+
+    #[test]
+    fn remap_no_upstream_no_name() {
+        let outer = SourceMap::from_json(
+            r#"{"version":3,"sources":["a.js"],"sourcesContent":["var a;"],"names":[],"mappings":"AAAA"}"#,
+        )
+        .unwrap();
+
+        let result = remap(&outer, |_| None);
+        let loc = result.original_position_for(0, 0).unwrap();
+        assert!(loc.name.is_none());
+    }
+
+    #[test]
+    fn remap_no_upstream_mapping_no_name() {
+        // Outer has a mapping with NO name pointing to compiled.js
+        // AAAA = gen(0,0) → compiled.js(0,0), no name (4-field segment)
+        let outer = SourceMap::from_json(
+            r#"{"version":3,"sources":["compiled.js"],"names":[],"mappings":"AAAA"}"#,
+        )
+        .unwrap();
+
+        // Inner map only has mappings at line 5, not at line 0
+        // So original_position_for(0, 0) returns None → takes the None branch
+        // Since the outer mapping has no name, this hits the else at lines 268-272
+        let inner = SourceMap::from_json(
+            r#"{"version":3,"sources":["original.ts"],"names":[],"mappings":";;;;AAAA"}"#,
+        )
+        .unwrap();
+
+        let result = remap(&outer, |_| Some(inner.clone()));
+
+        // Falls through to the None branch (no upstream match at position)
+        // Since outer has no name, the mapping is added without a name
+        let loc = result.original_position_for(0, 0).unwrap();
+        assert_eq!(result.source(loc.source), "compiled.js");
+        assert_eq!(loc.line, 0);
+        assert_eq!(loc.column, 0);
+        assert!(loc.name.is_none());
+    }
+
+    #[test]
+    fn remap_upstream_found_no_name() {
+        // Outer has a named mapping, but upstream has NO name
+        // The upstream mapping is found but has no name_index
+        // Since upstream has no name, the name resolution falls to the outer name
+        // This is already covered by remap_preserves_names
+        //
+        // What we need instead: outer has NO name AND upstream has NO name
+        // → name_idx is None → hits the add_mapping branch (line 246-252)
+        let outer = SourceMap::from_json(
+            r#"{"version":3,"sources":["intermediate.js"],"names":[],"mappings":"AAAA"}"#,
+        )
+        .unwrap();
+
+        // Inner maps intermediate.js(0,0) → original.js(0,0) with NO name
+        let inner = SourceMap::from_json(
+            r#"{"version":3,"sources":["original.js"],"names":[],"mappings":"AAAA"}"#,
+        )
+        .unwrap();
+
+        let result = remap(&outer, |_| Some(inner.clone()));
+
+        assert_eq!(result.sources, vec!["original.js"]);
+        let loc = result.original_position_for(0, 0).unwrap();
+        assert_eq!(result.source(loc.source), "original.js");
+        assert_eq!(loc.line, 0);
+        assert_eq!(loc.column, 0);
+        // Neither outer nor upstream has a name, so result has no name
+        assert!(loc.name.is_none());
+        assert!(result.names.is_empty());
+    }
 }
