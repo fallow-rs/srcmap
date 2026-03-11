@@ -39,31 +39,50 @@ const NO_NAME: u32 = u32::MAX;
 // ── Public types ───────────────────────────────────────────────────
 
 /// A single decoded mapping entry. Compact at 24 bytes (6 × u32).
+///
+/// Maps a position in the generated output to an optional position in an
+/// original source file. Stored contiguously in a `Vec<Mapping>` sorted by
+/// `(generated_line, generated_column)` for cache-friendly binary search.
 #[derive(Debug, Clone, Copy)]
 pub struct Mapping {
+    /// 0-based line in the generated output.
     pub generated_line: u32,
+    /// 0-based column in the generated output.
     pub generated_column: u32,
-    /// Index into `SourceMap::sources`. `u32::MAX` if absent.
+    /// Index into `SourceMap::sources`. `u32::MAX` if this mapping has no source.
     pub source: u32,
+    /// 0-based line in the original source (only meaningful when `source != u32::MAX`).
     pub original_line: u32,
+    /// 0-based column in the original source (only meaningful when `source != u32::MAX`).
     pub original_column: u32,
-    /// Index into `SourceMap::names`. `u32::MAX` if absent.
+    /// Index into `SourceMap::names`. `u32::MAX` if this mapping has no name.
     pub name: u32,
 }
 
-/// Result of an `original_position_for` lookup.
+/// Result of an [`SourceMap::original_position_for`] lookup.
+///
+/// All indices are 0-based. Use [`SourceMap::source`] and [`SourceMap::name`]
+/// to resolve the `source` and `name` indices to strings.
 #[derive(Debug, Clone)]
 pub struct OriginalLocation {
+    /// Index into `SourceMap::sources`.
     pub source: u32,
+    /// 0-based line in the original source.
     pub line: u32,
+    /// 0-based column in the original source.
     pub column: u32,
+    /// Index into `SourceMap::names`, if the mapping has a name.
     pub name: Option<u32>,
 }
 
-/// Result of a `generated_position_for` lookup.
+/// Result of a [`SourceMap::generated_position_for`] lookup.
+///
+/// All values are 0-based.
 #[derive(Debug, Clone)]
 pub struct GeneratedLocation {
+    /// 0-based line in the generated output.
     pub line: u32,
+    /// 0-based column in the generated output.
     pub column: u32,
 }
 
@@ -82,21 +101,33 @@ pub enum Bias {
 }
 
 /// A mapped range: original start/end positions for a generated range.
+///
+/// Returned by [`SourceMap::map_range`]. Both endpoints must resolve to the
+/// same source file.
 #[derive(Debug, Clone)]
 pub struct MappedRange {
+    /// Index into `SourceMap::sources`.
     pub source: u32,
+    /// 0-based start line in the original source.
     pub original_start_line: u32,
+    /// 0-based start column in the original source.
     pub original_start_column: u32,
+    /// 0-based end line in the original source.
     pub original_end_line: u32,
+    /// 0-based end column in the original source.
     pub original_end_column: u32,
 }
 
-/// Errors during source map parsing.
+/// Errors that can occur during source map parsing.
 #[derive(Debug)]
 pub enum ParseError {
+    /// The JSON could not be deserialized.
     Json(serde_json::Error),
+    /// The VLQ mappings string is malformed.
     Vlq(DecodeError),
+    /// The `version` field is not `3`.
     InvalidVersion(u32),
+    /// The ECMA-426 scopes data could not be decoded.
     Scopes(String),
 }
 
@@ -177,7 +208,28 @@ struct RawOffset {
 
 // ── SourceMap ──────────────────────────────────────────────────────
 
-/// A parsed source map with O(log n) position lookups.
+/// A fully-parsed source map with O(log n) position lookups.
+///
+/// Supports both regular and indexed (sectioned) source maps, `ignoreList`,
+/// `debugId`, scopes (ECMA-426), and extension fields. All positions are
+/// 0-based lines and columns.
+///
+/// # Construction
+///
+/// - [`SourceMap::from_json`] — parse from a JSON string (most common)
+/// - [`SourceMap::from_parts`] — build from pre-decoded components
+/// - [`SourceMap::from_vlq`] — parse from pre-extracted parts + raw VLQ string
+/// - [`SourceMap::from_json_lines`] — partial parse for a line range
+///
+/// # Lookups
+///
+/// - [`SourceMap::original_position_for`] — forward: generated → original
+/// - [`SourceMap::generated_position_for`] — reverse: original → generated (lazy index)
+/// - [`SourceMap::all_generated_positions_for`] — all reverse matches
+/// - [`SourceMap::map_range`] — map a generated range to its original range
+///
+/// For cases where you only need a few lookups and want to avoid decoding
+/// all mappings upfront, see [`LazySourceMap`].
 #[derive(Debug, Clone)]
 pub struct SourceMap {
     pub file: Option<String>,
@@ -1092,7 +1144,7 @@ pub struct LazySourceMap {
     /// Pre-scanned line info for O(1) line access.
     line_info: Vec<LineInfo>,
 
-    /// Cache of decoded lines: line index -> Vec<Mapping>.
+    /// Cache of decoded lines: line index -> `Vec<Mapping>`.
     decoded_lines: RefCell<HashMap<u32, Vec<Mapping>>>,
 
     /// Source filename -> index for O(1) lookup by name.
@@ -4097,6 +4149,848 @@ mod tests {
         // Second segment has source info
         let loc = sm.original_position_for(0, 5).unwrap();
         assert_eq!(loc.source, 0);
+    }
+
+    // ── Coverage gap tests ──────────────────────────────────────────
+
+    #[test]
+    fn parse_error_display_vlq() {
+        let err = ParseError::Vlq(srcmap_codec::DecodeError::UnexpectedEof { offset: 3 });
+        assert!(err.to_string().contains("VLQ decode error"));
+    }
+
+    #[test]
+    fn parse_error_display_scopes() {
+        let err = ParseError::Scopes("test error".to_string());
+        assert_eq!(err.to_string(), "scopes decode error: test error");
+    }
+
+    #[test]
+    fn indexed_map_with_names_in_sections() {
+        let json = r#"{
+            "version": 3,
+            "sections": [
+                {
+                    "offset": {"line": 0, "column": 0},
+                    "map": {
+                        "version": 3,
+                        "sources": ["a.js"],
+                        "names": ["foo"],
+                        "mappings": "AAAAA"
+                    }
+                },
+                {
+                    "offset": {"line": 1, "column": 0},
+                    "map": {
+                        "version": 3,
+                        "sources": ["a.js"],
+                        "names": ["foo"],
+                        "mappings": "AAAAA"
+                    }
+                }
+            ]
+        }"#;
+        let sm = SourceMap::from_json(json).unwrap();
+        // Sources and names should be deduplicated
+        assert_eq!(sm.sources.len(), 1);
+        assert_eq!(sm.names.len(), 1);
+    }
+
+    #[test]
+    fn indexed_map_with_ignore_list() {
+        let json = r#"{
+            "version": 3,
+            "sections": [
+                {
+                    "offset": {"line": 0, "column": 0},
+                    "map": {
+                        "version": 3,
+                        "sources": ["vendor.js"],
+                        "names": [],
+                        "mappings": "AAAA",
+                        "ignoreList": [0]
+                    }
+                }
+            ]
+        }"#;
+        let sm = SourceMap::from_json(json).unwrap();
+        assert_eq!(sm.ignore_list, vec![0]);
+    }
+
+    #[test]
+    fn indexed_map_with_generated_only_segment() {
+        // Section with a generated-only (1-field) segment
+        let json = r#"{
+            "version": 3,
+            "sections": [
+                {
+                    "offset": {"line": 0, "column": 0},
+                    "map": {
+                        "version": 3,
+                        "sources": ["a.js"],
+                        "names": [],
+                        "mappings": "A,AAAA"
+                    }
+                }
+            ]
+        }"#;
+        let sm = SourceMap::from_json(json).unwrap();
+        assert!(sm.mapping_count() >= 1);
+    }
+
+    #[test]
+    fn indexed_map_empty_mappings() {
+        let json = r#"{
+            "version": 3,
+            "sections": [
+                {
+                    "offset": {"line": 0, "column": 0},
+                    "map": {
+                        "version": 3,
+                        "sources": [],
+                        "names": [],
+                        "mappings": ""
+                    }
+                }
+            ]
+        }"#;
+        let sm = SourceMap::from_json(json).unwrap();
+        assert_eq!(sm.mapping_count(), 0);
+    }
+
+    #[test]
+    fn generated_position_glb_exact_match() {
+        let json = r#"{"version":3,"sources":["a.js"],"names":[],"mappings":"AAAA,EAAE,OAAO"}"#;
+        let sm = SourceMap::from_json(json).unwrap();
+
+        let loc = sm.generated_position_for_with_bias("a.js", 0, 0, Bias::GreatestLowerBound);
+        assert!(loc.is_some());
+        assert_eq!(loc.unwrap().column, 0);
+    }
+
+    #[test]
+    fn generated_position_glb_no_exact_match() {
+        let json = r#"{"version":3,"sources":["a.js"],"names":[],"mappings":"AAAA,EAAE"}"#;
+        let sm = SourceMap::from_json(json).unwrap();
+
+        // Look for position between two mappings
+        let loc = sm.generated_position_for_with_bias("a.js", 0, 0, Bias::GreatestLowerBound);
+        assert!(loc.is_some());
+    }
+
+    #[test]
+    fn generated_position_glb_wrong_source() {
+        let json = r#"{"version":3,"sources":["a.js","b.js"],"names":[],"mappings":"AAAA,KCCA"}"#;
+        let sm = SourceMap::from_json(json).unwrap();
+
+        // GLB for position in b.js that doesn't exist at that location
+        let loc = sm.generated_position_for_with_bias("b.js", 5, 0, Bias::GreatestLowerBound);
+        // Should find something or nothing depending on whether there's a mapping before
+        // The key is that source filtering works
+        if let Some(l) = loc {
+            // Verify returned position is valid (line 0 is the only generated line)
+            assert_eq!(l.line, 0);
+        }
+    }
+
+    #[test]
+    fn generated_position_lub_wrong_source() {
+        let json = r#"{"version":3,"sources":["a.js"],"names":[],"mappings":"AAAA"}"#;
+        let sm = SourceMap::from_json(json).unwrap();
+
+        // LUB for non-existent source
+        let loc =
+            sm.generated_position_for_with_bias("nonexistent.js", 0, 0, Bias::LeastUpperBound);
+        assert!(loc.is_none());
+    }
+
+    #[test]
+    fn to_json_with_ignore_list() {
+        let json =
+            r#"{"version":3,"sources":["vendor.js"],"names":[],"mappings":"AAAA","ignoreList":[0]}"#;
+        let sm = SourceMap::from_json(json).unwrap();
+        let output = sm.to_json();
+        assert!(output.contains("\"ignoreList\":[0]"));
+    }
+
+    #[test]
+    fn to_json_with_extensions() {
+        let json = r#"{"version":3,"sources":["a.js"],"names":[],"mappings":"AAAA","x_custom":"test_value"}"#;
+        let sm = SourceMap::from_json(json).unwrap();
+        let output = sm.to_json();
+        assert!(output.contains("x_custom"));
+        assert!(output.contains("test_value"));
+    }
+
+    #[test]
+    fn from_parts_empty_mappings() {
+        let sm = SourceMap::from_parts(
+            None,
+            None,
+            vec!["a.js".to_string()],
+            vec![Some("content".to_string())],
+            vec![],
+            vec![],
+            vec![],
+            None,
+            None,
+        );
+        assert_eq!(sm.mapping_count(), 0);
+        assert_eq!(sm.sources, vec!["a.js"]);
+    }
+
+    #[test]
+    fn from_vlq_basic() {
+        let sm = SourceMap::from_vlq(
+            "AAAA;AACA",
+            vec!["a.js".to_string()],
+            vec![],
+            Some("out.js".to_string()),
+            None,
+            vec![Some("content".to_string())],
+            vec![],
+            None,
+        )
+        .unwrap();
+
+        assert_eq!(sm.file.as_deref(), Some("out.js"));
+        assert_eq!(sm.sources, vec!["a.js"]);
+        let loc = sm.original_position_for(0, 0).unwrap();
+        assert_eq!(sm.source(loc.source), "a.js");
+        assert_eq!(loc.line, 0);
+    }
+
+    #[test]
+    fn from_json_lines_basic_coverage() {
+        let json = r#"{"version":3,"sources":["a.js"],"names":[],"mappings":"AAAA;AACA;AACA;AACA;AACA"}"#;
+        let sm = SourceMap::from_json_lines(json, 1, 3).unwrap();
+        // Should have mappings for lines 1 and 2
+        assert!(sm.original_position_for(1, 0).is_some());
+        assert!(sm.original_position_for(2, 0).is_some());
+    }
+
+    #[test]
+    fn from_json_lines_with_source_root() {
+        let json =
+            r#"{"version":3,"sourceRoot":"src/","sources":["a.js"],"names":[],"mappings":"AAAA;AACA"}"#;
+        let sm = SourceMap::from_json_lines(json, 0, 2).unwrap();
+        assert_eq!(sm.sources[0], "src/a.js");
+    }
+
+    #[test]
+    fn from_json_lines_with_null_source() {
+        let json = r#"{"version":3,"sources":[null,"a.js"],"names":[],"mappings":"AAAA,KCCA"}"#;
+        let sm = SourceMap::from_json_lines(json, 0, 1).unwrap();
+        assert_eq!(sm.sources.len(), 2);
+    }
+
+    #[test]
+    fn json_escaping_special_chars_sourcemap() {
+        // Build a source map with special chars in source name and content via JSON
+        // The source name has a newline, the content has \r\n, tab, quotes, backslash, and control char
+        let json = r#"{"version":3,"sources":["path/with\nnewline.js"],"sourcesContent":["line1\r\nline2\t\"quoted\"\\\u0001"],"names":[],"mappings":"AAAA"}"#;
+        let sm = SourceMap::from_json(json).unwrap();
+        // Roundtrip through to_json and re-parse
+        let output = sm.to_json();
+        let sm2 = SourceMap::from_json(&output).unwrap();
+        assert_eq!(sm.sources[0], sm2.sources[0]);
+        assert_eq!(sm.sources_content[0], sm2.sources_content[0]);
+    }
+
+    #[test]
+    fn to_json_exclude_content() {
+        let json = r#"{"version":3,"sources":["a.js"],"sourcesContent":["var a;"],"names":[],"mappings":"AAAA"}"#;
+        let sm = SourceMap::from_json(json).unwrap();
+        let output = sm.to_json_with_options(true);
+        assert!(!output.contains("sourcesContent"));
+        let output_with = sm.to_json_with_options(false);
+        assert!(output_with.contains("sourcesContent"));
+    }
+
+    #[test]
+    fn encode_mappings_with_name() {
+        // Ensure encode_mappings handles the name field (5th VLQ)
+        let json = r#"{"version":3,"sources":["a.js"],"names":["foo"],"mappings":"AAAAA"}"#;
+        let sm = SourceMap::from_json(json).unwrap();
+        let encoded = sm.encode_mappings();
+        assert_eq!(encoded, "AAAAA");
+    }
+
+    #[test]
+    fn encode_mappings_generated_only() {
+        // Generated-only segments (NO_SOURCE) in encode
+        let json = r#"{"version":3,"sources":["a.js"],"names":[],"mappings":"A,AAAA"}"#;
+        let sm = SourceMap::from_json(json).unwrap();
+        let encoded = sm.encode_mappings();
+        let roundtrip = SourceMap::from_json(&format!(
+            r#"{{"version":3,"sources":["a.js"],"names":[],"mappings":"{}"}}"#,
+            encoded
+        ))
+        .unwrap();
+        assert_eq!(roundtrip.mapping_count(), sm.mapping_count());
+    }
+
+    #[test]
+    fn map_range_single_result() {
+        let json = r#"{"version":3,"sources":["a.js"],"names":[],"mappings":"AAAA,EAAC,OAAO"}"#;
+        let sm = SourceMap::from_json(json).unwrap();
+        // map_range from col 0 to a mapped column
+        let result = sm.map_range(0, 0, 0, 1);
+        assert!(result.is_some());
+        let range = result.unwrap();
+        assert_eq!(range.source, 0);
+    }
+
+    #[test]
+    fn scopes_in_from_json() {
+        // Source map with scopes field - build scopes string, then embed in JSON
+        let info = srcmap_scopes::ScopeInfo {
+            scopes: vec![Some(srcmap_scopes::OriginalScope {
+                start: srcmap_scopes::Position { line: 0, column: 0 },
+                end: srcmap_scopes::Position { line: 5, column: 0 },
+                name: None,
+                kind: None,
+                is_stack_frame: false,
+                variables: vec![],
+                children: vec![],
+            })],
+            ranges: vec![],
+        };
+        let mut names = vec![];
+        let scopes_str = srcmap_scopes::encode_scopes(&info, &mut names);
+
+        let json = format!(
+            r#"{{"version":3,"sources":["a.js"],"names":[],"mappings":"AAAA","scopes":"{scopes_str}"}}"#
+        );
+
+        let sm = SourceMap::from_json(&json).unwrap();
+        assert!(sm.scopes.is_some());
+    }
+
+    #[test]
+    fn from_json_lines_with_scopes() {
+        let info = srcmap_scopes::ScopeInfo {
+            scopes: vec![Some(srcmap_scopes::OriginalScope {
+                start: srcmap_scopes::Position { line: 0, column: 0 },
+                end: srcmap_scopes::Position { line: 5, column: 0 },
+                name: None, kind: None, is_stack_frame: false,
+                variables: vec![], children: vec![],
+            })],
+            ranges: vec![],
+        };
+        let mut names = vec![];
+        let scopes_str = srcmap_scopes::encode_scopes(&info, &mut names);
+        let json = format!(
+            r#"{{"version":3,"sources":["a.js"],"names":[],"mappings":"AAAA;AACA","scopes":"{scopes_str}"}}"#
+        );
+        let sm = SourceMap::from_json_lines(&json, 0, 2).unwrap();
+        assert!(sm.scopes.is_some());
+    }
+
+    #[test]
+    fn from_json_lines_with_extensions() {
+        let json = r#"{"version":3,"sources":["a.js"],"names":[],"mappings":"AAAA","x_custom":"val","not_x":"skip"}"#;
+        let sm = SourceMap::from_json_lines(json, 0, 1).unwrap();
+        assert!(sm.extensions.contains_key("x_custom"));
+        assert!(!sm.extensions.contains_key("not_x"));
+    }
+
+    #[test]
+    fn lazy_sourcemap_version_error() {
+        let json = r#"{"version":2,"sources":["a.js"],"names":[],"mappings":"AAAA"}"#;
+        let err = LazySourceMap::from_json(json).unwrap_err();
+        assert!(matches!(err, ParseError::InvalidVersion(2)));
+    }
+
+    #[test]
+    fn lazy_sourcemap_with_source_root() {
+        let json = r#"{"version":3,"sourceRoot":"src/","sources":["a.js"],"names":[],"mappings":"AAAA"}"#;
+        let sm = LazySourceMap::from_json(json).unwrap();
+        assert_eq!(sm.sources[0], "src/a.js");
+    }
+
+    #[test]
+    fn lazy_sourcemap_with_ignore_list_and_extensions() {
+        let json = r#"{"version":3,"sources":["v.js"],"names":[],"mappings":"AAAA","ignoreList":[0],"x_custom":"val","not_x":"skip"}"#;
+        let sm = LazySourceMap::from_json(json).unwrap();
+        assert_eq!(sm.ignore_list, vec![0]);
+        assert!(sm.extensions.contains_key("x_custom"));
+        assert!(!sm.extensions.contains_key("not_x"));
+    }
+
+    #[test]
+    fn lazy_sourcemap_with_scopes() {
+        let info = srcmap_scopes::ScopeInfo {
+            scopes: vec![Some(srcmap_scopes::OriginalScope {
+                start: srcmap_scopes::Position { line: 0, column: 0 },
+                end: srcmap_scopes::Position { line: 5, column: 0 },
+                name: None, kind: None, is_stack_frame: false,
+                variables: vec![], children: vec![],
+            })],
+            ranges: vec![],
+        };
+        let mut names = vec![];
+        let scopes_str = srcmap_scopes::encode_scopes(&info, &mut names);
+        let json = format!(
+            r#"{{"version":3,"sources":["a.js"],"names":[],"mappings":"AAAA","scopes":"{scopes_str}"}}"#
+        );
+        let sm = LazySourceMap::from_json(&json).unwrap();
+        assert!(sm.scopes.is_some());
+    }
+
+    #[test]
+    fn lazy_sourcemap_null_source() {
+        let json = r#"{"version":3,"sources":[null,"a.js"],"names":[],"mappings":"AAAA,KCCA"}"#;
+        let sm = LazySourceMap::from_json(json).unwrap();
+        assert_eq!(sm.sources.len(), 2);
+    }
+
+    #[test]
+    fn indexed_map_multi_line_section() {
+        // Multi-line section to exercise line_offsets building in from_sections
+        let json = r#"{
+            "version": 3,
+            "sections": [
+                {
+                    "offset": {"line": 0, "column": 0},
+                    "map": {
+                        "version": 3,
+                        "sources": ["a.js"],
+                        "names": [],
+                        "mappings": "AAAA;AACA;AACA"
+                    }
+                },
+                {
+                    "offset": {"line": 5, "column": 0},
+                    "map": {
+                        "version": 3,
+                        "sources": ["b.js"],
+                        "names": [],
+                        "mappings": "AAAA;AACA"
+                    }
+                }
+            ]
+        }"#;
+        let sm = SourceMap::from_json(json).unwrap();
+        assert!(sm.original_position_for(0, 0).is_some());
+        assert!(sm.original_position_for(5, 0).is_some());
+    }
+
+    #[test]
+    fn source_mapping_url_extraction() {
+        // External URL
+        let input = "var x = 1;\n//# sourceMappingURL=bundle.js.map";
+        let url = parse_source_mapping_url(input);
+        assert!(matches!(url, Some(SourceMappingUrl::External(ref s)) if s == "bundle.js.map"));
+
+        // CSS comment style
+        let input = "body { }\n/*# sourceMappingURL=style.css.map */";
+        let url = parse_source_mapping_url(input);
+        assert!(matches!(url, Some(SourceMappingUrl::External(ref s)) if s == "style.css.map"));
+
+        // @ sign variant
+        let input = "var x;\n//@ sourceMappingURL=old-style.map";
+        let url = parse_source_mapping_url(input);
+        assert!(matches!(url, Some(SourceMappingUrl::External(ref s)) if s == "old-style.map"));
+
+        // CSS @ variant
+        let input = "body{}\n/*@ sourceMappingURL=old-css.map */";
+        let url = parse_source_mapping_url(input);
+        assert!(matches!(url, Some(SourceMappingUrl::External(ref s)) if s == "old-css.map"));
+
+        // No URL
+        let input = "var x = 1;";
+        let url = parse_source_mapping_url(input);
+        assert!(url.is_none());
+
+        // Empty URL
+        let input = "//# sourceMappingURL=";
+        let url = parse_source_mapping_url(input);
+        assert!(url.is_none());
+
+        // Inline data URI
+        let map_json = r#"{"version":3,"sources":["a.js"],"names":[],"mappings":"AAAA"}"#;
+        let encoded = base64_encode_simple(map_json);
+        let input = format!("var x;\n//# sourceMappingURL=data:application/json;base64,{encoded}");
+        let url = parse_source_mapping_url(&input);
+        assert!(matches!(url, Some(SourceMappingUrl::Inline(_))));
+    }
+
+    #[test]
+    fn validate_deep_unreferenced_coverage() {
+        // Map with an unreferenced source
+        let sm = SourceMap::from_parts(
+            None, None,
+            vec!["used.js".to_string(), "unused.js".to_string()],
+            vec![None, None],
+            vec![],
+            vec![Mapping {
+                generated_line: 0,
+                generated_column: 0,
+                source: 0,
+                original_line: 0,
+                original_column: 0,
+                name: NO_NAME,
+            }],
+            vec![], None, None,
+        );
+        let warnings = validate_deep(&sm);
+        assert!(warnings.iter().any(|w| w.contains("unreferenced")));
+    }
+
+    #[test]
+    fn from_json_lines_generated_only_segment() {
+        // from_json_lines with 1-field segments to exercise the generated-only branch
+        let json = r#"{"version":3,"sources":["a.js"],"names":[],"mappings":"A,AAAA;AACA"}"#;
+        let sm = SourceMap::from_json_lines(json, 0, 2).unwrap();
+        assert!(sm.mapping_count() >= 2);
+    }
+
+    #[test]
+    fn from_json_lines_with_names() {
+        let json = r#"{"version":3,"sources":["a.js"],"names":["foo"],"mappings":"AAAAA;AACAA"}"#;
+        let sm = SourceMap::from_json_lines(json, 0, 2).unwrap();
+        let loc = sm.original_position_for(0, 0).unwrap();
+        assert_eq!(loc.name, Some(0));
+    }
+
+    #[test]
+    fn from_parts_with_line_gap() {
+        // Mappings with a gap between lines to exercise line_offsets forward fill
+        let sm = SourceMap::from_parts(
+            None, None,
+            vec!["a.js".to_string()],
+            vec![None],
+            vec![],
+            vec![
+                Mapping { generated_line: 0, generated_column: 0, source: 0, original_line: 0, original_column: 0, name: NO_NAME },
+                Mapping { generated_line: 5, generated_column: 0, source: 0, original_line: 5, original_column: 0, name: NO_NAME },
+            ],
+            vec![], None, None,
+        );
+        assert!(sm.original_position_for(0, 0).is_some());
+        assert!(sm.original_position_for(5, 0).is_some());
+        // Lines 1-4 have no mappings
+        assert!(sm.original_position_for(1, 0).is_none());
+    }
+
+    #[test]
+    fn lazy_decode_line_with_names_and_generated_only() {
+        // LazySourceMap with both named and generated-only segments
+        let json = r#"{"version":3,"sources":["a.js"],"names":["fn"],"mappings":"A,AAAAC"}"#;
+        let sm = LazySourceMap::from_json(json).unwrap();
+        let line = sm.decode_line(0).unwrap();
+        assert!(line.len() >= 2);
+        // First is generated-only
+        assert_eq!(line[0].source, NO_SOURCE);
+        // Second has name
+        assert_ne!(line[1].name, NO_NAME);
+    }
+
+    #[test]
+    fn generated_position_glb_source_mismatch() {
+        // a.js maps at (0,0)->(0,0), b.js maps at (0,5)->(1,0)
+        let json = r#"{"version":3,"sources":["a.js","b.js"],"names":[],"mappings":"AAAA,KCCA"}"#;
+        let sm = SourceMap::from_json(json).unwrap();
+
+        // LUB for source that exists but position is way beyond all mappings
+        let loc = sm.generated_position_for_with_bias("a.js", 100, 0, Bias::LeastUpperBound);
+        assert!(loc.is_none());
+
+        // GLB for position before the only mapping in b.js (b.js has mapping at original 1,0)
+        // Searching for (0,0) in b.js: partition_point finds first >= target,
+        // then idx-1 if not exact, but that idx-1 maps to a.js (source mismatch), so None
+        let loc = sm.generated_position_for_with_bias("b.js", 0, 0, Bias::GreatestLowerBound);
+        assert!(loc.is_none());
+
+        // GLB for exact position in b.js
+        let loc = sm.generated_position_for_with_bias("b.js", 1, 0, Bias::GreatestLowerBound);
+        assert!(loc.is_some());
+
+        // LUB source mismatch: search for position in b.js that lands on a.js mapping
+        let loc = sm.generated_position_for_with_bias("b.js", 99, 0, Bias::LeastUpperBound);
+        assert!(loc.is_none());
+    }
+
+    // ── Coverage gap tests ───────────────────────────────────────────
+
+    #[test]
+    fn from_json_invalid_scopes_error() {
+        // Invalid scopes string to trigger ParseError::Scopes
+        let json = r#"{"version":3,"sources":["a.js"],"names":[],"mappings":"AAAA","scopes":"!!invalid!!"}"#;
+        let err = SourceMap::from_json(json).unwrap_err();
+        assert!(matches!(err, ParseError::Scopes(_)));
+    }
+
+    #[test]
+    fn lazy_from_json_invalid_scopes_error() {
+        let json = r#"{"version":3,"sources":["a.js"],"names":[],"mappings":"AAAA","scopes":"!!invalid!!"}"#;
+        let err = LazySourceMap::from_json(json).unwrap_err();
+        assert!(matches!(err, ParseError::Scopes(_)));
+    }
+
+    #[test]
+    fn from_json_lines_invalid_scopes_error() {
+        let json = r#"{"version":3,"sources":["a.js"],"names":[],"mappings":"AAAA","scopes":"!!invalid!!"}"#;
+        let err = SourceMap::from_json_lines(json, 0, 1).unwrap_err();
+        assert!(matches!(err, ParseError::Scopes(_)));
+    }
+
+    #[test]
+    fn from_json_lines_invalid_version() {
+        let json = r#"{"version":2,"sources":["a.js"],"names":[],"mappings":"AAAA"}"#;
+        let err = SourceMap::from_json_lines(json, 0, 1).unwrap_err();
+        assert!(matches!(err, ParseError::InvalidVersion(2)));
+    }
+
+    #[test]
+    fn indexed_map_with_ignore_list_remapped() {
+        // Indexed map with 2 sections that have overlapping ignore_list
+        let json = r#"{
+            "version": 3,
+            "sections": [{
+                "offset": {"line": 0, "column": 0},
+                "map": {
+                    "version": 3,
+                    "sources": ["a.js", "b.js"],
+                    "names": [],
+                    "mappings": "AAAA;ACAA",
+                    "ignoreList": [1]
+                }
+            }, {
+                "offset": {"line": 5, "column": 0},
+                "map": {
+                    "version": 3,
+                    "sources": ["b.js", "c.js"],
+                    "names": [],
+                    "mappings": "AAAA;ACAA",
+                    "ignoreList": [0]
+                }
+            }]
+        }"#;
+        let sm = SourceMap::from_json(json).unwrap();
+        // b.js should be deduped across sections, ignore_list should have b.js global index
+        assert!(sm.ignore_list.len() >= 1);
+    }
+
+    #[test]
+    fn to_json_with_debug_id() {
+        let sm = SourceMap::from_parts(
+            Some("out.js".to_string()), None,
+            vec!["a.js".to_string()],
+            vec![None],
+            vec![],
+            vec![Mapping { generated_line: 0, generated_column: 0, source: 0, original_line: 0, original_column: 0, name: NO_NAME }],
+            vec![], Some("abc-123".to_string()), None,
+        );
+        let json = sm.to_json();
+        assert!(json.contains(r#""debugId":"abc-123""#));
+    }
+
+    #[test]
+    fn to_json_with_ignore_list_and_extensions() {
+        let mut sm = SourceMap::from_parts(
+            None, None,
+            vec!["a.js".to_string(), "b.js".to_string()],
+            vec![None, None],
+            vec![],
+            vec![Mapping { generated_line: 0, generated_column: 0, source: 0, original_line: 0, original_column: 0, name: NO_NAME }],
+            vec![1], None, None,
+        );
+        sm.extensions.insert("x_test".to_string(), serde_json::json!(42));
+        let json = sm.to_json();
+        assert!(json.contains("\"ignoreList\":[1]"));
+        assert!(json.contains("\"x_test\":42"));
+    }
+
+    #[test]
+    fn from_vlq_with_all_options() {
+        let sm = SourceMap::from_vlq(
+            "AAAA;AACA",
+            vec!["a.js".to_string()],
+            vec![],
+            Some("out.js".to_string()),
+            Some("src/".to_string()),
+            vec![Some("content".to_string())],
+            vec![0],
+            Some("debug-123".to_string()),
+        ).unwrap();
+        assert_eq!(sm.source(0), "a.js");
+        assert!(sm.original_position_for(0, 0).is_some());
+        assert!(sm.original_position_for(1, 0).is_some());
+    }
+
+    #[test]
+    fn lazy_into_sourcemap_roundtrip() {
+        let json = r#"{"version":3,"sources":["a.js"],"names":["x"],"mappings":"AAAAA;AACAA"}"#;
+        let lazy = LazySourceMap::from_json(json).unwrap();
+        let sm = lazy.into_sourcemap().unwrap();
+        assert!(sm.original_position_for(0, 0).is_some());
+        assert!(sm.original_position_for(1, 0).is_some());
+        assert_eq!(sm.name(0), "x");
+    }
+
+    #[test]
+    fn lazy_original_position_for_no_match() {
+        // LazySourceMap: column before any mapping should return None (Err(0) branch)
+        let json = r#"{"version":3,"sources":["a.js"],"names":[],"mappings":"KAAA"}"#;
+        let sm = LazySourceMap::from_json(json).unwrap();
+        // Column 0 is before column 5 (K = 5), should return None
+        assert!(sm.original_position_for(0, 0).is_none());
+    }
+
+    #[test]
+    fn lazy_original_position_for_empty_line() {
+        let json = r#"{"version":3,"sources":["a.js"],"names":[],"mappings":";AAAA"}"#;
+        let sm = LazySourceMap::from_json(json).unwrap();
+        // Line 0 is empty
+        assert!(sm.original_position_for(0, 0).is_none());
+        // Line 1 has mapping
+        assert!(sm.original_position_for(1, 0).is_some());
+    }
+
+    #[test]
+    fn lazy_original_position_generated_only() {
+        // Only a 1-field (generated-only) segment on line 0
+        let json = r#"{"version":3,"sources":["a.js"],"names":[],"mappings":"A;AAAA"}"#;
+        let sm = LazySourceMap::from_json(json).unwrap();
+        // Line 0 has only generated-only segment → returns None
+        assert!(sm.original_position_for(0, 0).is_none());
+        // Line 1 has a 4-field segment → returns Some
+        assert!(sm.original_position_for(1, 0).is_some());
+    }
+
+    #[test]
+    fn from_json_lines_null_source() {
+        let json = r#"{"version":3,"sources":[null,"a.js"],"names":[],"mappings":"ACAA"}"#;
+        let sm = SourceMap::from_json_lines(json, 0, 1).unwrap();
+        assert!(sm.mapping_count() >= 1);
+    }
+
+    #[test]
+    fn from_json_lines_with_source_root_prefix() {
+        let json = r#"{"version":3,"sourceRoot":"lib/","sources":["b.js"],"names":[],"mappings":"AAAA"}"#;
+        let sm = SourceMap::from_json_lines(json, 0, 1).unwrap();
+        assert_eq!(sm.source(0), "lib/b.js");
+    }
+
+    #[test]
+    fn generated_position_for_glb_idx_zero() {
+        // When the reverse index partition_point returns 0, GLB should return None
+        // Create a map where source "a.js" only has mapping at original (5,0)
+        // Searching for (0,0) in GLB mode: partition_point returns 0 (nothing <= (0,0)), so None
+        let json = r#"{"version":3,"sources":["a.js"],"names":[],"mappings":"AAKA"}"#;
+        let sm = SourceMap::from_json(json).unwrap();
+        let loc = sm.generated_position_for_with_bias("a.js", 0, 0, Bias::GreatestLowerBound);
+        assert!(loc.is_none());
+    }
+
+    #[test]
+    fn from_json_lines_with_ignore_list() {
+        let json = r#"{"version":3,"sources":["a.js","b.js"],"names":[],"mappings":"AAAA;ACAA","ignoreList":[1]}"#;
+        let sm = SourceMap::from_json_lines(json, 0, 2).unwrap();
+        assert_eq!(sm.ignore_list, vec![1]);
+    }
+
+    #[test]
+    fn validate_deep_out_of_order_mappings() {
+        // Manually construct a map with out-of-order segments
+        let sm = SourceMap::from_parts(
+            None, None,
+            vec!["a.js".to_string()],
+            vec![None],
+            vec![],
+            vec![
+                Mapping { generated_line: 1, generated_column: 0, source: 0, original_line: 0, original_column: 0, name: NO_NAME },
+                Mapping { generated_line: 0, generated_column: 0, source: 0, original_line: 0, original_column: 0, name: NO_NAME },
+            ],
+            vec![], None, None,
+        );
+        let warnings = validate_deep(&sm);
+        assert!(warnings.iter().any(|w| w.contains("out of order")));
+    }
+
+    #[test]
+    fn validate_deep_out_of_bounds_source() {
+        let sm = SourceMap::from_parts(
+            None, None,
+            vec!["a.js".to_string()],
+            vec![None],
+            vec![],
+            vec![Mapping { generated_line: 0, generated_column: 0, source: 5, original_line: 0, original_column: 0, name: NO_NAME }],
+            vec![], None, None,
+        );
+        let warnings = validate_deep(&sm);
+        assert!(warnings.iter().any(|w| w.contains("source index") && w.contains("out of bounds")));
+    }
+
+    #[test]
+    fn validate_deep_out_of_bounds_name() {
+        let sm = SourceMap::from_parts(
+            None, None,
+            vec!["a.js".to_string()],
+            vec![None],
+            vec!["foo".to_string()],
+            vec![Mapping { generated_line: 0, generated_column: 0, source: 0, original_line: 0, original_column: 0, name: 5 }],
+            vec![], None, None,
+        );
+        let warnings = validate_deep(&sm);
+        assert!(warnings.iter().any(|w| w.contains("name index") && w.contains("out of bounds")));
+    }
+
+    #[test]
+    fn validate_deep_out_of_bounds_ignore_list() {
+        let sm = SourceMap::from_parts(
+            None, None,
+            vec!["a.js".to_string()],
+            vec![None],
+            vec![],
+            vec![Mapping { generated_line: 0, generated_column: 0, source: 0, original_line: 0, original_column: 0, name: NO_NAME }],
+            vec![10], None, None,
+        );
+        let warnings = validate_deep(&sm);
+        assert!(warnings.iter().any(|w| w.contains("ignoreList") && w.contains("out of bounds")));
+    }
+
+    #[test]
+    fn source_mapping_url_inline_decoded() {
+        // Test that inline data URIs actually decode base64 and return the parsed map
+        let map_json = r#"{"version":3,"sources":["a.js"],"names":[],"mappings":"AAAA"}"#;
+        let encoded = base64_encode_simple(map_json);
+        let input = format!("var x;\n//# sourceMappingURL=data:application/json;base64,{encoded}");
+        let url = parse_source_mapping_url(&input);
+        match url {
+            Some(SourceMappingUrl::Inline(json)) => {
+                assert!(json.contains("version"));
+                assert!(json.contains("AAAA"));
+            }
+            _ => panic!("expected inline source map"),
+        }
+    }
+
+    #[test]
+    fn source_mapping_url_charset_variant() {
+        let map_json = r#"{"version":3}"#;
+        let encoded = base64_encode_simple(map_json);
+        let input = format!("x\n//# sourceMappingURL=data:application/json;charset=utf-8;base64,{encoded}");
+        let url = parse_source_mapping_url(&input);
+        assert!(matches!(url, Some(SourceMappingUrl::Inline(_))));
+    }
+
+    #[test]
+    fn source_mapping_url_invalid_base64_falls_through_to_external() {
+        // Data URI with invalid base64 that fails to decode should still return External
+        let input = "x\n//# sourceMappingURL=data:application/json;base64,!!!invalid!!!";
+        let url = parse_source_mapping_url(input);
+        // Invalid base64 → base64_decode returns None → falls through to External
+        assert!(matches!(url, Some(SourceMappingUrl::External(_))));
+    }
+
+    #[test]
+    fn from_json_lines_with_extensions_preserved() {
+        let json = r#"{"version":3,"sources":["a.js"],"names":[],"mappings":"AAAA","x_custom":99}"#;
+        let sm = SourceMap::from_json_lines(json, 0, 1).unwrap();
+        assert!(sm.extensions.contains_key("x_custom"));
     }
 
     // Helper for base64 encoding in tests

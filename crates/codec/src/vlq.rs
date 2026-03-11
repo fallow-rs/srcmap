@@ -353,4 +353,35 @@ mod tests {
         let err = vlq_decode_unsigned(b"", 0).unwrap_err();
         assert_eq!(err, DecodeError::UnexpectedEof { offset: 0 });
     }
+
+    #[test]
+    fn unsigned_decode_non_ascii() {
+        let err = vlq_decode_unsigned(&[0xC3, 0x80], 0).unwrap_err();
+        assert_eq!(
+            err,
+            DecodeError::InvalidBase64 {
+                byte: 0xC3,
+                offset: 0
+            }
+        );
+    }
+
+    #[test]
+    fn unsigned_decode_invalid_base64_char() {
+        let err = vlq_decode_unsigned(b"!", 0).unwrap_err();
+        assert_eq!(
+            err,
+            DecodeError::InvalidBase64 {
+                byte: b'!',
+                offset: 0
+            }
+        );
+    }
+
+    #[test]
+    fn unsigned_decode_overflow() {
+        // 14 continuation chars to trigger overflow
+        let err = vlq_decode_unsigned(b"ggggggggggggggA", 0).unwrap_err();
+        assert!(matches!(err, DecodeError::VlqOverflow { .. }));
+    }
 }

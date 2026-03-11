@@ -31,18 +31,41 @@ use srcmap_scopes::ScopeInfo;
 
 // ── Public types ───────────────────────────────────────────────────
 
-/// A mapping from generated position to original position.
+/// A mapping from a generated position to an original position.
+///
+/// Used with [`SourceMapGenerator`] to define position relationships.
+/// All positions are 0-based.
 #[derive(Debug, Clone)]
 pub struct Mapping {
+    /// 0-based line in the generated output.
     pub generated_line: u32,
+    /// 0-based column in the generated output.
     pub generated_column: u32,
+    /// Source index from [`SourceMapGenerator::add_source`], or `None` for generated-only.
     pub source: Option<u32>,
+    /// 0-based line in the original source.
     pub original_line: u32,
+    /// 0-based column in the original source.
     pub original_column: u32,
+    /// Name index from [`SourceMapGenerator::add_name`], or `None`.
     pub name: Option<u32>,
 }
 
 /// Builder for creating source maps incrementally.
+///
+/// Register sources and names first (they return indices), then add mappings
+/// that reference those indices. Mappings should be added in generated-position
+/// order, though the builder does not require it.
+///
+/// Sources and names are automatically deduplicated.
+///
+/// # Workflow
+///
+/// 1. [`add_source`](Self::add_source) — register each original file
+/// 2. [`set_source_content`](Self::set_source_content) — optionally attach content
+/// 3. [`add_name`](Self::add_name) — register identifier names
+/// 4. [`add_mapping`](Self::add_mapping) / [`add_named_mapping`](Self::add_named_mapping) — add mappings
+/// 5. [`to_json`](Self::to_json) — serialize to JSON
 #[derive(Debug)]
 pub struct SourceMapGenerator {
     file: Option<String>,
@@ -1222,6 +1245,76 @@ mod tests {
             inlined.bindings,
             vec![Binding::Expression("\"Hello\"".to_string())]
         );
+    }
+
+    #[test]
+    fn set_source_content_out_of_bounds() {
+        let mut builder = SourceMapGenerator::new(None);
+        // No sources added, index 0 is out of bounds
+        builder.set_source_content(0, "content".to_string());
+        // Should silently do nothing
+        let json = builder.to_json();
+        assert!(!json.contains("content"));
+    }
+
+    #[test]
+    fn add_to_ignore_list_dedup() {
+        let mut builder = SourceMapGenerator::new(None);
+        let idx = builder.add_source("vendor.js");
+        builder.add_to_ignore_list(idx);
+        builder.add_to_ignore_list(idx); // duplicate - should be deduped
+        let json = builder.to_json();
+        // Should only appear once in ignoreList
+        let sm = srcmap_sourcemap::SourceMap::from_json(&json).unwrap();
+        assert_eq!(sm.ignore_list, vec![0]);
+    }
+
+    #[test]
+    fn to_decoded_map_with_source_root() {
+        let mut builder = SourceMapGenerator::new(None);
+        builder.set_source_root("src/".to_string());
+        let src = builder.add_source("app.ts");
+        builder.add_mapping(0, 0, src, 0, 0);
+        let sm = builder.to_decoded_map();
+        // Sources should be prefixed with source_root
+        assert_eq!(sm.sources, vec!["src/app.ts"]);
+    }
+
+    #[test]
+    fn json_escaping_special_chars() {
+        let mut builder = SourceMapGenerator::new(None);
+        let src = builder.add_source("a.js");
+        // Content with special chars: quotes, backslash, newline, carriage return, tab, control char
+        builder.set_source_content(src, "line1\nline2\r\ttab\\\"\x01end".to_string());
+        builder.add_mapping(0, 0, src, 0, 0);
+        let json = builder.to_json();
+        // Verify it's valid JSON by parsing
+        let sm = srcmap_sourcemap::SourceMap::from_json(&json).unwrap();
+        assert_eq!(
+            sm.sources_content,
+            vec![Some("line1\nline2\r\ttab\\\"\x01end".to_string())]
+        );
+    }
+
+    #[test]
+    fn json_escaping_in_names() {
+        let mut builder = SourceMapGenerator::new(None);
+        let src = builder.add_source("a.js");
+        let name = builder.add_name("func\"with\\special");
+        builder.add_named_mapping(0, 0, src, 0, 0, name);
+        let json = builder.to_json();
+        let sm = srcmap_sourcemap::SourceMap::from_json(&json).unwrap();
+        assert_eq!(sm.names[0], "func\"with\\special");
+    }
+
+    #[test]
+    fn json_escaping_in_sources() {
+        let mut builder = SourceMapGenerator::new(None);
+        let src = builder.add_source("path/with\"quotes.js");
+        builder.add_mapping(0, 0, src, 0, 0);
+        let json = builder.to_json();
+        let sm = srcmap_sourcemap::SourceMap::from_json(&json).unwrap();
+        assert_eq!(sm.sources[0], "path/with\"quotes.js");
     }
 
     #[cfg(feature = "parallel")]

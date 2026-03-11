@@ -373,4 +373,47 @@ mod tests {
             assert_eq!(sequential, parallel);
         }
     }
+
+    // --- DecodeError Display tests ---
+
+    #[test]
+    fn decode_error_display_invalid_base64() {
+        let err = DecodeError::InvalidBase64 {
+            byte: b'!',
+            offset: 2,
+        };
+        assert_eq!(err.to_string(), "invalid base64 character 0x21 at offset 2");
+    }
+
+    #[test]
+    fn decode_error_display_unexpected_eof() {
+        let err = DecodeError::UnexpectedEof { offset: 5 };
+        assert_eq!(err.to_string(), "unexpected end of input at offset 5");
+    }
+
+    #[test]
+    fn decode_error_display_overflow() {
+        let err = DecodeError::VlqOverflow { offset: 10 };
+        assert_eq!(err.to_string(), "VLQ value overflow at offset 10");
+    }
+
+    // --- Decode edge case: 5-field segment with name ---
+
+    #[test]
+    fn decode_five_field_with_name_index() {
+        // Ensure the name field (5th) is decoded correctly
+        let input = "AAAAC"; // 0,0,0,0,1
+        let decoded = decode(input).unwrap();
+        assert_eq!(decoded[0][0], vec![0, 0, 0, 0, 1]);
+    }
+
+    // --- Encode edge case: encode with only 1 line ---
+
+    #[test]
+    fn encode_single_segment_one_field() {
+        let mappings = vec![vec![vec![5_i64]]];
+        let encoded = encode(&mappings);
+        let decoded = decode(&encoded).unwrap();
+        assert_eq!(decoded, mappings);
+    }
 }
