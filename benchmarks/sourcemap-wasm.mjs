@@ -1,8 +1,13 @@
 import { Bench } from 'tinybench';
 import { TraceMap, originalPositionFor } from '@jridgewell/trace-mapping';
-import { SourceMap } from '../packages/sourcemap-wasm/pkg/srcmap_sourcemap_wasm.js';
+import { SourceMap, resultPtr, wasmMemory } from '../packages/sourcemap-wasm/pkg/srcmap_sourcemap_wasm.js';
 import { SourceMap as NapiSourceMap } from '../packages/sourcemap/index.js';
 import { encode } from '@jridgewell/sourcemap-codec';
+
+// Set up zero-allocation buffer for originalPositionBuf.
+// The Int32Array view must be refreshed after WASM memory grows (e.g. after new SourceMap()).
+const bufOffset = resultPtr();
+const getResultView = () => new Int32Array(wasmMemory().buffer, bufOffset, 4);
 
 // ── Generate realistic source maps ────────────────────────────────
 
@@ -122,6 +127,10 @@ console.log('\n--- Single Lookup ---\n');
     .add('trace-mapping', () => originalPositionFor(trace, { line: 251, column: 30 }))
     .add('srcmap WASM', () => wasm.originalPositionFor(250, 30))
     .add('srcmap WASM (flat)', () => wasm.originalPositionFlat(250, 30))
+    .add('srcmap WASM (buf)', () => {
+      wasm.originalPositionBuf(250, 30);
+      // resultView[0..3] contains: sourceIdx, line, column, nameIdx
+    })
     .add('srcmap NAPI', () => napi.originalPositionFor(250, 30));
 
   await bench.run();

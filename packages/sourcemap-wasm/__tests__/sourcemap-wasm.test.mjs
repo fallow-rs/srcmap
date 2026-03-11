@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
-import { SourceMap } from '../pkg/srcmap_sourcemap_wasm.js'
+import { SourceMap, resultPtr, wasmMemory } from '../pkg/srcmap_sourcemap_wasm.js'
 
 const SIMPLE_MAP = JSON.stringify({
   version: 3,
@@ -298,6 +298,65 @@ describe('encodedMappings', () => {
     const encoded = sm.encodedMappings()
     assert.equal(typeof encoded, 'string')
     assert.equal(encoded, 'AAAAA,SACIC')
+    sm.free()
+  })
+})
+
+describe('originalPositionFlat', () => {
+  it('returns flat array for mapped position', () => {
+    const sm = new SourceMap(SIMPLE_MAP)
+    const flat = sm.originalPositionFlat(0, 0)
+    assert.ok(flat instanceof Int32Array)
+    assert.equal(flat.length, 4)
+    assert.equal(flat[0], 0) // source index
+    assert.equal(flat[1], 0) // line
+    assert.equal(flat[2], 0) // column
+    assert.equal(flat[3], 0) // name index (foo)
+    sm.free()
+  })
+
+  it('returns [-1,-1,-1,-1] for unmapped position', () => {
+    const sm = new SourceMap(SIMPLE_MAP)
+    const flat = sm.originalPositionFlat(999, 999)
+    assert.deepEqual([...flat], [-1, -1, -1, -1])
+    sm.free()
+  })
+})
+
+describe('originalPositionBuf (zero-alloc)', () => {
+  const bufOffset = resultPtr()
+
+  // Helper: create a fresh view (needed after WASM memory may have grown)
+  const getView = () => new Int32Array(wasmMemory().buffer, bufOffset, 4)
+
+  it('writes result to static buffer and returns true', () => {
+    const sm = new SourceMap(SIMPLE_MAP)
+    const found = sm.originalPositionBuf(0, 0)
+    const view = getView()
+    assert.equal(found, true)
+    assert.equal(view[0], 0) // source index
+    assert.equal(view[1], 0) // line
+    assert.equal(view[2], 0) // column
+    assert.equal(view[3], 0) // name index (foo)
+    sm.free()
+  })
+
+  it('returns false for unmapped position', () => {
+    const sm = new SourceMap(SIMPLE_MAP)
+    const found = sm.originalPositionBuf(999, 999)
+    assert.equal(found, false)
+    sm.free()
+  })
+
+  it('matches originalPositionFor results', () => {
+    const sm = new SourceMap(MULTI_SOURCE_MAP)
+    const obj = sm.originalPositionFor(1, 0)
+    const found = sm.originalPositionBuf(1, 0)
+    const view = getView()
+    assert.equal(found, true)
+    assert.equal(sm.source(view[0]), obj.source)
+    assert.equal(view[1], obj.line)
+    assert.equal(view[2], obj.column)
     sm.free()
   })
 })

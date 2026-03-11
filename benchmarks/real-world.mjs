@@ -4,8 +4,13 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { TraceMap, originalPositionFor } from '@jridgewell/trace-mapping';
 import { SourceMapConsumer } from 'source-map-js';
-import { SourceMap } from '../packages/sourcemap-wasm/pkg/srcmap_sourcemap_wasm.js';
+import { SourceMap, resultPtr, wasmMemory } from '../packages/sourcemap-wasm/pkg/srcmap_sourcemap_wasm.js';
 import { SourceMap as NapiSourceMap } from '../packages/sourcemap/index.js';
+
+// Set up zero-allocation buffer for originalPositionBuf.
+// The Int32Array view must be refreshed after WASM memory grows (e.g. after new SourceMap()).
+const bufOffset = resultPtr();
+const getResultView = () => new Int32Array(wasmMemory().buffer, bufOffset, 4);
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const fixturesDir = join(__dirname, 'fixtures');
@@ -183,6 +188,9 @@ for (const { name, json } of maps) {
     )
     .add('srcmap WASM', () => wasm.originalPositionFor(midLine, 20))
     .add('srcmap WASM (flat)', () => wasm.originalPositionFlat(midLine, 20))
+    .add('srcmap WASM (buf)', () => {
+      wasm.originalPositionBuf(midLine, 20);
+    })
     .add('srcmap NAPI', () => napi.originalPositionFor(midLine, 20));
 
   await bench.run();

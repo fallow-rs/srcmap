@@ -1,4 +1,25 @@
+use std::ptr::addr_of;
 use wasm_bindgen::prelude::*;
+
+/// Static result buffer for zero-allocation single lookups.
+/// Layout: [sourceIdx, line, column, nameIdx]. Values of -1 indicate no mapping/no name.
+/// SAFETY: WASM is single-threaded, so no data races are possible.
+static mut RESULT_BUF: [i32; 4] = [-1, -1, -1, -1];
+
+/// Get the pointer to the static result buffer in WASM linear memory.
+/// JS side creates an Int32Array view at this offset to read lookup results
+/// without any allocation or copying.
+#[wasm_bindgen(js_name = "resultPtr")]
+pub fn result_ptr() -> *const i32 {
+    // Use addr_of! to avoid creating a reference to static mut (Rust 2024)
+    addr_of!(RESULT_BUF) as *const i32
+}
+
+/// Expose WASM linear memory for direct buffer access from JS.
+#[wasm_bindgen(js_name = "wasmMemory")]
+pub fn wasm_memory() -> JsValue {
+    wasm_bindgen::memory()
+}
 
 #[wasm_bindgen]
 pub struct SourceMap {
@@ -107,6 +128,26 @@ impl SourceMap {
                 loc.name.map_or(-1, |n| n as i32),
             ],
             None => vec![-1, -1, -1, -1],
+        }
+    }
+
+    /// Zero-allocation single lookup. Writes result to the static WASM buffer.
+    /// Returns true if a mapping was found, false otherwise.
+    /// Read results via an Int32Array view at resultPtr(): [sourceIdx, line, column, nameIdx].
+    #[wasm_bindgen(js_name = "originalPositionBuf")]
+    pub fn original_position_buf(&self, line: u32, column: u32) -> bool {
+        match self.inner.original_position_for(line, column) {
+            Some(loc) => {
+                unsafe {
+                    let buf = std::ptr::addr_of_mut!(RESULT_BUF);
+                    (*buf)[0] = loc.source as i32;
+                    (*buf)[1] = loc.line as i32;
+                    (*buf)[2] = loc.column as i32;
+                    (*buf)[3] = loc.name.map_or(-1, |n| n as i32);
+                }
+                true
+            }
+            None => false,
         }
     }
 
