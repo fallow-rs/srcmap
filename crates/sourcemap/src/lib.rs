@@ -865,6 +865,46 @@ impl SourceMap {
         }
     }
 
+    /// Build a source map from pre-parsed components and a VLQ mappings string.
+    ///
+    /// This is the fast path for WASM: JS does `JSON.parse()` (V8-native speed),
+    /// then only the VLQ mappings string crosses into WASM for decoding.
+    /// Avoids copying large `sourcesContent` into WASM linear memory.
+    pub fn from_vlq(
+        mappings_str: &str,
+        sources: Vec<String>,
+        names: Vec<String>,
+        file: Option<String>,
+        source_root: Option<String>,
+        sources_content: Vec<Option<String>>,
+        ignore_list: Vec<u32>,
+        debug_id: Option<String>,
+    ) -> Result<Self, ParseError> {
+        let (mappings, line_offsets) = decode_mappings(mappings_str)?;
+
+        let source_map: HashMap<String, u32> = sources
+            .iter()
+            .enumerate()
+            .map(|(i, s)| (s.clone(), i as u32))
+            .collect();
+
+        Ok(Self {
+            file,
+            source_root,
+            sources,
+            sources_content,
+            names,
+            ignore_list,
+            extensions: HashMap::new(),
+            debug_id,
+            scopes: None,
+            mappings,
+            line_offsets,
+            reverse_index: OnceCell::new(),
+            source_map,
+        })
+    }
+
     /// Parse a source map from JSON, decoding only mappings for lines in `[start_line, end_line)`.
     ///
     /// This is useful for large source maps where only a subset of lines is needed.
@@ -916,6 +956,7 @@ impl SourceMap {
             raw.ignore_list
         };
 
+        // Filter extensions to only keep x_* fields
         let extensions: HashMap<String, serde_json::Value> = raw
             .extensions
             .into_iter()
@@ -1110,6 +1151,7 @@ impl LazySourceMap {
             raw.ignore_list
         };
 
+        // Filter extensions to only keep x_* fields
         let extensions: HashMap<String, serde_json::Value> = raw
             .extensions
             .into_iter()

@@ -182,6 +182,7 @@ for (const { name, json } of maps) {
       smjs.originalPositionFor({ line: midLine + 1, column: 20 })
     )
     .add('srcmap WASM', () => wasm.originalPositionFor(midLine, 20))
+    .add('srcmap WASM (flat)', () => wasm.originalPositionFlat(midLine, 20))
     .add('srcmap NAPI', () => napi.originalPositionFor(midLine, 20));
 
   await bench.run();

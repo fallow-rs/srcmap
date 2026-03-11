@@ -121,6 +121,7 @@ console.log('\n--- Single Lookup ---\n');
   bench
     .add('trace-mapping', () => originalPositionFor(trace, { line: 251, column: 30 }))
     .add('srcmap WASM', () => wasm.originalPositionFor(250, 30))
+    .add('srcmap WASM (flat)', () => wasm.originalPositionFlat(250, 30))
     .add('srcmap NAPI', () => napi.originalPositionFor(250, 30));
 
   await bench.run();

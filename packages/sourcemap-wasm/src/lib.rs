@@ -15,6 +15,50 @@ impl SourceMap {
         Ok(Self { inner })
     }
 
+    /// Build a source map from pre-parsed components.
+    ///
+    /// This is the fast path: JS does JSON.parse() (V8-native speed),
+    /// then only the VLQ mappings string is sent to WASM for decoding.
+    /// Avoids copying large sourcesContent into WASM linear memory.
+    #[wasm_bindgen(js_name = "fromVlq")]
+    pub fn from_vlq(
+        mappings: &str,
+        sources: Vec<JsValue>,
+        names: Vec<JsValue>,
+        file: Option<String>,
+        source_root: Option<String>,
+        sources_content: Vec<JsValue>,
+        ignore_list: Vec<u32>,
+        debug_id: Option<String>,
+    ) -> Result<SourceMap, JsError> {
+        let sources: Vec<String> = sources
+            .iter()
+            .map(|s| s.as_string().unwrap_or_default())
+            .collect();
+        let names: Vec<String> = names
+            .iter()
+            .map(|s| s.as_string().unwrap_or_default())
+            .collect();
+        let sources_content: Vec<Option<String>> = sources_content
+            .iter()
+            .map(|s| s.as_string())
+            .collect();
+
+        let inner = srcmap_sourcemap::SourceMap::from_vlq(
+            mappings,
+            sources,
+            names,
+            file,
+            source_root,
+            sources_content,
+            ignore_list,
+            debug_id,
+        )
+        .map_err(|e| JsError::new(&e.to_string()))?;
+
+        Ok(Self { inner })
+    }
+
     /// Look up the original source position for a generated position.
     /// Both line and column are 0-based.
     /// Returns null if no mapping exists, or an object {source, line, column, name}.
@@ -47,6 +91,22 @@ impl SourceMap {
                 obj.into()
             }
             None => JsValue::NULL,
+        }
+    }
+
+    /// Fast single lookup returning flat array [sourceIdx, line, column, nameIdx].
+    /// Returns [-1, -1, -1, -1] for unmapped positions.
+    /// Use source(idx) and name(idx) to resolve strings.
+    #[wasm_bindgen(js_name = "originalPositionFlat")]
+    pub fn original_position_flat(&self, line: u32, column: u32) -> Vec<i32> {
+        match self.inner.original_position_for(line, column) {
+            Some(loc) => vec![
+                loc.source as i32,
+                loc.line as i32,
+                loc.column as i32,
+                loc.name.map_or(-1, |n| n as i32),
+            ],
+            None => vec![-1, -1, -1, -1],
         }
     }
 
