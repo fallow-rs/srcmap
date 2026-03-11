@@ -8,6 +8,7 @@ coverage/
 
 # wasm-pack build output (rebuilt on publish)
 packages/*/pkg/
+packages/*/web/
 
 # napi-rs native binaries (rebuilt on publish)
 # Note: index.js and index.d.ts are tracked — they're hand-written loaders
