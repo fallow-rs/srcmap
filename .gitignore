@@ -15,3 +15,6 @@ benchmarks/fixtures/
 
 # napi-rs native binaries (rebuilt on publish)
 # Note: index.js and index.d.ts are tracked — they're hand-written loaders
+.claude/
+OUTREACH.md
+outreach-reports/
