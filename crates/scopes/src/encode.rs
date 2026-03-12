@@ -58,6 +58,7 @@ impl<'a> ScopesEncoder<'a> {
         }
     }
 
+    #[inline]
     fn emit_comma(&mut self) {
         if !self.first_item {
             self.output.push(b',');
@@ -65,18 +66,22 @@ impl<'a> ScopesEncoder<'a> {
         self.first_item = false;
     }
 
+    #[inline]
     fn emit_tag(&mut self, tag: u64) {
         vlq_encode_unsigned(&mut self.output, tag);
     }
 
+    #[inline]
     fn emit_unsigned(&mut self, value: u64) {
         vlq_encode_unsigned(&mut self.output, value);
     }
 
+    #[inline]
     fn emit_signed(&mut self, value: i64) {
         vlq_encode(&mut self.output, value);
     }
 
+    #[inline]
     fn name_idx(&mut self, name: &str) -> u32 {
         resolve_or_add_name(name, self.names, &mut self.name_map)
     }
@@ -92,14 +97,8 @@ impl<'a> ScopesEncoder<'a> {
                     self.encode_original_scope(s);
                 }
                 None => {
-                    // Empty item: just emit a comma separator
-                    // The comma between items handles this
-                    if !self.first_item {
-                        self.output.push(b',');
-                    }
-                    self.first_item = false;
-                    // We need to mark that this was an empty item
-                    // The next item's comma will create the empty slot
+                    // Empty item: emit a comma to mark the absent source
+                    self.emit_comma();
                 }
             }
         }
@@ -109,7 +108,9 @@ impl<'a> ScopesEncoder<'a> {
             self.encode_generated_range(range);
         }
 
-        // SAFETY: VLQ output is always valid ASCII/UTF-8
+        // SAFETY: vlq_encode/vlq_encode_unsigned only push bytes from
+        // BASE64_ENCODE (all ASCII), and we only add b',' — all valid UTF-8.
+        debug_assert!(self.output.is_ascii());
         unsafe { String::from_utf8_unchecked(self.output) }
     }
 
@@ -227,9 +228,9 @@ impl<'a> ScopesEncoder<'a> {
         self.gr_col = range.start.column;
 
         if let Some(def) = range.definition {
-            let def_i64 = def as i64;
-            self.emit_signed(def_i64 - self.gr_def);
-            self.gr_def = def_i64;
+            let def_val = def as i64;
+            self.emit_signed(def_val - self.gr_def);
+            self.gr_def = def_val;
         }
 
         // G item: bindings

@@ -687,7 +687,9 @@ fn cmd_mappings(
     };
 
     let filtered: Vec<_> = if let Some(source_name) = source_filter {
-        let source_idx = sm.source_index(source_name).unwrap();
+        let source_idx = sm
+            .source_index(source_name)
+            .ok_or_else(|| CliError::not_found(format!("source not found: {source_name}")))?;
         all.iter()
             .filter(|m| m.source == source_idx)
             .skip(offset)
@@ -812,7 +814,8 @@ fn cmd_concat(
     }
 
     let map_json = builder.to_json();
-    let result = SourceMap::from_json(&map_json).unwrap();
+    let result = SourceMap::from_json(&map_json)
+        .map_err(|e| CliError::parse(format!("failed to parse generated map: {e}")))?;
 
     if dry_run {
         if json {

@@ -145,7 +145,7 @@ pub struct GeneratedRange {
     /// Whether this stack frame should be hidden from traces.
     pub is_hidden: bool,
     /// Index into the pre-order list of all original scope starts.
-    pub definition: Option<usize>,
+    pub definition: Option<u32>,
     /// Call site if this range represents an inlined function body.
     pub call_site: Option<CallSite>,
     /// Variable bindings (one per variable in the referenced original scope).
@@ -169,8 +169,8 @@ impl ScopeInfo {
     ///
     /// The definition index references scopes in pre-order traversal order
     /// across all source files.
-    pub fn original_scope_for_definition(&self, definition: usize) -> Option<&OriginalScope> {
-        let mut count = 0;
+    pub fn original_scope_for_definition(&self, definition: u32) -> Option<&OriginalScope> {
+        let mut count = 0u32;
         for scope in self.scopes.iter().flatten() {
             if let Some(result) = find_nth_scope(scope, definition, &mut count) {
                 return Some(result);
@@ -182,16 +182,20 @@ impl ScopeInfo {
 
 fn find_nth_scope<'a>(
     scope: &'a OriginalScope,
-    target: usize,
-    count: &mut usize,
+    target: u32,
+    count: &mut u32,
 ) -> Option<&'a OriginalScope> {
-    if *count == target {
-        return Some(scope);
-    }
-    *count += 1;
-    for child in &scope.children {
-        if let Some(result) = find_nth_scope(child, target, count) {
-            return Some(result);
+    // Iterative pre-order traversal to avoid stack overflow on deeply nested scopes
+    let mut stack: Vec<&'a OriginalScope> = vec![scope];
+
+    while let Some(node) = stack.pop() {
+        if *count == target {
+            return Some(node);
+        }
+        *count += 1;
+        // Push children in reverse order so leftmost is processed first
+        for child in node.children.iter().rev() {
+            stack.push(child);
         }
     }
     None
@@ -200,7 +204,7 @@ fn find_nth_scope<'a>(
 // ── Errors ───────────────────────────────────────────────────────
 
 /// Errors during scopes decoding.
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ScopesError {
     /// VLQ decoding failed.
     Vlq(DecodeError),

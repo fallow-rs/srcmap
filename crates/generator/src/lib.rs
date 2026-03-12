@@ -104,13 +104,13 @@ impl SourceMapGenerator {
     }
 
     /// Set the source root prefix.
-    pub fn set_source_root(&mut self, root: String) {
-        self.source_root = Some(root);
+    pub fn set_source_root(&mut self, root: impl Into<String>) {
+        self.source_root = Some(root.into());
     }
 
     /// Set the debug ID (UUID) for this source map (ECMA-426).
-    pub fn set_debug_id(&mut self, id: String) {
-        self.debug_id = Some(id);
+    pub fn set_debug_id(&mut self, id: impl Into<String>) {
+        self.debug_id = Some(id.into());
     }
 
     /// Set scope and variable information (ECMA-426 scopes proposal).
@@ -119,6 +119,7 @@ impl SourceMapGenerator {
     }
 
     /// Register a source file and return its index.
+    #[inline]
     pub fn add_source(&mut self, source: &str) -> u32 {
         if let Some(&idx) = self.source_map.get(source) {
             return idx;
@@ -131,13 +132,14 @@ impl SourceMapGenerator {
     }
 
     /// Set the content for a source file.
-    pub fn set_source_content(&mut self, source_idx: u32, content: String) {
+    pub fn set_source_content(&mut self, source_idx: u32, content: impl Into<String>) {
         if (source_idx as usize) < self.sources_content.len() {
-            self.sources_content[source_idx as usize] = Some(content);
+            self.sources_content[source_idx as usize] = Some(content.into());
         }
     }
 
     /// Register a name and return its index.
+    #[inline]
     pub fn add_name(&mut self, name: &str) -> u32 {
         if let Some(&idx) = self.name_map.get(name) {
             return idx;
@@ -307,6 +309,7 @@ impl SourceMapGenerator {
         Self::encode_sequential_impl(&sorted)
     }
 
+    #[inline]
     fn encode_sequential_impl(sorted: &[&Mapping]) -> String {
         let mut out: Vec<u8> = Vec::with_capacity(sorted.len() * 6);
 
@@ -351,7 +354,9 @@ impl SourceMapGenerator {
             }
         }
 
-        // SAFETY: VLQ output is always valid ASCII/UTF-8
+        // SAFETY: vlq_encode only pushes bytes from BASE64_ENCODE (all ASCII),
+        // and we only add b';' and b',' — all valid UTF-8.
+        debug_assert!(out.is_ascii());
         unsafe { String::from_utf8_unchecked(out) }
     }
 
@@ -359,7 +364,7 @@ impl SourceMapGenerator {
     fn encode_parallel_impl(sorted: &[&Mapping]) -> String {
         use rayon::prelude::*;
 
-        let max_line = sorted.last().unwrap().generated_line as usize;
+        let max_line = sorted.last().expect("encode_parallel_impl requires non-empty sorted slice").generated_line as usize;
 
         // Build line ranges: (start_idx, end_idx) into sorted slice
         let mut line_ranges: Vec<(usize, usize)> = vec![(0, 0); max_line + 1];
@@ -416,7 +421,9 @@ impl SourceMapGenerator {
             out.extend_from_slice(bytes);
         }
 
-        // SAFETY: VLQ output is always valid ASCII/UTF-8
+        // SAFETY: vlq_encode only pushes bytes from BASE64_ENCODE (all ASCII),
+        // and we only add b';' — all valid UTF-8.
+        debug_assert!(out.is_ascii());
         unsafe { String::from_utf8_unchecked(out) }
     }
 
@@ -469,6 +476,9 @@ impl SourceMapGenerator {
             return None;
         }
 
+        // SAFETY: vlq_encode_unsigned only pushes ASCII base64 chars,
+        // and we only add b';' and b',' — all valid UTF-8.
+        debug_assert!(out.is_ascii());
         Some(unsafe { String::from_utf8_unchecked(out) })
     }
 
@@ -756,16 +766,17 @@ impl StreamingGenerator {
     }
 
     /// Set the source root prefix.
-    pub fn set_source_root(&mut self, root: String) {
-        self.source_root = Some(root);
+    pub fn set_source_root(&mut self, root: impl Into<String>) {
+        self.source_root = Some(root.into());
     }
 
     /// Set the debug ID (UUID) for this source map (ECMA-426).
-    pub fn set_debug_id(&mut self, id: String) {
-        self.debug_id = Some(id);
+    pub fn set_debug_id(&mut self, id: impl Into<String>) {
+        self.debug_id = Some(id.into());
     }
 
     /// Register a source file and return its index.
+    #[inline]
     pub fn add_source(&mut self, source: &str) -> u32 {
         if let Some(&idx) = self.source_map.get(source) {
             return idx;
@@ -778,13 +789,14 @@ impl StreamingGenerator {
     }
 
     /// Set the content for a source file.
-    pub fn set_source_content(&mut self, source_idx: u32, content: String) {
+    pub fn set_source_content(&mut self, source_idx: u32, content: impl Into<String>) {
         if (source_idx as usize) < self.sources_content.len() {
-            self.sources_content[source_idx as usize] = Some(content);
+            self.sources_content[source_idx as usize] = Some(content.into());
         }
     }
 
     /// Register a name and return its index.
+    #[inline]
     pub fn add_name(&mut self, name: &str) -> u32 {
         if let Some(&idx) = self.name_map.get(name) {
             return idx;
@@ -1124,7 +1136,7 @@ impl StreamingGenerator {
     /// Panics if the internal VLQ-encoded mappings string is corrupted or
     /// contains invalid VLQ sequences. This is not expected under normal use,
     /// since the streaming encoder always produces valid output.
-    pub fn to_decoded_map(&self) -> srcmap_sourcemap::SourceMap {
+    pub fn to_decoded_map(&self) -> Result<srcmap_sourcemap::SourceMap, srcmap_sourcemap::ParseError> {
         let vlq = self.vlq_string();
         let range_mappings = self.encode_range_mappings();
 
@@ -1146,7 +1158,6 @@ impl StreamingGenerator {
             self.debug_id.clone(),
             range_mappings.as_deref(),
         )
-        .expect("streaming VLQ should be valid")
     }
 
     /// Encode range mapping entries to a VLQ string.
@@ -1294,44 +1305,8 @@ fn json_quote_into(out: &mut String, s: &str) {
 /// JSON-quote a string, returning a new String (used in parallel contexts).
 #[cfg(feature = "parallel")]
 fn json_quote(s: &str) -> String {
-    let bytes = s.as_bytes();
     let mut out = String::with_capacity(s.len() + 2);
-    out.push('"');
-
-    let mut start = 0;
-    for (i, &b) in bytes.iter().enumerate() {
-        let escape = match b {
-            b'"' => "\\\"",
-            b'\\' => "\\\\",
-            b'\n' => "\\n",
-            b'\r' => "\\r",
-            b'\t' => "\\t",
-            0x00..=0x1f => {
-                // Flush buffered safe bytes
-                if start < i {
-                    out.push_str(&s[start..i]);
-                }
-                use std::fmt::Write;
-                let _ = write!(out, "\\u{:04x}", b);
-                start = i + 1;
-                continue;
-            }
-            _ => continue,
-        };
-        // Flush buffered safe bytes, then write escape
-        if start < i {
-            out.push_str(&s[start..i]);
-        }
-        out.push_str(escape);
-        start = i + 1;
-    }
-
-    // Flush remaining safe bytes
-    if start < bytes.len() {
-        out.push_str(&s[start..]);
-    }
-
-    out.push('"');
+    json_quote_into(&mut out, s);
     out
 }
 
@@ -2203,7 +2178,7 @@ mod tests {
         sg.add_mapping(0, 0, src, 0, 0);
         sg.add_mapping(2, 5, src, 1, 3);
 
-        let sm = sg.to_decoded_map();
+        let sm = sg.to_decoded_map().unwrap();
         assert_eq!(sm.mapping_count(), 2);
         assert_eq!(sm.sources, vec!["test.js"]);
 
@@ -2344,7 +2319,7 @@ mod tests {
         sg.add_range_mapping(0, 0, src, 0, 0);
         sg.add_mapping(0, 5, src, 0, 10);
 
-        let sm = sg.to_decoded_map();
+        let sm = sg.to_decoded_map().unwrap();
         assert!(sm.has_range_mappings());
         let mappings = sm.all_mappings();
         assert!(mappings[0].is_range_mapping);
@@ -2362,7 +2337,7 @@ mod tests {
         let json = sg.to_json();
         assert!(json.contains(r#""rangeMappings":"A,B""#));
 
-        let sm = sg.to_decoded_map();
+        let sm = sg.to_decoded_map().unwrap();
         assert!(sm.has_range_mappings());
         let mappings = sm.all_mappings();
         assert!(mappings[0].is_range_mapping);

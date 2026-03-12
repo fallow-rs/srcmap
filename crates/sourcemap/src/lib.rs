@@ -130,7 +130,7 @@ pub enum ParseError {
     /// The `version` field is not `3`.
     InvalidVersion(u32),
     /// The ECMA-426 scopes data could not be decoded.
-    Scopes(String),
+    Scopes(srcmap_scopes::ScopesError),
 }
 
 impl fmt::Display for ParseError {
@@ -144,7 +144,16 @@ impl fmt::Display for ParseError {
     }
 }
 
-impl std::error::Error for ParseError {}
+impl std::error::Error for ParseError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Json(e) => Some(e),
+            Self::Vlq(e) => Some(e),
+            Self::Scopes(e) => Some(e),
+            Self::InvalidVersion(_) => None,
+        }
+    }
+}
 
 impl From<serde_json::Error> for ParseError {
     fn from(e: serde_json::Error) -> Self {
@@ -156,6 +165,35 @@ impl From<DecodeError> for ParseError {
     fn from(e: DecodeError) -> Self {
         Self::Vlq(e)
     }
+}
+
+impl From<srcmap_scopes::ScopesError> for ParseError {
+    fn from(e: srcmap_scopes::ScopesError) -> Self {
+        Self::Scopes(e)
+    }
+}
+
+// ── Helpers ────────────────────────────────────────────────────────
+
+/// Resolve source filenames by applying `source_root` prefix and replacing `None` with empty string.
+fn resolve_sources(raw_sources: &[Option<String>], source_root: &str) -> Vec<String> {
+    raw_sources
+        .iter()
+        .map(|s| match s {
+            Some(s) if !source_root.is_empty() => format!("{source_root}{s}"),
+            Some(s) => s.clone(),
+            None => String::new(),
+        })
+        .collect()
+}
+
+/// Build a source filename -> index lookup map.
+fn build_source_map(sources: &[String]) -> HashMap<String, u32> {
+    sources
+        .iter()
+        .enumerate()
+        .map(|(i, s)| (s.clone(), i as u32))
+        .collect()
 }
 
 // ── Raw JSON structure ─────────────────────────────────────────────
@@ -202,7 +240,7 @@ struct RawSourceMap<'a> {
 #[derive(Deserialize)]
 struct RawSection {
     offset: RawOffset,
-    map: serde_json::Value,
+    map: Box<serde_json::value::RawValue>,
 }
 
 #[derive(Deserialize)]
@@ -263,6 +301,9 @@ pub struct SourceMap {
 
     /// Source filename → index for O(1) lookup by name.
     source_map: HashMap<String, u32>,
+
+    /// Cached flag: true if any mapping has `is_range_mapping == true`.
+    has_range_mappings: bool,
 }
 
 impl SourceMap {
@@ -285,26 +326,10 @@ impl SourceMap {
 
     /// Parse a regular (non-indexed) source map.
     fn from_regular(raw: RawSourceMap<'_>) -> Result<Self, ParseError> {
-        // Resolve sources: apply sourceRoot, replace None with empty string
         let source_root = raw.source_root.as_deref().unwrap_or("");
-        let sources: Vec<String> = raw
-            .sources
-            .iter()
-            .map(|s| match s {
-                Some(s) if !source_root.is_empty() => format!("{source_root}{s}"),
-                Some(s) => s.clone(),
-                None => String::new(),
-            })
-            .collect();
-
+        let sources = resolve_sources(&raw.sources, source_root);
         let sources_content = raw.sources_content.unwrap_or_default();
-
-        // Build source name → index map
-        let source_map: HashMap<String, u32> = sources
-            .iter()
-            .enumerate()
-            .map(|(i, s)| (s.clone(), i as u32))
-            .collect();
+        let source_map = build_source_map(&sources);
 
         // Decode mappings directly into flat Mapping vec
         let (mut mappings, line_offsets) = decode_mappings(raw.mappings)?;
@@ -321,7 +346,7 @@ impl SourceMap {
         let scopes = match raw.scopes {
             Some(scopes_str) if !scopes_str.is_empty() => Some(
                 srcmap_scopes::decode_scopes(scopes_str, &raw.names, num_sources)
-                    .map_err(|e| ParseError::Scopes(e.to_string()))?,
+                    ?,
             ),
             _ => None,
         };
@@ -340,6 +365,8 @@ impl SourceMap {
             .filter(|(k, _)| k.starts_with("x_"))
             .collect();
 
+        let has_range_mappings = mappings.iter().any(|m| m.is_range_mapping);
+
         Ok(Self {
             file: raw.file,
             source_root: raw.source_root,
@@ -354,6 +381,7 @@ impl SourceMap {
             line_offsets,
             reverse_index: OnceCell::new(),
             source_map,
+            has_range_mappings,
         })
     }
 
@@ -371,8 +399,7 @@ impl SourceMap {
         let mut name_index_map: HashMap<String, u32> = HashMap::new();
 
         for section in &sections {
-            let section_json = serde_json::to_string(&section.map).map_err(ParseError::Json)?;
-            let sub = Self::from_json(&section_json)?;
+            let sub = Self::from_json(section.map.get())?;
 
             let line_offset = section.offset.line;
             let col_offset = section.offset.column;
@@ -485,11 +512,8 @@ impl SourceMap {
             }
         }
 
-        let source_map = all_sources
-            .iter()
-            .enumerate()
-            .map(|(i, s)| (s.clone(), i as u32))
-            .collect();
+        let source_map = build_source_map(&all_sources);
+        let has_range_mappings = all_mappings.iter().any(|m| m.is_range_mapping);
 
         Ok(Self {
             file,
@@ -505,6 +529,7 @@ impl SourceMap {
             line_offsets,
             reverse_index: OnceCell::new(),
             source_map,
+            has_range_mappings,
         })
     }
 
@@ -779,31 +804,59 @@ impl SourceMap {
     }
 
     /// Resolve a source index to its filename.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `index` is out of bounds. Use [`get_source`](Self::get_source)
+    /// for a non-panicking alternative.
+    #[inline]
     pub fn source(&self, index: u32) -> &str {
         &self.sources[index as usize]
     }
 
+    /// Resolve a source index to its filename, returning `None` if out of bounds.
+    #[inline]
+    pub fn get_source(&self, index: u32) -> Option<&str> {
+        self.sources.get(index as usize).map(|s| s.as_str())
+    }
+
     /// Resolve a name index to its string.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `index` is out of bounds. Use [`get_name`](Self::get_name)
+    /// for a non-panicking alternative.
+    #[inline]
     pub fn name(&self, index: u32) -> &str {
         &self.names[index as usize]
     }
 
+    /// Resolve a name index to its string, returning `None` if out of bounds.
+    #[inline]
+    pub fn get_name(&self, index: u32) -> Option<&str> {
+        self.names.get(index as usize).map(|s| s.as_str())
+    }
+
     /// Find the source index for a filename.
+    #[inline]
     pub fn source_index(&self, name: &str) -> Option<u32> {
         self.source_map.get(name).copied()
     }
 
     /// Total number of decoded mappings.
+    #[inline]
     pub fn mapping_count(&self) -> usize {
         self.mappings.len()
     }
 
     /// Number of generated lines.
+    #[inline]
     pub fn line_count(&self) -> usize {
         self.line_offsets.len().saturating_sub(1)
     }
 
     /// Get all mappings for a generated line (0-based).
+    #[inline]
     pub fn mappings_for_line(&self, line: u32) -> &[Mapping] {
         let line_idx = line as usize;
         if line_idx + 1 >= self.line_offsets.len() {
@@ -815,6 +868,7 @@ impl SourceMap {
     }
 
     /// Iterate all mappings.
+    #[inline]
     pub fn all_mappings(&self) -> &[Mapping] {
         &self.mappings
     }
@@ -963,11 +1017,8 @@ impl SourceMap {
             }
         }
 
-        let source_map: HashMap<String, u32> = sources
-            .iter()
-            .enumerate()
-            .map(|(i, s)| (s.clone(), i as u32))
-            .collect();
+        let source_map = build_source_map(&sources);
+        let has_range_mappings = mappings.iter().any(|m| m.is_range_mapping);
 
         Self {
             file,
@@ -983,6 +1034,7 @@ impl SourceMap {
             line_offsets,
             reverse_index: OnceCell::new(),
             source_map,
+            has_range_mappings,
         }
     }
 
@@ -1035,11 +1087,8 @@ impl SourceMap {
         {
             decode_range_mappings(rm_str, &mut mappings, &line_offsets)?;
         }
-        let source_map: HashMap<String, u32> = sources
-            .iter()
-            .enumerate()
-            .map(|(i, s)| (s.clone(), i as u32))
-            .collect();
+        let source_map = build_source_map(&sources);
+        let has_range_mappings = mappings.iter().any(|m| m.is_range_mapping);
         Ok(Self {
             file,
             source_root,
@@ -1054,6 +1103,7 @@ impl SourceMap {
             line_offsets,
             reverse_index: OnceCell::new(),
             source_map,
+            has_range_mappings,
         })
     }
 
@@ -1069,25 +1119,10 @@ impl SourceMap {
             return Err(ParseError::InvalidVersion(raw.version));
         }
 
-        // Resolve sources
         let source_root = raw.source_root.as_deref().unwrap_or("");
-        let sources: Vec<String> = raw
-            .sources
-            .iter()
-            .map(|s| match s {
-                Some(s) if !source_root.is_empty() => format!("{source_root}{s}"),
-                Some(s) => s.clone(),
-                None => String::new(),
-            })
-            .collect();
-
+        let sources = resolve_sources(&raw.sources, source_root);
         let sources_content = raw.sources_content.unwrap_or_default();
-
-        let source_map: HashMap<String, u32> = sources
-            .iter()
-            .enumerate()
-            .map(|(i, s)| (s.clone(), i as u32))
-            .collect();
+        let source_map = build_source_map(&sources);
 
         // Decode only the requested line range
         let (mappings, line_offsets) = decode_mappings_range(raw.mappings, start_line, end_line)?;
@@ -1097,7 +1132,7 @@ impl SourceMap {
         let scopes = match raw.scopes {
             Some(scopes_str) if !scopes_str.is_empty() => Some(
                 srcmap_scopes::decode_scopes(scopes_str, &raw.names, num_sources)
-                    .map_err(|e| ParseError::Scopes(e.to_string()))?,
+                    ?,
             ),
             _ => None,
         };
@@ -1115,6 +1150,8 @@ impl SourceMap {
             .filter(|(k, _)| k.starts_with("x_"))
             .collect();
 
+        let has_range_mappings = mappings.iter().any(|m| m.is_range_mapping);
+
         Ok(Self {
             file: raw.file,
             source_root: raw.source_root,
@@ -1129,6 +1166,7 @@ impl SourceMap {
             line_offsets,
             reverse_index: OnceCell::new(),
             source_map,
+            has_range_mappings,
         })
     }
 
@@ -1181,12 +1219,14 @@ impl SourceMap {
             }
         }
 
-        // SAFETY: VLQ output is always valid ASCII
+        // SAFETY: vlq_encode only pushes bytes from BASE64_ENCODE (all ASCII),
+        // and we only add b';' and b',' — all valid UTF-8.
+        debug_assert!(out.is_ascii());
         unsafe { String::from_utf8_unchecked(out) }
     }
 
     pub fn encode_range_mappings(&self) -> Option<String> {
-        if !self.mappings.iter().any(|m| m.is_range_mapping) {
+        if !self.has_range_mappings {
             return None;
         }
         let line_count = self.line_offsets.len().saturating_sub(1);
@@ -1216,13 +1256,18 @@ impl SourceMap {
         if out.is_empty() {
             return None;
         }
+        // SAFETY: vlq_encode_unsigned only pushes ASCII base64 chars,
+        // and we only add b';' and b',' — all valid UTF-8.
+        debug_assert!(out.is_ascii());
         Some(unsafe { String::from_utf8_unchecked(out) })
     }
 
+    #[inline]
     pub fn has_range_mappings(&self) -> bool {
-        self.mappings.iter().any(|m| m.is_range_mapping)
+        self.has_range_mappings
     }
 
+    #[inline]
     pub fn range_mapping_count(&self) -> usize {
         self.mappings.iter().filter(|m| m.is_range_mapping).count()
     }
@@ -1306,23 +1351,9 @@ impl LazySourceMap {
         }
 
         let source_root = raw.source_root.as_deref().unwrap_or("");
-        let sources: Vec<String> = raw
-            .sources
-            .iter()
-            .map(|s| match s {
-                Some(s) if !source_root.is_empty() => format!("{source_root}{s}"),
-                Some(s) => s.clone(),
-                None => String::new(),
-            })
-            .collect();
-
+        let sources = resolve_sources(&raw.sources, source_root);
         let sources_content = raw.sources_content.unwrap_or_default();
-
-        let source_map: HashMap<String, u32> = sources
-            .iter()
-            .enumerate()
-            .map(|(i, s)| (s.clone(), i as u32))
-            .collect();
+        let source_map = build_source_map(&sources);
 
         // Pre-scan the raw mappings string to find semicolon positions
         // and compute cumulative VLQ state at each line boundary.
@@ -1334,7 +1365,7 @@ impl LazySourceMap {
         let scopes = match raw.scopes {
             Some(scopes_str) if !scopes_str.is_empty() => Some(
                 srcmap_scopes::decode_scopes(scopes_str, &raw.names, num_sources)
-                    .map_err(|e| ParseError::Scopes(e.to_string()))?,
+                    ?,
             ),
             _ => None,
         };
@@ -1502,21 +1533,47 @@ impl LazySourceMap {
     }
 
     /// Number of generated lines in the source map.
+    #[inline]
     pub fn line_count(&self) -> usize {
         self.line_info.len()
     }
 
     /// Resolve a source index to its filename.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `index` is out of bounds. Use [`get_source`](Self::get_source)
+    /// for a non-panicking alternative.
+    #[inline]
     pub fn source(&self, index: u32) -> &str {
         &self.sources[index as usize]
     }
 
+    /// Resolve a source index to its filename, returning `None` if out of bounds.
+    #[inline]
+    pub fn get_source(&self, index: u32) -> Option<&str> {
+        self.sources.get(index as usize).map(|s| s.as_str())
+    }
+
     /// Resolve a name index to its string.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `index` is out of bounds. Use [`get_name`](Self::get_name)
+    /// for a non-panicking alternative.
+    #[inline]
     pub fn name(&self, index: u32) -> &str {
         &self.names[index as usize]
     }
 
+    /// Resolve a name index to its string, returning `None` if out of bounds.
+    #[inline]
+    pub fn get_name(&self, index: u32) -> Option<&str> {
+        self.names.get(index as usize).map(|s| s.as_str())
+    }
+
     /// Find the source index for a filename.
+    #[inline]
     pub fn source_index(&self, name: &str) -> Option<u32> {
         self.source_map.get(name).copied()
     }
@@ -1531,6 +1588,7 @@ impl LazySourceMap {
     /// Useful when you need the full map after lazy exploration.
     pub fn into_sourcemap(self) -> Result<SourceMap, ParseError> {
         let (mappings, line_offsets) = decode_mappings(&self.raw_mappings)?;
+        let has_range_mappings = mappings.iter().any(|m| m.is_range_mapping);
 
         Ok(SourceMap {
             file: self.file,
@@ -1546,6 +1604,7 @@ impl LazySourceMap {
             line_offsets,
             reverse_index: OnceCell::new(),
             source_map: self.source_map,
+            has_range_mappings,
         })
     }
 }
@@ -1733,7 +1792,8 @@ pub fn validate_deep(sm: &SourceMap) -> Vec<String> {
     // Check segment ordering (must be sorted by generated position)
     let mut prev_line: u32 = 0;
     let mut prev_col: u32 = 0;
-    for m in &sm.mappings {
+    let mappings = sm.all_mappings();
+    for m in mappings {
         if m.generated_line < prev_line
             || (m.generated_line == prev_line && m.generated_column < prev_col)
         {
@@ -1747,7 +1807,7 @@ pub fn validate_deep(sm: &SourceMap) -> Vec<String> {
     }
 
     // Check source indices in bounds
-    for m in &sm.mappings {
+    for m in mappings {
         if m.source != NO_SOURCE && m.source as usize >= sm.sources.len() {
             warnings.push(format!(
                 "source index {} out of bounds (max {})",
@@ -1777,7 +1837,7 @@ pub fn validate_deep(sm: &SourceMap) -> Vec<String> {
 
     // Detect unreferenced sources
     let mut referenced_sources = std::collections::HashSet::new();
-    for m in &sm.mappings {
+    for m in mappings {
         if m.source != NO_SOURCE {
             referenced_sources.insert(m.source);
         }
@@ -4595,8 +4655,8 @@ mod tests {
 
     #[test]
     fn parse_error_display_scopes() {
-        let err = ParseError::Scopes("test error".to_string());
-        assert_eq!(err.to_string(), "scopes decode error: test error");
+        let err = ParseError::Scopes(srcmap_scopes::ScopesError::UnclosedScope);
+        assert!(err.to_string().contains("scopes decode error"));
     }
 
     #[test]

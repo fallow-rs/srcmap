@@ -67,7 +67,9 @@ pub fn encode(mappings: &SourceMapMappings) -> String {
         }
     }
 
-    // SAFETY: buf contains only ASCII base64 chars, semicolons, and commas
+    // SAFETY: vlq_encode only pushes bytes from BASE64_ENCODE (all ASCII),
+    // and we only add b';' and b',' — all valid UTF-8.
+    debug_assert!(buf.is_ascii());
     unsafe { String::from_utf8_unchecked(buf) }
 }
 
@@ -189,6 +191,8 @@ pub fn encode_parallel(mappings: &SourceMapMappings) -> String {
         buf.extend_from_slice(line_bytes);
     }
 
-    // SAFETY: VLQ output is always valid ASCII/UTF-8
+    // SAFETY: vlq_encode only pushes bytes from BASE64_ENCODE (all ASCII),
+    // and we only add b';' — all valid UTF-8.
+    debug_assert!(buf.is_ascii());
     unsafe { String::from_utf8_unchecked(buf) }
 }

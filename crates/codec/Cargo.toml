@@ -17,7 +17,7 @@ parallel = ["rayon"]
 crate-type = ["lib"]
 
 [dependencies]
-rayon = { version = "1", optional = true }
+rayon = { workspace = true, optional = true }
 
 [dev-dependencies]
 criterion = { workspace = true }

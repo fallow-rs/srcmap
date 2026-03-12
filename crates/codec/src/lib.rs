@@ -62,6 +62,27 @@ pub struct Segment {
     len: u8,
 }
 
+impl std::hash::Hash for Segment {
+    #[inline]
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        (**self).hash(state);
+    }
+}
+
+impl PartialOrd for Segment {
+    #[inline]
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for Segment {
+    #[inline]
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        (**self).cmp(&**other)
+    }
+}
+
 impl Segment {
     /// Create a 1-field segment (generated column only).
     #[inline]

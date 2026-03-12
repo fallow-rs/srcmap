@@ -24,28 +24,33 @@ impl<'a> Tokenizer<'a> {
         Self { input, pos: 0 }
     }
 
+    #[inline]
     fn has_next(&self) -> bool {
         self.pos < self.input.len()
     }
 
     /// Check if we're at the end of the current item (comma or end of input).
+    #[inline]
     fn at_item_end(&self) -> bool {
         self.pos >= self.input.len() || self.input[self.pos] == b','
     }
 
     /// Skip a comma separator (if present).
+    #[inline]
     fn skip_comma(&mut self) {
         if self.pos < self.input.len() && self.input[self.pos] == b',' {
             self.pos += 1;
         }
     }
 
+    #[inline]
     fn read_unsigned(&mut self) -> Result<u64, ScopesError> {
         let (val, consumed) = vlq_decode_unsigned(self.input, self.pos)?;
         self.pos += consumed;
         Ok(val)
     }
 
+    #[inline]
     fn read_signed(&mut self) -> Result<i64, ScopesError> {
         let (val, consumed) = vlq_decode(self.input, self.pos)?;
         self.pos += consumed;
@@ -68,7 +73,7 @@ struct BuildingRange {
     start: Position,
     is_stack_frame: bool,
     is_hidden: bool,
-    definition: Option<usize>,
+    definition: Option<u32>,
     call_site: Option<CallSite>,
     bindings: Vec<Binding>,
     sub_range_bindings: Vec<(usize, Vec<SubRangeBinding>)>,
@@ -195,7 +200,8 @@ pub fn decode_scopes(
                     os_col + col_raw
                 };
 
-                let building = scope_stack.pop().unwrap();
+                // Safe: scope_stack.is_empty() checked above
+                let building = scope_stack.pop().expect("non-empty: checked above");
                 let finished = OriginalScope {
                     start: building.start,
                     end: Position {
@@ -212,9 +218,9 @@ pub fn decode_scopes(
                 if scope_stack.is_empty() {
                     scopes.push(Some(finished));
                     source_idx += 1;
-                    // Position resets at next tree start (handled above)
                 } else {
-                    scope_stack.last_mut().unwrap().children.push(finished);
+                    // Safe: just checked !is_empty()
+                    scope_stack.last_mut().expect("non-empty: checked above").children.push(finished);
                 }
             }
 
@@ -261,7 +267,7 @@ pub fn decode_scopes(
                 let definition = if flags & crate::GR_FLAG_HAS_DEFINITION != 0 {
                     let d = tok.read_signed()?;
                     gr_def += d;
-                    Some(gr_def as usize)
+                    Some(gr_def as u32)
                 } else {
                     None
                 };
@@ -307,7 +313,8 @@ pub fn decode_scopes(
                     gr_col + col_raw
                 };
 
-                let building = range_stack.pop().unwrap();
+                // Safe: range_stack.is_empty() checked above
+                let building = range_stack.pop().expect("non-empty: checked above");
 
                 // Merge sub-range bindings into final bindings
                 let final_bindings = merge_bindings(
@@ -333,7 +340,8 @@ pub fn decode_scopes(
                 if range_stack.is_empty() {
                     ranges.push(finished);
                 } else {
-                    range_stack.last_mut().unwrap().children.push(finished);
+                    // Safe: just checked !is_empty()
+                    range_stack.last_mut().expect("non-empty: checked above").children.push(finished);
                 }
             }
 

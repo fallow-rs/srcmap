@@ -13,8 +13,8 @@ crate-type = ["cdylib"]
 [dependencies]
 srcmap-generator = { workspace = true }
 srcmap-sourcemap = { workspace = true }
-napi = { version = "2", default-features = false, features = ["napi6"] }
-napi-derive = "2"
+napi = { workspace = true }
+napi-derive = { workspace = true }
 
 [build-dependencies]
-napi-build = "2"
+napi-build = { workspace = true }

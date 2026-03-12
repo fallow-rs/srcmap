@@ -186,9 +186,34 @@ pub fn vlq_encode_unsigned(out: &mut Vec<u8>, value: u64) {
 /// Unlike signed VLQ, no sign bit extraction is performed.
 #[inline]
 pub fn vlq_decode_unsigned(input: &[u8], pos: usize) -> Result<(u64, usize), DecodeError> {
-    let mut result: u64 = 0;
-    let mut shift: u32 = 0;
-    let mut i = pos;
+    if pos >= input.len() {
+        return Err(DecodeError::UnexpectedEof { offset: pos });
+    }
+
+    let b0 = input[pos];
+    if b0 >= 128 {
+        return Err(DecodeError::InvalidBase64 {
+            byte: b0,
+            offset: pos,
+        });
+    }
+    let d0 = BASE64_DECODE[b0 as usize];
+    if d0 == 255 {
+        return Err(DecodeError::InvalidBase64 {
+            byte: b0,
+            offset: pos,
+        });
+    }
+
+    // Fast path: single character (value fits in 5 bits, no continuation)
+    if (d0 & 0x20) == 0 {
+        return Ok((d0 as u64, 1));
+    }
+
+    // Multi-character unsigned VLQ
+    let mut result: u64 = (d0 & 0x1F) as u64;
+    let mut shift: u32 = 5;
+    let mut i = pos + 1;
 
     loop {
         if i >= input.len() {
@@ -207,17 +232,16 @@ pub fn vlq_decode_unsigned(input: &[u8], pos: usize) -> Result<(u64, usize), Dec
             return Err(DecodeError::InvalidBase64 { byte, offset: i });
         }
 
-        let digit = digit as u64;
         i += 1;
 
         if shift >= VLQ_MAX_SHIFT {
             return Err(DecodeError::VlqOverflow { offset: pos });
         }
 
-        result += (digit & VLQ_BASE_MASK) << shift;
+        result += ((digit & 0x1F) as u64) << shift;
         shift += VLQ_BASE_SHIFT;
 
-        if (digit & VLQ_CONTINUATION_BIT) == 0 {
+        if (digit & 0x20) == 0 {
             break;
         }
     }

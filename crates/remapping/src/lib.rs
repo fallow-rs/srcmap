@@ -68,8 +68,6 @@ use std::collections::HashMap;
 /// combined map. Sources and names are deduplicated across inputs.
 pub struct ConcatBuilder {
     builder: SourceMapGenerator,
-    source_remap: HashMap<String, u32>,
-    name_remap: HashMap<String, u32>,
 }
 
 impl ConcatBuilder {
@@ -77,8 +75,6 @@ impl ConcatBuilder {
     pub fn new(file: Option<String>) -> Self {
         Self {
             builder: SourceMapGenerator::new(file),
-            source_remap: HashMap::new(),
-            name_remap: HashMap::new(),
         }
     }
 
@@ -87,42 +83,25 @@ impl ConcatBuilder {
     /// `line_offset` is the number of lines to shift all mappings by
     /// (i.e. the line at which this chunk starts in the output).
     pub fn add_map(&mut self, sm: &SourceMap, line_offset: u32) {
-        // Remap sources
+        // Remap sources (add_source deduplicates internally)
         let source_indices: Vec<u32> = sm
             .sources
             .iter()
             .enumerate()
             .map(|(i, s)| {
-                if let Some(&idx) = self.source_remap.get(s) {
-                    // If this source has content and we don't yet, update it
-                    if let Some(Some(content)) = sm.sources_content.get(i) {
-                        self.builder.set_source_content(idx, content.clone());
-                    }
-                    idx
-                } else {
-                    let idx = self.builder.add_source(s);
-                    if let Some(Some(content)) = sm.sources_content.get(i) {
-                        self.builder.set_source_content(idx, content.clone());
-                    }
-                    self.source_remap.insert(s.clone(), idx);
-                    idx
+                let idx = self.builder.add_source(s);
+                if let Some(Some(content)) = sm.sources_content.get(i) {
+                    self.builder.set_source_content(idx, content.clone());
                 }
+                idx
             })
             .collect();
 
-        // Remap names
+        // Remap names (add_name deduplicates internally)
         let name_indices: Vec<u32> = sm
             .names
             .iter()
-            .map(|n| {
-                if let Some(&idx) = self.name_remap.get(n) {
-                    idx
-                } else {
-                    let idx = self.builder.add_name(n);
-                    self.name_remap.insert(n.clone(), idx);
-                    idx
-                }
-            })
+            .map(|n| self.builder.add_name(n))
             .collect();
 
         // Copy ignore_list entries
@@ -615,7 +594,7 @@ where
         }
     }
 
-    builder.to_decoded_map()
+    builder.to_decoded_map().expect("streaming VLQ should be valid")
 }
 
 // ── Tests ─────────────────────────────────────────────────────────

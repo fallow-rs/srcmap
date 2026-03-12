@@ -142,7 +142,7 @@ fn encode_generated_range(range: &srcmap_scopes::GeneratedRange) -> JsValue {
     js_sys::Reflect::set(&obj, &"isHidden".into(), &range.is_hidden.into()).unwrap_or(false);
 
     let def_val: JsValue = match range.definition {
-        Some(d) => (d as u32).into(),
+        Some(d) => d.into(),
         None => JsValue::NULL,
     };
     js_sys::Reflect::set(&obj, &"definition".into(), &def_val).unwrap_or(false);
@@ -246,7 +246,7 @@ struct GeneratedRangeJson {
     #[serde(default, rename = "isHidden")]
     is_hidden: bool,
     #[serde(default)]
-    definition: Option<usize>,
+    definition: Option<u32>,
     #[serde(default, rename = "callSite")]
     call_site: Option<CallSiteJson>,
     #[serde(default)]

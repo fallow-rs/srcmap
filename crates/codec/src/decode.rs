@@ -1,7 +1,6 @@
 use crate::vlq::vlq_decode;
 use crate::{DecodeError, Line, Segment, SourceMapMappings};
 
-
 /// Decode a VLQ-encoded source map mappings string into structured data.
 ///
 /// The mappings string uses `;` to separate lines and `,` to separate
