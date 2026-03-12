@@ -57,6 +57,8 @@ pub struct Mapping {
     pub original_column: u32,
     /// Index into `SourceMap::names`. `u32::MAX` if this mapping has no name.
     pub name: u32,
+    /// Whether this mapping is a range mapping (ECMA-426).
+    pub is_range_mapping: bool,
 }
 
 /// Result of an [`SourceMap::original_position_for`] lookup.
@@ -185,6 +187,9 @@ struct RawSourceMap<'a> {
     /// Scopes and variables (ECMA-426 scopes proposal).
     #[serde(default, borrow)]
     scopes: Option<&'a str>,
+    /// Range mappings (ECMA-426).
+    #[serde(default, borrow, rename = "rangeMappings")]
+    range_mappings: Option<&'a str>,
     /// Indexed source maps use `sections` instead of `mappings`.
     #[serde(default)]
     sections: Option<Vec<RawSection>>,
@@ -302,7 +307,14 @@ impl SourceMap {
             .collect();
 
         // Decode mappings directly into flat Mapping vec
-        let (mappings, line_offsets) = decode_mappings(raw.mappings)?;
+        let (mut mappings, line_offsets) = decode_mappings(raw.mappings)?;
+
+        // Decode range mappings if present
+        if let Some(range_mappings_str) = raw.range_mappings
+            && !range_mappings_str.is_empty()
+        {
+            decode_range_mappings(range_mappings_str, &mut mappings, &line_offsets)?;
+        }
 
         // Decode scopes if present
         let num_sources = sources.len();
@@ -433,6 +445,7 @@ impl SourceMap {
                     } else {
                         name_remap[m.name as usize]
                     },
+                    is_range_mapping: m.is_range_mapping,
                 });
 
                 if gen_line > max_line {
@@ -514,29 +527,27 @@ impl SourceMap {
     ) -> Option<OriginalLocation> {
         let line_idx = line as usize;
         if line_idx + 1 >= self.line_offsets.len() {
-            return None;
+            return self.range_mapping_fallback(line, column);
         }
 
         let start = self.line_offsets[line_idx] as usize;
         let end = self.line_offsets[line_idx + 1] as usize;
 
         if start == end {
-            return None;
+            return self.range_mapping_fallback(line, column);
         }
 
         let line_mappings = &self.mappings[start..end];
 
         let idx = match bias {
             Bias::GreatestLowerBound => {
-                // Find largest generated_column <= column
                 match line_mappings.binary_search_by_key(&column, |m| m.generated_column) {
                     Ok(i) => i,
-                    Err(0) => return None,
+                    Err(0) => return self.range_mapping_fallback(line, column),
                     Err(i) => i - 1,
                 }
             }
             Bias::LeastUpperBound => {
-                // Find smallest generated_column >= column
                 match line_mappings.binary_search_by_key(&column, |m| m.generated_column) {
                     Ok(i) => i,
                     Err(i) => {
@@ -555,6 +566,16 @@ impl SourceMap {
             return None;
         }
 
+        if mapping.is_range_mapping && column >= mapping.generated_column {
+            let column_delta = column - mapping.generated_column;
+            return Some(OriginalLocation {
+                source: mapping.source,
+                line: mapping.original_line,
+                column: mapping.original_column + column_delta,
+                name: if mapping.name == NO_NAME { None } else { Some(mapping.name) },
+            });
+        }
+
         Some(OriginalLocation {
             source: mapping.source,
             line: mapping.original_line,
@@ -564,6 +585,26 @@ impl SourceMap {
             } else {
                 Some(mapping.name)
             },
+        })
+    }
+
+    fn range_mapping_fallback(&self, line: u32, column: u32) -> Option<OriginalLocation> {
+        let line_idx = line as usize;
+        let search_end = if line_idx + 1 < self.line_offsets.len() {
+            self.line_offsets[line_idx] as usize
+        } else {
+            self.mappings.len()
+        };
+        if search_end == 0 { return None; }
+        let last_mapping = &self.mappings[search_end - 1];
+        if !last_mapping.is_range_mapping || last_mapping.source == NO_SOURCE { return None; }
+        let line_delta = line - last_mapping.generated_line;
+        let column_delta = if line_delta == 0 { column - last_mapping.generated_column } else { 0 };
+        Some(OriginalLocation {
+            source: last_mapping.source,
+            line: last_mapping.original_line + line_delta,
+            column: last_mapping.original_column + column_delta,
+            name: if last_mapping.name == NO_NAME { None } else { Some(last_mapping.name) },
         })
     }
 
@@ -825,6 +866,11 @@ impl SourceMap {
         json.push_str(r#","mappings":"#);
         json_quote_into(&mut json, &mappings);
 
+        if let Some(range_mappings) = self.encode_range_mappings() {
+            json.push_str(r#","rangeMappings":"#);
+            json_quote_into(&mut json, &range_mappings);
+        }
+
         if !self.ignore_list.is_empty() {
             json.push_str(r#","ignoreList":["#);
             for (i, &idx) in self.ignore_list.iter().enumerate() {
@@ -933,28 +979,32 @@ impl SourceMap {
         ignore_list: Vec<u32>,
         debug_id: Option<String>,
     ) -> Result<Self, ParseError> {
-        let (mappings, line_offsets) = decode_mappings(mappings_str)?;
+        Self::from_vlq_with_range_mappings(
+            mappings_str, sources, names, file, source_root,
+            sources_content, ignore_list, debug_id, None,
+        )
+    }
 
+    #[allow(clippy::too_many_arguments)]
+    pub fn from_vlq_with_range_mappings(
+        mappings_str: &str, sources: Vec<String>, names: Vec<String>,
+        file: Option<String>, source_root: Option<String>,
+        sources_content: Vec<Option<String>>, ignore_list: Vec<u32>,
+        debug_id: Option<String>, range_mappings_str: Option<&str>,
+    ) -> Result<Self, ParseError> {
+        let (mut mappings, line_offsets) = decode_mappings(mappings_str)?;
+        if let Some(rm_str) = range_mappings_str
+            && !rm_str.is_empty()
+        {
+            decode_range_mappings(rm_str, &mut mappings, &line_offsets)?;
+        }
         let source_map: HashMap<String, u32> = sources
-            .iter()
-            .enumerate()
-            .map(|(i, s)| (s.clone(), i as u32))
-            .collect();
-
+            .iter().enumerate().map(|(i, s)| (s.clone(), i as u32)).collect();
         Ok(Self {
-            file,
-            source_root,
-            sources,
-            sources_content,
-            names,
-            ignore_list,
-            extensions: HashMap::new(),
-            debug_id,
-            scopes: None,
-            mappings,
-            line_offsets,
-            reverse_index: OnceCell::new(),
-            source_map,
+            file, source_root, sources, sources_content, names,
+            ignore_list, extensions: HashMap::new(), debug_id,
+            scopes: None, mappings, line_offsets,
+            reverse_index: OnceCell::new(), source_map,
         })
     }
 
@@ -1084,6 +1134,40 @@ impl SourceMap {
 
         // SAFETY: VLQ output is always valid ASCII
         unsafe { String::from_utf8_unchecked(out) }
+    }
+
+    pub fn encode_range_mappings(&self) -> Option<String> {
+        if !self.mappings.iter().any(|m| m.is_range_mapping) { return None; }
+        let line_count = self.line_offsets.len().saturating_sub(1);
+        let mut out: Vec<u8> = Vec::new();
+        for line_idx in 0..line_count {
+            if line_idx > 0 { out.push(b';'); }
+            let start = self.line_offsets[line_idx] as usize;
+            let end = self.line_offsets[line_idx + 1] as usize;
+            let mut prev_offset: u64 = 0;
+            let mut first_on_line = true;
+            for (i, mapping) in self.mappings[start..end].iter().enumerate() {
+                if mapping.is_range_mapping {
+                    if !first_on_line { out.push(b','); }
+                    first_on_line = false;
+                    vlq_encode_unsigned(&mut out, i as u64 - prev_offset);
+                    prev_offset = i as u64;
+                }
+            }
+        }
+        while out.last() == Some(&b';') { out.pop(); }
+        if out.is_empty() {
+            return None;
+        }
+        Some(unsafe { String::from_utf8_unchecked(out) })
+    }
+
+    pub fn has_range_mappings(&self) -> bool {
+        self.mappings.iter().any(|m| m.is_range_mapping)
+    }
+
+    pub fn range_mapping_count(&self) -> usize {
+        self.mappings.iter().filter(|m| m.is_range_mapping).count()
     }
 }
 
@@ -1298,6 +1382,7 @@ impl LazySourceMap {
                     original_line: original_line as u32,
                     original_column: original_column as u32,
                     name,
+            is_range_mapping: false,
                 });
             } else {
                 // 1-field segment
@@ -1308,6 +1393,7 @@ impl LazySourceMap {
                     original_line: 0,
                     original_column: 0,
                     name: NO_NAME,
+            is_range_mapping: false,
                 });
             }
 
@@ -1752,6 +1838,70 @@ fn vlq_fast(bytes: &[u8], pos: &mut usize) -> Result<i64, DecodeError> {
     Ok(value)
 }
 
+#[inline(always)]
+fn vlq_unsigned_fast(bytes: &[u8], pos: &mut usize) -> Result<u64, DecodeError> {
+    let p = *pos;
+    if p >= bytes.len() { return Err(DecodeError::UnexpectedEof { offset: p }); }
+    let b0 = bytes[p];
+    if b0 >= 128 { return Err(DecodeError::InvalidBase64 { byte: b0, offset: p }); }
+    let d0 = B64[b0 as usize];
+    if d0 == 0xFF { return Err(DecodeError::InvalidBase64 { byte: b0, offset: p }); }
+    if (d0 & 0x20) == 0 { *pos = p + 1; return Ok(d0 as u64); }
+    let mut result: u64 = (d0 & 0x1F) as u64;
+    let mut shift: u32 = 5;
+    let mut i = p + 1;
+    loop {
+        if i >= bytes.len() { return Err(DecodeError::UnexpectedEof { offset: i }); }
+        let b = bytes[i];
+        if b >= 128 { return Err(DecodeError::InvalidBase64 { byte: b, offset: i }); }
+        let d = B64[b as usize];
+        if d == 0xFF { return Err(DecodeError::InvalidBase64 { byte: b, offset: i }); }
+        i += 1;
+        if shift >= 64 { return Err(DecodeError::VlqOverflow { offset: p }); }
+        result |= ((d & 0x1F) as u64) << shift;
+        shift += 5;
+        if (d & 0x20) == 0 { break; }
+    }
+    *pos = i;
+    Ok(result)
+}
+
+fn vlq_encode_unsigned(out: &mut Vec<u8>, value: u64) {
+    const BASE64_CHARS: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut v = value;
+    loop {
+        let mut digit = (v & 0x1F) as u8;
+        v >>= 5;
+        if v > 0 { digit |= 0x20; }
+        out.push(BASE64_CHARS[digit as usize]);
+        if v == 0 { break; }
+    }
+}
+
+fn decode_range_mappings(input: &str, mappings: &mut [Mapping], line_offsets: &[u32]) -> Result<(), DecodeError> {
+    let bytes = input.as_bytes();
+    let len = bytes.len();
+    let mut pos: usize = 0;
+    let mut generated_line: usize = 0;
+    while pos < len {
+        let line_start = if generated_line + 1 < line_offsets.len() {
+            line_offsets[generated_line] as usize
+        } else { break; };
+        let mut mapping_index: u64 = 0;
+        while pos < len {
+            let byte = bytes[pos];
+            if byte == b';' { pos += 1; break; }
+            if byte == b',' { pos += 1; continue; }
+            let offset = vlq_unsigned_fast(bytes, &mut pos)?;
+            mapping_index += offset;
+            let abs_idx = line_start + mapping_index as usize;
+            if abs_idx < mappings.len() { mappings[abs_idx].is_range_mapping = true; }
+        }
+        generated_line += 1;
+    }
+    Ok(())
+}
+
 fn decode_mappings(input: &str) -> Result<(Vec<Mapping>, Vec<u32>), DecodeError> {
     if input.is_empty() {
         return Ok((Vec::new(), vec![0]));
@@ -1817,6 +1967,7 @@ fn decode_mappings(input: &str) -> Result<(Vec<Mapping>, Vec<u32>), DecodeError>
                     original_line: original_line as u32,
                     original_column: original_column as u32,
                     name,
+            is_range_mapping: false,
                 });
             } else {
                 // 1-field segment: no source info
@@ -1827,6 +1978,7 @@ fn decode_mappings(input: &str) -> Result<(Vec<Mapping>, Vec<u32>), DecodeError>
                     original_line: 0,
                     original_column: 0,
                     name: NO_NAME,
+            is_range_mapping: false,
                 });
             }
         }
@@ -1922,6 +2074,7 @@ fn decode_mappings_range(
                         original_line: original_line as u32,
                         original_column: original_column as u32,
                         name,
+                is_range_mapping: false,
                     });
                 }
             } else {
@@ -1934,6 +2087,7 @@ fn decode_mappings_range(
                         original_line: 0,
                         original_column: 0,
                         name: NO_NAME,
+                is_range_mapping: false,
                     });
                 }
             }
@@ -2042,7 +2196,167 @@ fn build_reverse_index(mappings: &[Mapping]) -> Vec<u32> {
     indices
 }
 
+// ── Streaming iterator ────────────────────────────────────────────
+
+/// Lazy iterator over VLQ-encoded source map mappings.
+///
+/// Decodes one mapping at a time without allocating a full `Vec<Mapping>`.
+/// Useful for streaming composition pipelines where intermediate allocation
+/// is undesirable.
+///
+/// # Examples
+///
+/// ```
+/// use srcmap_sourcemap::MappingsIter;
+///
+/// let vlq = "AAAA;AACA,EAAA;AACA";
+/// let mappings: Vec<_> = MappingsIter::new(vlq).collect::<Result<_, _>>().unwrap();
+/// assert_eq!(mappings.len(), 4);
+/// assert_eq!(mappings[0].generated_line, 0);
+/// assert_eq!(mappings[1].generated_line, 1);
+/// ```
+pub struct MappingsIter<'a> {
+    bytes: &'a [u8],
+    len: usize,
+    pos: usize,
+    source_index: i64,
+    original_line: i64,
+    original_column: i64,
+    name_index: i64,
+    generated_line: u32,
+    generated_column: i64,
+    done: bool,
+}
+
+impl<'a> MappingsIter<'a> {
+    /// Create a new iterator over VLQ-encoded mappings.
+    pub fn new(vlq: &'a str) -> Self {
+        let bytes = vlq.as_bytes();
+        Self {
+            bytes,
+            len: bytes.len(),
+            pos: 0,
+            source_index: 0,
+            original_line: 0,
+            original_column: 0,
+            name_index: 0,
+            generated_line: 0,
+            generated_column: 0,
+            done: false,
+        }
+    }
+}
+
+impl Iterator for MappingsIter<'_> {
+    type Item = Result<Mapping, DecodeError>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.done {
+            return None;
+        }
+
+        loop {
+            if self.pos >= self.len {
+                self.done = true;
+                return None;
+            }
+
+            let byte = self.bytes[self.pos];
+
+            if byte == b';' {
+                self.pos += 1;
+                self.generated_line += 1;
+                self.generated_column = 0;
+                continue;
+            }
+
+            if byte == b',' {
+                self.pos += 1;
+                continue;
+            }
+
+            // Field 1: generated column
+            match vlq_fast(self.bytes, &mut self.pos) {
+                Ok(delta) => self.generated_column += delta,
+                Err(e) => {
+                    self.done = true;
+                    return Some(Err(e));
+                }
+            }
+
+            if self.pos < self.len
+                && self.bytes[self.pos] != b','
+                && self.bytes[self.pos] != b';'
+            {
+                // Fields 2-4: source, original line, original column
+                match vlq_fast(self.bytes, &mut self.pos) {
+                    Ok(delta) => self.source_index += delta,
+                    Err(e) => {
+                        self.done = true;
+                        return Some(Err(e));
+                    }
+                }
+                match vlq_fast(self.bytes, &mut self.pos) {
+                    Ok(delta) => self.original_line += delta,
+                    Err(e) => {
+                        self.done = true;
+                        return Some(Err(e));
+                    }
+                }
+                match vlq_fast(self.bytes, &mut self.pos) {
+                    Ok(delta) => self.original_column += delta,
+                    Err(e) => {
+                        self.done = true;
+                        return Some(Err(e));
+                    }
+                }
+
+                // Field 5: name (optional)
+                let name = if self.pos < self.len
+                    && self.bytes[self.pos] != b','
+                    && self.bytes[self.pos] != b';'
+                {
+                    match vlq_fast(self.bytes, &mut self.pos) {
+                        Ok(delta) => {
+                            self.name_index += delta;
+                            self.name_index as u32
+                        }
+                        Err(e) => {
+                            self.done = true;
+                            return Some(Err(e));
+                        }
+                    }
+                } else {
+                    NO_NAME
+                };
+
+                return Some(Ok(Mapping {
+                    generated_line: self.generated_line,
+                    generated_column: self.generated_column as u32,
+                    source: self.source_index as u32,
+                    original_line: self.original_line as u32,
+                    original_column: self.original_column as u32,
+                    name,
+                    is_range_mapping: false,
+                }));
+            } else {
+                // 1-field segment: no source info
+                return Some(Ok(Mapping {
+                    generated_line: self.generated_line,
+                    generated_column: self.generated_column as u32,
+                    source: NO_SOURCE,
+                    original_line: 0,
+                    original_column: 0,
+                    name: NO_NAME,
+                    is_range_mapping: false,
+                }));
+            }
+        }
+    }
+}
+
 // ── Tests ──────────────────────────────────────────────────────────
+
 
 #[cfg(test)]
 mod tests {
@@ -3683,6 +3997,7 @@ mod tests {
                 original_line: 0,
                 original_column: 0,
                 name: NO_NAME,
+                is_range_mapping: false,
             },
             Mapping {
                 generated_line: 1,
@@ -3691,6 +4006,7 @@ mod tests {
                 original_line: 1,
                 original_column: 2,
                 name: NO_NAME,
+                is_range_mapping: false,
             },
         ];
 
@@ -3746,6 +4062,7 @@ mod tests {
             original_line: 0,
             original_column: 0,
             name: 0,
+            is_range_mapping: false,
         }];
 
         let sm = SourceMap::from_parts(
@@ -3813,6 +4130,7 @@ mod tests {
                 original_line: 10,
                 original_column: 5,
                 name: NO_NAME,
+                is_range_mapping: false,
             },
             Mapping {
                 generated_line: 1,
@@ -3821,6 +4139,7 @@ mod tests {
                 original_line: 20,
                 original_column: 0,
                 name: NO_NAME,
+                is_range_mapping: false,
             },
         ];
 
@@ -3855,6 +4174,7 @@ mod tests {
                 original_line: 0,
                 original_column: 0,
                 name: NO_NAME,
+                is_range_mapping: false,
             },
             Mapping {
                 generated_line: 5,
@@ -3863,6 +4183,7 @@ mod tests {
                 original_line: 5,
                 original_column: 0,
                 name: NO_NAME,
+                is_range_mapping: false,
             },
         ];
 
@@ -4639,6 +4960,7 @@ mod tests {
                 original_line: 0,
                 original_column: 0,
                 name: NO_NAME,
+                is_range_mapping: false,
             }],
             vec![],
             None,
@@ -4681,6 +5003,7 @@ mod tests {
                     original_line: 0,
                     original_column: 0,
                     name: NO_NAME,
+                    is_range_mapping: false,
                 },
                 Mapping {
                     generated_line: 5,
@@ -4689,6 +5012,7 @@ mod tests {
                     original_line: 5,
                     original_column: 0,
                     name: NO_NAME,
+                    is_range_mapping: false,
                 },
             ],
             vec![],
@@ -4815,6 +5139,7 @@ mod tests {
                 original_line: 0,
                 original_column: 0,
                 name: NO_NAME,
+                is_range_mapping: false,
             }],
             vec![],
             Some("abc-123".to_string()),
@@ -4839,6 +5164,7 @@ mod tests {
                 original_line: 0,
                 original_column: 0,
                 name: NO_NAME,
+                is_range_mapping: false,
             }],
             vec![1],
             None,
@@ -4959,6 +5285,7 @@ mod tests {
                     original_line: 0,
                     original_column: 0,
                     name: NO_NAME,
+                    is_range_mapping: false,
                 },
                 Mapping {
                     generated_line: 0,
@@ -4967,6 +5294,7 @@ mod tests {
                     original_line: 0,
                     original_column: 0,
                     name: NO_NAME,
+                    is_range_mapping: false,
                 },
             ],
             vec![],
@@ -4992,6 +5320,7 @@ mod tests {
                 original_line: 0,
                 original_column: 0,
                 name: NO_NAME,
+                is_range_mapping: false,
             }],
             vec![],
             None,
@@ -5020,6 +5349,7 @@ mod tests {
                 original_line: 0,
                 original_column: 0,
                 name: 5,
+                is_range_mapping: false,
             }],
             vec![],
             None,
@@ -5048,6 +5378,7 @@ mod tests {
                 original_line: 0,
                 original_column: 0,
                 name: NO_NAME,
+                is_range_mapping: false,
             }],
             vec![10],
             None,
@@ -5128,4 +5459,205 @@ mod tests {
         }
         result
     }
+
+    // ── MappingsIter tests ──────────────────────────────────────
+
+    #[test]
+    fn mappings_iter_matches_decode() {
+        let vlq = "AAAA;AACA,EAAA;AACA";
+        let iter_mappings: Vec<Mapping> = MappingsIter::new(vlq)
+            .collect::<Result<_, _>>()
+            .unwrap();
+        let (decoded, _) = decode_mappings(vlq).unwrap();
+        assert_eq!(iter_mappings.len(), decoded.len());
+        for (a, b) in iter_mappings.iter().zip(decoded.iter()) {
+            assert_eq!(a.generated_line, b.generated_line);
+            assert_eq!(a.generated_column, b.generated_column);
+            assert_eq!(a.source, b.source);
+            assert_eq!(a.original_line, b.original_line);
+            assert_eq!(a.original_column, b.original_column);
+            assert_eq!(a.name, b.name);
+        }
+    }
+
+    #[test]
+    fn mappings_iter_empty() {
+        let mappings: Vec<Mapping> = MappingsIter::new("")
+            .collect::<Result<_, _>>()
+            .unwrap();
+        assert!(mappings.is_empty());
+    }
+
+    #[test]
+    fn mappings_iter_generated_only() {
+        let vlq = "A,AAAA";
+        let mappings: Vec<Mapping> = MappingsIter::new(vlq)
+            .collect::<Result<_, _>>()
+            .unwrap();
+        assert_eq!(mappings.len(), 2);
+        assert_eq!(mappings[0].source, u32::MAX);
+        assert_eq!(mappings[1].source, 0);
+    }
+
+    #[test]
+    fn mappings_iter_with_names() {
+        let vlq = "AAAAA";
+        let mappings: Vec<Mapping> = MappingsIter::new(vlq)
+            .collect::<Result<_, _>>()
+            .unwrap();
+        assert_eq!(mappings.len(), 1);
+        assert_eq!(mappings[0].name, 0);
+    }
+
+    #[test]
+    fn mappings_iter_multiple_lines() {
+        let vlq = "AAAA;AACA;AACA";
+        let mappings: Vec<Mapping> = MappingsIter::new(vlq)
+            .collect::<Result<_, _>>()
+            .unwrap();
+        assert_eq!(mappings.len(), 3);
+        assert_eq!(mappings[0].generated_line, 0);
+        assert_eq!(mappings[1].generated_line, 1);
+        assert_eq!(mappings[2].generated_line, 2);
+    }
+    // ── Range mappings tests ──────────────────────────────────────
+
+    #[test]
+    fn range_mappings_basic_decode() {
+        let json = r#"{"version":3,"sources":["input.js"],"names":[],"mappings":"AAAA,CAAC,GAAG","rangeMappings":"A,C"}"#;
+        let sm = SourceMap::from_json(json).unwrap();
+        assert!(sm.all_mappings()[0].is_range_mapping);
+        assert!(!sm.all_mappings()[1].is_range_mapping);
+        assert!(sm.all_mappings()[2].is_range_mapping);
+    }
+
+    #[test]
+    fn range_mapping_lookup_with_delta() {
+        let json = r#"{"version":3,"sources":["input.js"],"names":[],"mappings":"AAAA,GAAG","rangeMappings":"A"}"#;
+        let sm = SourceMap::from_json(json).unwrap();
+        assert_eq!(sm.original_position_for(0, 0).unwrap().column, 0);
+        assert_eq!(sm.original_position_for(0, 1).unwrap().column, 1);
+        assert_eq!(sm.original_position_for(0, 2).unwrap().column, 2);
+        assert_eq!(sm.original_position_for(0, 3).unwrap().column, 3);
+    }
+
+    #[test]
+    fn range_mapping_cross_line() {
+        let json = r#"{"version":3,"sources":["input.js"],"names":[],"mappings":"AAAA","rangeMappings":"A"}"#;
+        let sm = SourceMap::from_json(json).unwrap();
+        assert_eq!(sm.original_position_for(1, 5).unwrap().line, 1);
+        assert_eq!(sm.original_position_for(1, 5).unwrap().column, 0);
+        assert_eq!(sm.original_position_for(2, 10).unwrap().line, 2);
+    }
+
+    #[test]
+    fn range_mapping_encode_roundtrip() {
+        let json = r#"{"version":3,"sources":["input.js"],"names":[],"mappings":"AAAA,CAAC,GAAG","rangeMappings":"A,C"}"#;
+        assert_eq!(SourceMap::from_json(json).unwrap().encode_range_mappings().unwrap(), "A,C");
+    }
+
+    #[test]
+    fn no_range_mappings_test() {
+        let sm = SourceMap::from_json(r#"{"version":3,"sources":["input.js"],"names":[],"mappings":"AAAA"}"#).unwrap();
+        assert!(!sm.has_range_mappings());
+        assert!(sm.encode_range_mappings().is_none());
+    }
+
+    #[test]
+    fn range_mappings_multi_line_test() {
+        let sm = SourceMap::from_json(r#"{"version":3,"sources":["input.js"],"names":[],"mappings":"AAAA,CAAC;AAAA","rangeMappings":"A;A"}"#).unwrap();
+        assert!(sm.all_mappings()[0].is_range_mapping);
+        assert!(!sm.all_mappings()[1].is_range_mapping);
+        assert!(sm.all_mappings()[2].is_range_mapping);
+    }
+
+    #[test]
+    fn range_mappings_json_roundtrip() {
+        let sm = SourceMap::from_json(r#"{"version":3,"sources":["input.js"],"names":[],"mappings":"AAAA,CAAC,GAAG","rangeMappings":"A,C"}"#).unwrap();
+        let output = sm.to_json();
+        assert!(output.contains("rangeMappings"));
+        assert_eq!(SourceMap::from_json(&output).unwrap().range_mapping_count(), 2);
+    }
+
+    #[test]
+    fn range_mappings_absent_from_json_test() {
+        assert!(!SourceMap::from_json(r#"{"version":3,"sources":["input.js"],"names":[],"mappings":"AAAA"}"#).unwrap().to_json().contains("rangeMappings"));
+    }
+
+    #[test]
+    fn range_mapping_fallback_test() {
+        let sm = SourceMap::from_json(r#"{"version":3,"sources":["input.js"],"names":[],"mappings":"AAAA;KACK","rangeMappings":"A"}"#).unwrap();
+        let loc = sm.original_position_for(1, 2).unwrap();
+        assert_eq!(loc.line, 1);
+        assert_eq!(loc.column, 0);
+    }
+
+    #[test]
+    fn range_mapping_no_fallback_non_range() {
+        assert!(SourceMap::from_json(r#"{"version":3,"sources":["input.js"],"names":[],"mappings":"AAAA"}"#).unwrap().original_position_for(1, 5).is_none());
+    }
+
+    #[test]
+    fn range_mapping_from_vlq_test() {
+        let sm = SourceMap::from_vlq_with_range_mappings(
+            "AAAA,CAAC", vec!["input.js".into()], vec![],
+            None, None, vec![], vec![], None, Some("A"),
+        ).unwrap();
+        assert!(sm.all_mappings()[0].is_range_mapping);
+        assert!(!sm.all_mappings()[1].is_range_mapping);
+    }
+
+    #[test]
+    fn range_mapping_encode_multi_line_test() {
+        let sm = SourceMap::from_json(r#"{"version":3,"sources":["input.js"],"names":[],"mappings":"AAAA,CAAC;AAAA,CAAC","rangeMappings":"A;B"}"#).unwrap();
+        assert!(sm.all_mappings()[0].is_range_mapping);
+        assert!(!sm.all_mappings()[1].is_range_mapping);
+        assert!(!sm.all_mappings()[2].is_range_mapping);
+        assert!(sm.all_mappings()[3].is_range_mapping);
+        assert_eq!(sm.encode_range_mappings().unwrap(), "A;B");
+    }
+
+    #[test]
+    fn range_mapping_from_parts_test() {
+        let sm = SourceMap::from_parts(
+            None, None, vec!["input.js".into()], vec![], vec![],
+            vec![
+                Mapping { generated_line: 0, generated_column: 0, source: 0,
+                    original_line: 0, original_column: 0, name: NO_NAME, is_range_mapping: true },
+                Mapping { generated_line: 0, generated_column: 5, source: 0,
+                    original_line: 0, original_column: 5, name: NO_NAME, is_range_mapping: false },
+            ],
+            vec![], None, None,
+        );
+        assert_eq!(sm.original_position_for(0, 2).unwrap().column, 2);
+        assert_eq!(sm.original_position_for(0, 6).unwrap().column, 5);
+    }
+
+    #[test]
+    fn range_mapping_indexed_test() {
+        let sm = SourceMap::from_json(r#"{"version":3,"sections":[{"offset":{"line":0,"column":0},"map":{"version":3,"sources":["a.js"],"names":[],"mappings":"AAAA","rangeMappings":"A"}}]}"#).unwrap();
+        assert!(sm.has_range_mappings());
+        assert_eq!(sm.original_position_for(1, 3).unwrap().line, 1);
+    }
+
+    #[test]
+    fn range_mapping_empty_string_test() {
+        assert!(!SourceMap::from_json(r#"{"version":3,"sources":["input.js"],"names":[],"mappings":"AAAA","rangeMappings":""}"#).unwrap().has_range_mappings());
+    }
+
+    #[test]
+    fn range_mapping_lub_no_underflow() {
+        // Range mapping at col 5, query col 2 with LUB bias
+        // LUB should find the mapping at col 5, but NOT apply range delta
+        let json = r#"{"version":3,"sources":["input.js"],"names":[],"mappings":"KAAK","rangeMappings":"A"}"#;
+        let sm = SourceMap::from_json(json).unwrap();
+
+        let loc = sm.original_position_for_with_bias(0, 2, Bias::LeastUpperBound);
+        assert!(loc.is_some());
+        let loc = loc.unwrap();
+        // Should return the mapping's own position, not apply a delta
+        assert_eq!(loc.line, 0);
+        assert_eq!(loc.column, 5);
+    }
+
 }

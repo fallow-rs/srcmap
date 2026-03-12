@@ -49,6 +49,8 @@ pub struct Mapping {
     pub original_column: u32,
     /// Name index from [`SourceMapGenerator::add_name`], or `None`.
     pub name: Option<u32>,
+    /// Whether this mapping is a range mapping (ECMA-426 rangeMappings proposal).
+    pub is_range_mapping: bool,
 }
 
 /// Builder for creating source maps incrementally.
@@ -162,6 +164,7 @@ impl SourceMapGenerator {
             original_line: 0,
             original_column: 0,
             name: None,
+            is_range_mapping: false,
         });
     }
 
@@ -181,6 +184,7 @@ impl SourceMapGenerator {
             original_line,
             original_column,
             name: None,
+            is_range_mapping: false,
         });
     }
 
@@ -201,6 +205,52 @@ impl SourceMapGenerator {
             original_line,
             original_column,
             name: Some(name),
+            is_range_mapping: false,
+        });
+    }
+
+    /// Add a range mapping from generated position to original position.
+    ///
+    /// A range mapping maps every position from its generated position up to
+    /// (but not including) the next mapping, applying a proportional delta
+    /// to the original position (ECMA-426 `rangeMappings` proposal).
+    pub fn add_range_mapping(
+        &mut self,
+        generated_line: u32,
+        generated_column: u32,
+        source: u32,
+        original_line: u32,
+        original_column: u32,
+    ) {
+        self.mappings.push(Mapping {
+            generated_line,
+            generated_column,
+            source: Some(source),
+            original_line,
+            original_column,
+            name: None,
+            is_range_mapping: true,
+        });
+    }
+
+    /// Add a named range mapping.
+    pub fn add_named_range_mapping(
+        &mut self,
+        generated_line: u32,
+        generated_column: u32,
+        source: u32,
+        original_line: u32,
+        original_column: u32,
+        name: u32,
+    ) {
+        self.mappings.push(Mapping {
+            generated_line,
+            generated_column,
+            source: Some(source),
+            original_line,
+            original_column,
+            name: Some(name),
+            is_range_mapping: true,
         });
     }
 
@@ -370,6 +420,58 @@ impl SourceMapGenerator {
         unsafe { String::from_utf8_unchecked(out) }
     }
 
+    /// Encode range mappings to a VLQ string.
+    /// Returns `None` if no range mappings exist.
+    fn encode_range_mappings(&self) -> Option<String> {
+        if !self.mappings.iter().any(|m| m.is_range_mapping) {
+            return None;
+        }
+
+        let mut sorted: Vec<&Mapping> = self.mappings.iter().collect();
+        sorted.sort_unstable_by(|a, b| {
+            a.generated_line
+                .cmp(&b.generated_line)
+                .then(a.generated_column.cmp(&b.generated_column))
+        });
+
+        let max_line = sorted.last().map_or(0, |m| m.generated_line);
+        let mut out: Vec<u8> = Vec::new();
+        let mut sorted_idx = 0;
+
+        for line in 0..=max_line {
+            if line > 0 {
+                out.push(b';');
+            }
+            let mut prev_offset: u64 = 0;
+            let mut first_on_line = true;
+            let mut line_local_idx: u64 = 0;
+
+            while sorted_idx < sorted.len() && sorted[sorted_idx].generated_line == line {
+                if sorted[sorted_idx].is_range_mapping {
+                    if !first_on_line {
+                        out.push(b',');
+                    }
+                    first_on_line = false;
+                    let delta = line_local_idx - prev_offset;
+                    vlq_encode_unsigned_inline(&mut out, delta);
+                    prev_offset = line_local_idx;
+                }
+                line_local_idx += 1;
+                sorted_idx += 1;
+            }
+        }
+
+        while out.last() == Some(&b';') {
+            out.pop();
+        }
+
+        if out.is_empty() {
+            return None;
+        }
+
+        Some(unsafe { String::from_utf8_unchecked(out) })
+    }
+
     /// Generate the source map as a JSON string.
     pub fn to_json(&self) -> String {
         let mappings = self.encode_mappings();
@@ -488,6 +590,13 @@ impl SourceMapGenerator {
             json.push(']');
         }
 
+        // rangeMappings (only if any range mappings exist)
+        if let Some(ref range_mappings) = self.encode_range_mappings() {
+            json.push_str(r#","rangeMappings":""#);
+            json.push_str(range_mappings);
+            json.push('"');
+        }
+
         // debugId
         if let Some(ref id) = self.debug_id {
             json.push_str(r#","debugId":"#);
@@ -532,6 +641,7 @@ impl SourceMapGenerator {
                 original_line: m.original_line,
                 original_column: m.original_column,
                 name: m.name.unwrap_or(u32::MAX),
+                is_range_mapping: m.is_range_mapping,
             })
             .collect();
 
@@ -557,6 +667,488 @@ impl SourceMapGenerator {
             self.debug_id.clone(),
             None, // scopes are not included in decoded map (would need encoding/decoding)
         )
+    }
+}
+
+/// Source map generator that encodes VLQ on-the-fly.
+///
+/// Unlike [`SourceMapGenerator`], which collects all mappings and sorts them
+/// at finalization, `StreamingGenerator` encodes each mapping to VLQ immediately.
+/// Mappings **must** be added in sorted order `(generated_line, generated_column)`.
+///
+/// This avoids intermediate `Vec<Mapping>` allocation, making it ideal for
+/// streaming composition pipelines.
+///
+/// # Examples
+///
+/// ```rust
+/// use srcmap_generator::StreamingGenerator;
+///
+/// let mut sg = StreamingGenerator::new(Some("bundle.js".to_string()));
+/// let src = sg.add_source("src/app.ts");
+/// sg.set_source_content(src, "const x = 1;".to_string());
+///
+/// // Mappings must be added in order
+/// sg.add_mapping(0, 0, src, 0, 6);
+/// sg.add_mapping(1, 0, src, 1, 0);
+///
+/// let json = sg.to_json();
+/// assert!(json.contains(r#""version":3"#));
+/// ```
+#[derive(Debug)]
+pub struct StreamingGenerator {
+    file: Option<String>,
+    source_root: Option<String>,
+    sources: Vec<String>,
+    sources_content: Vec<Option<String>>,
+    names: Vec<String>,
+    ignore_list: Vec<u32>,
+    debug_id: Option<String>,
+
+    // Dedup maps
+    source_map: HashMap<String, u32>,
+    name_map: HashMap<String, u32>,
+
+    // Streaming VLQ state
+    vlq_out: Vec<u8>,
+    prev_gen_line: u32,
+    prev_gen_col: i64,
+    prev_source: i64,
+    prev_orig_line: i64,
+    prev_orig_col: i64,
+    prev_name: i64,
+    first_in_line: bool,
+    mapping_count: usize,
+
+    // Range mapping tracking
+    line_local_index: u32,
+    range_entries: Vec<(u32, u32)>,
+}
+
+impl StreamingGenerator {
+    /// Create a new streaming source map generator.
+    pub fn new(file: Option<String>) -> Self {
+        Self {
+            file,
+            source_root: None,
+            sources: Vec::new(),
+            sources_content: Vec::new(),
+            names: Vec::new(),
+            ignore_list: Vec::new(),
+            debug_id: None,
+            source_map: HashMap::new(),
+            name_map: HashMap::new(),
+            vlq_out: Vec::with_capacity(1024),
+            prev_gen_line: 0,
+            prev_gen_col: 0,
+            prev_source: 0,
+            prev_orig_line: 0,
+            prev_orig_col: 0,
+            prev_name: 0,
+            first_in_line: true,
+            mapping_count: 0,
+            line_local_index: 0,
+            range_entries: Vec::new(),
+        }
+    }
+
+    /// Set the source root prefix.
+    pub fn set_source_root(&mut self, root: String) {
+        self.source_root = Some(root);
+    }
+
+    /// Set the debug ID (UUID) for this source map (ECMA-426).
+    pub fn set_debug_id(&mut self, id: String) {
+        self.debug_id = Some(id);
+    }
+
+    /// Register a source file and return its index.
+    pub fn add_source(&mut self, source: &str) -> u32 {
+        if let Some(&idx) = self.source_map.get(source) {
+            return idx;
+        }
+        let idx = self.sources.len() as u32;
+        self.sources.push(source.to_string());
+        self.sources_content.push(None);
+        self.source_map.insert(source.to_string(), idx);
+        idx
+    }
+
+    /// Set the content for a source file.
+    pub fn set_source_content(&mut self, source_idx: u32, content: String) {
+        if (source_idx as usize) < self.sources_content.len() {
+            self.sources_content[source_idx as usize] = Some(content);
+        }
+    }
+
+    /// Register a name and return its index.
+    pub fn add_name(&mut self, name: &str) -> u32 {
+        if let Some(&idx) = self.name_map.get(name) {
+            return idx;
+        }
+        let idx = self.names.len() as u32;
+        self.names.push(name.to_string());
+        self.name_map.insert(name.to_string(), idx);
+        idx
+    }
+
+    /// Add a source index to the ignore list.
+    pub fn add_to_ignore_list(&mut self, source_idx: u32) {
+        if !self.ignore_list.contains(&source_idx) {
+            self.ignore_list.push(source_idx);
+        }
+    }
+
+    /// Add a mapping with no source information (generated-only).
+    ///
+    /// Mappings must be added in sorted order `(generated_line, generated_column)`.
+    #[inline]
+    pub fn add_generated_mapping(&mut self, generated_line: u32, generated_column: u32) {
+        self.advance_to_line(generated_line);
+
+        if !self.first_in_line {
+            self.vlq_out.push(b',');
+        }
+        self.first_in_line = false;
+
+        vlq_encode(&mut self.vlq_out, generated_column as i64 - self.prev_gen_col);
+        self.prev_gen_col = generated_column as i64;
+        self.line_local_index += 1;
+        self.mapping_count += 1;
+    }
+
+    /// Add a mapping from generated position to original position.
+    ///
+    /// Mappings must be added in sorted order `(generated_line, generated_column)`.
+    #[inline]
+    pub fn add_mapping(
+        &mut self,
+        generated_line: u32,
+        generated_column: u32,
+        source: u32,
+        original_line: u32,
+        original_column: u32,
+    ) {
+        self.advance_to_line(generated_line);
+
+        if !self.first_in_line {
+            self.vlq_out.push(b',');
+        }
+        self.first_in_line = false;
+
+        vlq_encode(&mut self.vlq_out, generated_column as i64 - self.prev_gen_col);
+        self.prev_gen_col = generated_column as i64;
+
+        vlq_encode(&mut self.vlq_out, source as i64 - self.prev_source);
+        self.prev_source = source as i64;
+
+        vlq_encode(&mut self.vlq_out, original_line as i64 - self.prev_orig_line);
+        self.prev_orig_line = original_line as i64;
+
+        vlq_encode(&mut self.vlq_out, original_column as i64 - self.prev_orig_col);
+        self.prev_orig_col = original_column as i64;
+
+        self.line_local_index += 1;
+        self.mapping_count += 1;
+    }
+
+    /// Add a range mapping from generated position to original position.
+    ///
+    /// Same as [`add_mapping`](Self::add_mapping) but marks this mapping as a range mapping
+    /// (ECMA-426). Mappings must be added in sorted order `(generated_line, generated_column)`.
+    #[inline]
+    pub fn add_range_mapping(
+        &mut self,
+        generated_line: u32,
+        generated_column: u32,
+        source: u32,
+        original_line: u32,
+        original_column: u32,
+    ) {
+        self.advance_to_line(generated_line);
+        self.range_entries.push((self.prev_gen_line, self.line_local_index));
+
+        if !self.first_in_line {
+            self.vlq_out.push(b',');
+        }
+        self.first_in_line = false;
+
+        vlq_encode(&mut self.vlq_out, generated_column as i64 - self.prev_gen_col);
+        self.prev_gen_col = generated_column as i64;
+
+        vlq_encode(&mut self.vlq_out, source as i64 - self.prev_source);
+        self.prev_source = source as i64;
+
+        vlq_encode(&mut self.vlq_out, original_line as i64 - self.prev_orig_line);
+        self.prev_orig_line = original_line as i64;
+
+        vlq_encode(&mut self.vlq_out, original_column as i64 - self.prev_orig_col);
+        self.prev_orig_col = original_column as i64;
+
+        self.line_local_index += 1;
+        self.mapping_count += 1;
+    }
+
+    /// Add a mapping with a name.
+    ///
+    /// Mappings must be added in sorted order `(generated_line, generated_column)`.
+    #[inline]
+    pub fn add_named_mapping(
+        &mut self,
+        generated_line: u32,
+        generated_column: u32,
+        source: u32,
+        original_line: u32,
+        original_column: u32,
+        name: u32,
+    ) {
+        self.advance_to_line(generated_line);
+
+        if !self.first_in_line {
+            self.vlq_out.push(b',');
+        }
+        self.first_in_line = false;
+
+        vlq_encode(&mut self.vlq_out, generated_column as i64 - self.prev_gen_col);
+        self.prev_gen_col = generated_column as i64;
+
+        vlq_encode(&mut self.vlq_out, source as i64 - self.prev_source);
+        self.prev_source = source as i64;
+
+        vlq_encode(&mut self.vlq_out, original_line as i64 - self.prev_orig_line);
+        self.prev_orig_line = original_line as i64;
+
+        vlq_encode(&mut self.vlq_out, original_column as i64 - self.prev_orig_col);
+        self.prev_orig_col = original_column as i64;
+
+        vlq_encode(&mut self.vlq_out, name as i64 - self.prev_name);
+        self.prev_name = name as i64;
+
+        self.line_local_index += 1;
+        self.mapping_count += 1;
+    }
+
+    /// Add a named range mapping from generated position to original position.
+    ///
+    /// Same as [`add_named_mapping`](Self::add_named_mapping) but marks this mapping as a range
+    /// mapping (ECMA-426). Mappings must be added in sorted order
+    /// `(generated_line, generated_column)`.
+    #[inline]
+    pub fn add_named_range_mapping(
+        &mut self,
+        generated_line: u32,
+        generated_column: u32,
+        source: u32,
+        original_line: u32,
+        original_column: u32,
+        name: u32,
+    ) {
+        self.advance_to_line(generated_line);
+        self.range_entries.push((self.prev_gen_line, self.line_local_index));
+
+        if !self.first_in_line {
+            self.vlq_out.push(b',');
+        }
+        self.first_in_line = false;
+
+        vlq_encode(&mut self.vlq_out, generated_column as i64 - self.prev_gen_col);
+        self.prev_gen_col = generated_column as i64;
+
+        vlq_encode(&mut self.vlq_out, source as i64 - self.prev_source);
+        self.prev_source = source as i64;
+
+        vlq_encode(&mut self.vlq_out, original_line as i64 - self.prev_orig_line);
+        self.prev_orig_line = original_line as i64;
+
+        vlq_encode(&mut self.vlq_out, original_column as i64 - self.prev_orig_col);
+        self.prev_orig_col = original_column as i64;
+
+        vlq_encode(&mut self.vlq_out, name as i64 - self.prev_name);
+        self.prev_name = name as i64;
+
+        self.line_local_index += 1;
+        self.mapping_count += 1;
+    }
+
+    /// Get the number of mappings added so far.
+    pub fn mapping_count(&self) -> usize {
+        self.mapping_count
+    }
+
+    /// Advance VLQ output to the given generated line, emitting semicolons.
+    #[inline]
+    fn advance_to_line(&mut self, generated_line: u32) {
+        while self.prev_gen_line < generated_line {
+            self.vlq_out.push(b';');
+            self.prev_gen_line += 1;
+            self.prev_gen_col = 0;
+            self.first_in_line = true;
+            self.line_local_index = 0;
+        }
+    }
+
+    /// Generate the source map as a JSON string.
+    pub fn to_json(&self) -> String {
+        let vlq = self.vlq_string();
+
+        let mut json = String::with_capacity(256 + vlq.len());
+        json.push_str(r#"{"version":3"#);
+
+        if let Some(ref file) = self.file {
+            json.push_str(r#","file":"#);
+            json.push_str(&json_quote(file));
+        }
+
+        if let Some(ref root) = self.source_root {
+            json.push_str(r#","sourceRoot":"#);
+            json.push_str(&json_quote(root));
+        }
+
+        json.push_str(r#","sources":["#);
+        for (i, s) in self.sources.iter().enumerate() {
+            if i > 0 {
+                json.push(',');
+            }
+            json.push_str(&json_quote(s));
+        }
+        json.push(']');
+
+        if self.sources_content.iter().any(|c| c.is_some()) {
+            json.push_str(r#","sourcesContent":["#);
+            for (i, c) in self.sources_content.iter().enumerate() {
+                if i > 0 {
+                    json.push(',');
+                }
+                match c {
+                    Some(content) => json.push_str(&json_quote(content)),
+                    None => json.push_str("null"),
+                }
+            }
+            json.push(']');
+        }
+
+        json.push_str(r#","names":["#);
+        for (i, n) in self.names.iter().enumerate() {
+            if i > 0 {
+                json.push(',');
+            }
+            json.push_str(&json_quote(n));
+        }
+        json.push(']');
+
+        json.push_str(r#","mappings":"#);
+        json.push_str(&json_quote(&vlq));
+
+        if !self.ignore_list.is_empty() {
+            json.push_str(r#","ignoreList":["#);
+            for (i, &idx) in self.ignore_list.iter().enumerate() {
+                if i > 0 {
+                    json.push(',');
+                }
+                json.push_str(&idx.to_string());
+            }
+            json.push(']');
+        }
+
+        if let Some(ref range_mappings) = self.encode_range_mappings() {
+            json.push_str(r#","rangeMappings":""#);
+            json.push_str(range_mappings);
+            json.push('"');
+        }
+
+        if let Some(ref id) = self.debug_id {
+            json.push_str(r#","debugId":"#);
+            json.push_str(&json_quote(id));
+        }
+
+        json.push('}');
+        json
+    }
+
+    /// Directly construct a `SourceMap` from the streaming generator's state.
+    ///
+    /// Parses the already-encoded VLQ mappings to build a decoded `SourceMap`.
+    /// More efficient than `to_json()` + `SourceMap::from_json()` since it
+    /// skips JSON generation and parsing.
+    pub fn to_decoded_map(&self) -> srcmap_sourcemap::SourceMap {
+        let vlq = self.vlq_string();
+        let range_mappings = self.encode_range_mappings();
+
+        let sources: Vec<String> = match &self.source_root {
+            Some(root) if !root.is_empty() => {
+                self.sources.iter().map(|s| format!("{root}{s}")).collect()
+            }
+            _ => self.sources.clone(),
+        };
+
+        srcmap_sourcemap::SourceMap::from_vlq_with_range_mappings(
+            &vlq,
+            sources,
+            self.names.clone(),
+            self.file.clone(),
+            self.source_root.clone(),
+            self.sources_content.clone(),
+            self.ignore_list.clone(),
+            self.debug_id.clone(),
+            range_mappings.as_deref(),
+        )
+        .expect("streaming VLQ should be valid")
+    }
+
+    /// Encode range mapping entries to a VLQ string.
+    /// Returns `None` if no range mappings exist.
+    fn encode_range_mappings(&self) -> Option<String> {
+        if self.range_entries.is_empty() {
+            return None;
+        }
+
+        let max_line = self.range_entries.last().map_or(0, |&(line, _)| line);
+        let mut out: Vec<u8> = Vec::new();
+        let mut entry_idx = 0;
+
+        for line in 0..=max_line {
+            if line > 0 {
+                out.push(b';');
+            }
+            let mut prev_offset: u64 = 0;
+            let mut first_on_line = true;
+
+            while entry_idx < self.range_entries.len()
+                && self.range_entries[entry_idx].0 == line
+            {
+                if !first_on_line {
+                    out.push(b',');
+                }
+                first_on_line = false;
+                let local_idx = self.range_entries[entry_idx].1 as u64;
+                let delta = local_idx - prev_offset;
+                vlq_encode_unsigned_inline(&mut out, delta);
+                prev_offset = local_idx;
+                entry_idx += 1;
+            }
+        }
+
+        while out.last() == Some(&b';') {
+            out.pop();
+        }
+
+        if out.is_empty() {
+            return None;
+        }
+
+        // SAFETY: VLQ output is always valid ASCII/UTF-8
+        Some(unsafe { String::from_utf8_unchecked(out) })
+    }
+
+    /// Get the VLQ mappings as a string, trimming trailing semicolons.
+    fn vlq_string(&self) -> String {
+        let end = self
+            .vlq_out
+            .iter()
+            .rposition(|&b| b != b';')
+            .map_or(0, |i| i + 1);
+        // SAFETY: VLQ output is always valid ASCII/UTF-8
+        unsafe { String::from_utf8_unchecked(self.vlq_out[..end].to_vec()) }
     }
 }
 
@@ -607,6 +1199,23 @@ fn encode_mapping_slice(
     }
 
     buf
+}
+
+/// Inline unsigned VLQ encoder (no sign bit, ECMA-426).
+fn vlq_encode_unsigned_inline(out: &mut Vec<u8>, value: u64) {
+    const BASE64_CHARS: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut v = value;
+    loop {
+        let mut digit = (v & 0x1F) as u8;
+        v >>= 5;
+        if v > 0 {
+            digit |= 0x20;
+        }
+        out.push(BASE64_CHARS[digit as usize]);
+        if v == 0 {
+            break;
+        }
+    }
 }
 
 /// JSON-quote a string (with escape handling).
@@ -1405,6 +2014,307 @@ mod tests {
             let loc = sm.original_position_for(200, 50).unwrap();
             assert_eq!(loc.line, 200);
             assert_eq!(loc.column, 25);
+        }
+    }
+
+    // ── StreamingGenerator tests ────────────────────────────────
+
+    #[test]
+    fn streaming_basic() {
+        let mut sg = StreamingGenerator::new(Some("out.js".to_string()));
+        let src = sg.add_source("input.js");
+        sg.add_mapping(0, 0, src, 0, 0);
+        sg.add_mapping(1, 0, src, 1, 0);
+
+        let json = sg.to_json();
+        let sm = srcmap_sourcemap::SourceMap::from_json(&json).unwrap();
+        assert_eq!(sm.sources, vec!["input.js"]);
+        assert_eq!(sm.mapping_count(), 2);
+
+        let loc0 = sm.original_position_for(0, 0).unwrap();
+        assert_eq!(sm.source(loc0.source), "input.js");
+        assert_eq!(loc0.line, 0);
+
+        let loc1 = sm.original_position_for(1, 0).unwrap();
+        assert_eq!(loc1.line, 1);
+    }
+
+    #[test]
+    fn streaming_with_names() {
+        let mut sg = StreamingGenerator::new(None);
+        let src = sg.add_source("a.js");
+        let name = sg.add_name("foo");
+        sg.add_named_mapping(0, 0, src, 0, 0, name);
+
+        let sm = srcmap_sourcemap::SourceMap::from_json(&sg.to_json()).unwrap();
+        let loc = sm.original_position_for(0, 0).unwrap();
+        assert_eq!(loc.name, Some(0));
+        assert_eq!(sm.name(0), "foo");
+    }
+
+    #[test]
+    fn streaming_generated_only() {
+        let mut sg = StreamingGenerator::new(None);
+        let src = sg.add_source("a.js");
+        sg.add_generated_mapping(0, 0);
+        sg.add_mapping(0, 5, src, 0, 0);
+
+        let sm = srcmap_sourcemap::SourceMap::from_json(&sg.to_json()).unwrap();
+        assert_eq!(sm.mapping_count(), 2);
+        assert!(sm.original_position_for(0, 0).is_none());
+        assert!(sm.original_position_for(0, 5).is_some());
+    }
+
+    #[test]
+    fn streaming_matches_regular_generator() {
+        let mut regular = SourceMapGenerator::new(Some("out.js".to_string()));
+        let mut streaming = StreamingGenerator::new(Some("out.js".to_string()));
+
+        let src_r = regular.add_source("a.js");
+        let src_s = streaming.add_source("a.js");
+
+        let name_r = regular.add_name("hello");
+        let name_s = streaming.add_name("hello");
+
+        regular.set_source_content(src_r, "var hello;".to_string());
+        streaming.set_source_content(src_s, "var hello;".to_string());
+
+        regular.add_named_mapping(0, 0, src_r, 0, 0, name_r);
+        streaming.add_named_mapping(0, 0, src_s, 0, 0, name_s);
+
+        regular.add_mapping(0, 10, src_r, 0, 4);
+        streaming.add_mapping(0, 10, src_s, 0, 4);
+
+        regular.add_mapping(1, 0, src_r, 1, 0);
+        streaming.add_mapping(1, 0, src_s, 1, 0);
+
+        let sm_r = srcmap_sourcemap::SourceMap::from_json(&regular.to_json()).unwrap();
+        let sm_s = srcmap_sourcemap::SourceMap::from_json(&streaming.to_json()).unwrap();
+
+        assert_eq!(sm_r.mapping_count(), sm_s.mapping_count());
+        assert_eq!(sm_r.sources, sm_s.sources);
+        assert_eq!(sm_r.names, sm_s.names);
+        assert_eq!(sm_r.sources_content, sm_s.sources_content);
+
+        for (a, b) in sm_r.all_mappings().iter().zip(sm_s.all_mappings().iter()) {
+            assert_eq!(a.generated_line, b.generated_line);
+            assert_eq!(a.generated_column, b.generated_column);
+            assert_eq!(a.source, b.source);
+            assert_eq!(a.original_line, b.original_line);
+            assert_eq!(a.original_column, b.original_column);
+            assert_eq!(a.name, b.name);
+        }
+    }
+
+    #[test]
+    fn streaming_to_decoded_map() {
+        let mut sg = StreamingGenerator::new(None);
+        let src = sg.add_source("test.js");
+        sg.add_mapping(0, 0, src, 0, 0);
+        sg.add_mapping(2, 5, src, 1, 3);
+
+        let sm = sg.to_decoded_map();
+        assert_eq!(sm.mapping_count(), 2);
+        assert_eq!(sm.sources, vec!["test.js"]);
+
+        let loc = sm.original_position_for(2, 5).unwrap();
+        assert_eq!(loc.line, 1);
+        assert_eq!(loc.column, 3);
+    }
+
+    #[test]
+    fn streaming_source_dedup() {
+        let mut sg = StreamingGenerator::new(None);
+        let src1 = sg.add_source("a.js");
+        let src2 = sg.add_source("a.js");
+        assert_eq!(src1, src2);
+        assert_eq!(sg.sources.len(), 1);
+    }
+
+    #[test]
+    fn streaming_ignore_list() {
+        let mut sg = StreamingGenerator::new(None);
+        let src = sg.add_source("vendor.js");
+        sg.add_to_ignore_list(src);
+        sg.add_mapping(0, 0, src, 0, 0);
+
+        let sm = srcmap_sourcemap::SourceMap::from_json(&sg.to_json()).unwrap();
+        assert_eq!(sm.ignore_list, vec![0]);
+    }
+
+    #[test]
+    fn streaming_empty() {
+        let sg = StreamingGenerator::new(None);
+        let json = sg.to_json();
+        let sm = srcmap_sourcemap::SourceMap::from_json(&json).unwrap();
+        assert_eq!(sm.mapping_count(), 0);
+    }
+
+    #[test]
+    fn streaming_sparse_lines() {
+        let mut sg = StreamingGenerator::new(None);
+        let src = sg.add_source("a.js");
+        sg.add_mapping(0, 0, src, 0, 0);
+        sg.add_mapping(5, 0, src, 5, 0);
+
+        let sm = srcmap_sourcemap::SourceMap::from_json(&sg.to_json()).unwrap();
+        assert_eq!(sm.mapping_count(), 2);
+        assert!(sm.original_position_for(0, 0).is_some());
+        assert!(sm.original_position_for(5, 0).is_some());
+    }
+
+    // ── Range mapping tests ───────────────────────────────────
+
+    #[test]
+    fn range_mapping_basic() {
+        let mut builder = SourceMapGenerator::new(None);
+        let src = builder.add_source("input.js");
+        builder.add_range_mapping(0, 0, src, 0, 0);
+        builder.add_mapping(0, 5, src, 0, 10);
+
+        let json = builder.to_json();
+        assert!(json.contains(r#""rangeMappings":"A""#));
+    }
+
+    #[test]
+    fn range_mapping_multiple_on_line() {
+        let mut builder = SourceMapGenerator::new(None);
+        let src = builder.add_source("input.js");
+        builder.add_range_mapping(0, 0, src, 0, 0);
+        builder.add_mapping(0, 5, src, 0, 10);
+        builder.add_range_mapping(0, 10, src, 0, 20);
+
+        let json = builder.to_json();
+        assert!(json.contains(r#""rangeMappings":"A,C""#));
+    }
+
+    #[test]
+    fn range_mapping_multi_line() {
+        let mut builder = SourceMapGenerator::new(None);
+        let src = builder.add_source("input.js");
+        builder.add_range_mapping(0, 0, src, 0, 0);
+        builder.add_range_mapping(1, 0, src, 1, 0);
+
+        let json = builder.to_json();
+        assert!(json.contains(r#""rangeMappings":"A;A""#));
+    }
+
+    #[test]
+    fn no_range_mappings_omits_field() {
+        let mut builder = SourceMapGenerator::new(None);
+        let src = builder.add_source("input.js");
+        builder.add_mapping(0, 0, src, 0, 0);
+
+        let json = builder.to_json();
+        assert!(!json.contains("rangeMappings"));
+    }
+
+    #[test]
+    fn named_range_mapping() {
+        let mut builder = SourceMapGenerator::new(None);
+        let src = builder.add_source("input.js");
+        let name = builder.add_name("foo");
+        builder.add_named_range_mapping(0, 0, src, 0, 0, name);
+
+        let json = builder.to_json();
+        assert!(json.contains(r#""rangeMappings":"A""#));
+    }
+
+    #[test]
+    fn to_decoded_map_preserves_range_mappings() {
+        let mut builder = SourceMapGenerator::new(None);
+        let src = builder.add_source("input.js");
+        builder.add_range_mapping(0, 0, src, 0, 0);
+        builder.add_mapping(0, 5, src, 0, 10);
+
+        let sm = builder.to_decoded_map();
+        assert!(sm.has_range_mappings());
+        let mappings = sm.all_mappings();
+        assert!(mappings[0].is_range_mapping);
+        assert!(!mappings[1].is_range_mapping);
+    }
+
+    // ── Streaming range mapping tests ────────────────────────────
+
+    #[test]
+    fn streaming_range_mapping_basic() {
+        let mut sg = StreamingGenerator::new(None);
+        let src = sg.add_source("input.js");
+        sg.add_range_mapping(0, 0, src, 0, 0);
+        sg.add_mapping(0, 5, src, 0, 10);
+
+        let json = sg.to_json();
+        assert!(json.contains(r#""rangeMappings":"A""#));
+    }
+
+    #[test]
+    fn streaming_range_mapping_roundtrip() {
+        let mut sg = StreamingGenerator::new(None);
+        let src = sg.add_source("input.js");
+        sg.add_range_mapping(0, 0, src, 0, 0);
+        sg.add_mapping(0, 5, src, 0, 10);
+
+        let sm = sg.to_decoded_map();
+        assert!(sm.has_range_mappings());
+        let mappings = sm.all_mappings();
+        assert!(mappings[0].is_range_mapping);
+        assert!(!mappings[1].is_range_mapping);
+    }
+
+    #[test]
+    fn streaming_range_and_named_range() {
+        let mut sg = StreamingGenerator::new(None);
+        let src = sg.add_source("input.js");
+        let name = sg.add_name("foo");
+        sg.add_range_mapping(0, 0, src, 0, 0);
+        sg.add_named_range_mapping(0, 10, src, 0, 5, name);
+
+        let json = sg.to_json();
+        assert!(json.contains(r#""rangeMappings":"A,B""#));
+
+        let sm = sg.to_decoded_map();
+        assert!(sm.has_range_mappings());
+        let mappings = sm.all_mappings();
+        assert!(mappings[0].is_range_mapping);
+        assert!(mappings[1].is_range_mapping);
+    }
+
+    #[test]
+    fn streaming_range_mapping_matches_regular() {
+        let mut regular = SourceMapGenerator::new(None);
+        let mut streaming = StreamingGenerator::new(None);
+
+        let src_r = regular.add_source("input.js");
+        let src_s = streaming.add_source("input.js");
+
+        regular.add_range_mapping(0, 0, src_r, 0, 0);
+        streaming.add_range_mapping(0, 0, src_s, 0, 0);
+
+        regular.add_mapping(0, 5, src_r, 0, 10);
+        streaming.add_mapping(0, 5, src_s, 0, 10);
+
+        regular.add_range_mapping(0, 10, src_r, 0, 20);
+        streaming.add_range_mapping(0, 10, src_s, 0, 20);
+
+        regular.add_range_mapping(1, 0, src_r, 1, 0);
+        streaming.add_range_mapping(1, 0, src_s, 1, 0);
+
+        let json_r = regular.to_json();
+        let json_s = streaming.to_json();
+
+        let sm_r = srcmap_sourcemap::SourceMap::from_json(&json_r).unwrap();
+        let sm_s = srcmap_sourcemap::SourceMap::from_json(&json_s).unwrap();
+
+        assert_eq!(sm_r.mapping_count(), sm_s.mapping_count());
+
+        for (a, b) in sm_r.all_mappings().iter().zip(sm_s.all_mappings().iter()) {
+            assert_eq!(a.generated_line, b.generated_line);
+            assert_eq!(a.generated_column, b.generated_column);
+            assert_eq!(a.source, b.source);
+            assert_eq!(a.original_line, b.original_line);
+            assert_eq!(a.original_column, b.original_column);
+            assert_eq!(a.name, b.name);
+            assert_eq!(a.is_range_mapping, b.is_range_mapping);
         }
     }
 }

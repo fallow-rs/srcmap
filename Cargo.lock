@@ -703,6 +703,7 @@ dependencies = [
 name = "srcmap-remapping"
 version = "0.1.3"
 dependencies = [
+ "criterion 0.5.1",
  "srcmap-codec",
  "srcmap-generator",
  "srcmap-sourcemap",

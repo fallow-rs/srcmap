@@ -398,6 +398,7 @@ fn cmd_info(file: &PathBuf, json: bool) -> Result<(), CliError> {
             "sources": sm.sources.len(),
             "names": sm.names.len(),
             "mappings": sm.mapping_count(),
+            "rangeMappings": sm.range_mapping_count(),
             "lines": sm.line_count(),
             "sourcesWithContent": has_content,
             "totalContentSize": content_size,
@@ -416,6 +417,9 @@ fn cmd_info(file: &PathBuf, json: bool) -> Result<(), CliError> {
         println!("Sources:      {}", sm.sources.len());
         println!("Names:        {}", sm.names.len());
         println!("Mappings:     {}", sm.mapping_count());
+        if sm.has_range_mappings() {
+            println!("  Range:      {} range mappings", sm.range_mapping_count());
+        }
         println!("Lines:        {}", sm.line_count());
         println!("File size:    {}", format_size(raw.len()));
 
@@ -702,6 +706,7 @@ fn cmd_mappings(
                     "originalLine": m.original_line,
                     "originalColumn": m.original_column,
                     "name": name,
+                    "isRangeMapping": m.is_range_mapping,
                 })
             })
             .collect();
@@ -716,10 +721,10 @@ fn cmd_mappings(
         println!("{}", serde_json::to_string_pretty(&obj).unwrap());
     } else {
         println!(
-            "{:<8} {:<8} {:<30} {:<8} {:<8} name",
-            "gen.ln", "gen.col", "source", "orig.ln", "orig.col"
+            "{:<8} {:<8} {:<30} {:<8} {:<8} {:<6} name",
+            "gen.ln", "gen.col", "source", "orig.ln", "orig.col", "range"
         );
-        println!("{:-<80}", "");
+        println!("{:-<86}", "");
         for m in &filtered {
             let source = if m.source != u32::MAX {
                 sm.source(m.source)
@@ -731,13 +736,15 @@ fn cmd_mappings(
             } else {
                 ""
             };
+            let range_marker = if m.is_range_mapping { "R" } else { "" };
             println!(
-                "{:<8} {:<8} {:<30} {:<8} {:<8} {}",
+                "{:<8} {:<8} {:<30} {:<8} {:<8} {:<6} {}",
                 m.generated_line,
                 m.generated_column,
                 source,
                 m.original_line,
                 m.original_column,
+                range_marker,
                 name
             );
         }

@@ -50,6 +50,9 @@ assert_eq!(pos.column, 0);
 | `name(index) -> &str` | Resolve a name index to its string |
 | `line_count() -> usize` | Number of generated lines |
 | `mapping_count() -> usize` | Total number of decoded mappings |
+| `has_range_mappings() -> bool` | Whether any mappings are range mappings |
+| `range_mapping_count() -> usize` | Number of range mappings |
+| `encode_range_mappings() -> Option<String>` | Encode range mappings to VLQ string |
 
 ### Fields
 
@@ -61,14 +64,17 @@ assert_eq!(pos.column, 0);
 | `file` | `Option<String>` |
 | `source_root` | `Option<String>` |
 | `ignore_list` | `Vec<u32>` |
+| `debug_id` | `Option<String>` |
 
 ## Features
 
 - **O(log n) binary search** for both forward and reverse lookups
-- **Flat 24-byte mapping structs** for cache-friendly iteration
+- **Flat 28-byte mapping structs** for cache-friendly iteration
 - **Lazy reverse index** built on first `generated_position_for` call
 - **Indexed source maps** (`sections`) with automatic flattening
 - **Zero-copy JSON parsing** via borrowed mappings string
+- **Range mappings** (`rangeMappings` field, ECMA-426 Stage 2) with cross-line delta lookup
+- **Lazy iterator** (`MappingsIter`) for zero-allocation streaming over encoded mappings
 - **Robust error handling** for malformed input
 
 ## Performance

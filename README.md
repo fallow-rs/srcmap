@@ -137,6 +137,7 @@ vlq_encode(&mut buf, 42);
 Full [ECMA-426](https://tc39.es/ecma426/) (Source Map v3) compliance:
 
 - All standard fields: `version`, `file`, `sourceRoot`, `sources`, `sourcesContent`, `names`, `mappings`
+- `rangeMappings` for range-based source mapping (ECMA-426 Stage 2 proposal)
 - `ignoreList` for filtering third-party sources
 - Indexed source maps with `sections` — flattened with source/name deduplication
 - Proper `sourceRoot` resolution
@@ -233,7 +234,7 @@ All commands support `--json` for structured output.
 
 ## Internals
 
-- **Flat Mapping struct** — 24 bytes (6 × u32), cache-friendly contiguous layout
+- **Flat Mapping struct** — 28 bytes (6 × u32 + bool), cache-friendly contiguous layout
 - **Inlined VLQ decoder** — single-char fast path for values −15..15 (~85% of real-world VLQ values)
 - **Lazy reverse index** — only built on first `generated_position_for` call
 - **Binary search lookups** — O(log n) for both forward and reverse queries
@@ -247,6 +248,7 @@ cargo test --workspace                # Run all tests
 cargo bench -p srcmap-sourcemap       # Criterion benchmarks
 cargo bench -p srcmap-codec
 cargo bench -p srcmap-generator
+cargo bench -p srcmap-remapping       # remap vs remap_streaming
 ```
 
 <details>

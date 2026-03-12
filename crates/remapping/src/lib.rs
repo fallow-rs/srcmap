@@ -56,7 +56,7 @@
 //! }
 //! ```
 
-use srcmap_generator::SourceMapGenerator;
+use srcmap_generator::{SourceMapGenerator, StreamingGenerator};
 use srcmap_sourcemap::SourceMap;
 use std::collections::HashMap;
 
@@ -140,7 +140,27 @@ impl ConcatBuilder {
                     .add_generated_mapping(gen_line, m.generated_column);
             } else {
                 let src = source_indices[m.source as usize];
-                if m.name != u32::MAX {
+                if m.is_range_mapping {
+                    if m.name != u32::MAX {
+                        let name = name_indices[m.name as usize];
+                        self.builder.add_named_range_mapping(
+                            gen_line,
+                            m.generated_column,
+                            src,
+                            m.original_line,
+                            m.original_column,
+                            name,
+                        );
+                    } else {
+                        self.builder.add_range_mapping(
+                            gen_line,
+                            m.generated_column,
+                            src,
+                            m.original_line,
+                            m.original_column,
+                        );
+                    }
+                } else if m.name != u32::MAX {
                     let name = name_indices[m.name as usize];
                     self.builder.add_named_mapping(
                         gen_line,
@@ -177,12 +197,37 @@ impl ConcatBuilder {
 
 // ── Composition / Remapping ───────────────────────────────────────
 
+/// Add a mapping to the generator, dispatching to range/non-range variants.
+fn add_mapping_to_builder(
+    builder: &mut SourceMapGenerator,
+    gen_line: u32,
+    gen_col: u32,
+    src: u32,
+    orig_line: u32,
+    orig_col: u32,
+    name: Option<u32>,
+    is_range: bool,
+) {
+    match (name, is_range) {
+        (Some(n), true) => {
+            builder.add_named_range_mapping(gen_line, gen_col, src, orig_line, orig_col, n)
+        }
+        (Some(n), false) => {
+            builder.add_named_mapping(gen_line, gen_col, src, orig_line, orig_col, n)
+        }
+        (None, true) => builder.add_range_mapping(gen_line, gen_col, src, orig_line, orig_col),
+        (None, false) => builder.add_mapping(gen_line, gen_col, src, orig_line, orig_col),
+    }
+}
+
 /// Remap a source map by resolving each source through upstream source maps.
 ///
 /// For each source in the `outer` map, the `loader` function is called to
 /// retrieve the upstream source map. If a source map is returned, mappings
 /// are traced through it to the original source. If `None` is returned,
 /// the source is kept as-is.
+///
+/// Range mappings (`is_range_mapping`) are preserved through composition.
 ///
 /// This is equivalent to `@ampproject/remapping` in the JS ecosystem.
 pub fn remap<F>(outer: &SourceMap, loader: F) -> SourceMap
@@ -234,46 +279,35 @@ where
                                 }
                             });
 
-                        match name_idx {
-                            Some(name) => builder.add_named_mapping(
-                                m.generated_line,
-                                m.generated_column,
-                                src_idx,
-                                loc.line,
-                                loc.column,
-                                name,
-                            ),
-                            None => builder.add_mapping(
-                                m.generated_line,
-                                m.generated_column,
-                                src_idx,
-                                loc.line,
-                                loc.column,
-                            ),
-                        }
+                        add_mapping_to_builder(
+                            &mut builder,
+                            m.generated_line,
+                            m.generated_column,
+                            src_idx,
+                            loc.line,
+                            loc.column,
+                            name_idx,
+                            m.is_range_mapping,
+                        );
                     }
                     None => {
                         // No mapping in upstream — keep original reference
                         let src_idx = builder.add_source(source_name);
-                        if m.name != u32::MAX {
-                            let name = builder.add_name(outer.name(m.name));
-                            builder.add_named_mapping(
-                                m.generated_line,
-                                m.generated_column,
-                                src_idx,
-                                m.original_line,
-                                m.original_column,
-                                name,
-                            );
+                        let name_idx = if m.name != u32::MAX {
+                            Some(builder.add_name(outer.name(m.name)))
                         } else {
-                            builder.add_mapping(
-                                m.generated_line,
-                                m.generated_column,
-                                src_idx,
-                                m.original_line,
-                                m.original_column,
-                            );
-                        }
+                            None
+                        };
+                        add_mapping_to_builder(
+                            &mut builder,
+                            m.generated_line,
+                            m.generated_column,
+                            src_idx,
+                            m.original_line,
+                            m.original_column,
+                            name_idx,
+                            m.is_range_mapping,
+                        );
                     }
                 }
             }
@@ -286,31 +320,185 @@ where
                     builder.set_source_content(src_idx, content.clone());
                 }
 
-                if m.name != u32::MAX {
-                    let name = builder.add_name(outer.name(m.name));
-                    builder.add_named_mapping(
-                        m.generated_line,
-                        m.generated_column,
-                        src_idx,
-                        m.original_line,
-                        m.original_column,
-                        name,
-                    );
+                let name_idx = if m.name != u32::MAX {
+                    Some(builder.add_name(outer.name(m.name)))
                 } else {
-                    builder.add_mapping(
-                        m.generated_line,
-                        m.generated_column,
-                        src_idx,
-                        m.original_line,
-                        m.original_column,
-                    );
-                }
+                    None
+                };
+                add_mapping_to_builder(
+                    &mut builder,
+                    m.generated_line,
+                    m.generated_column,
+                    src_idx,
+                    m.original_line,
+                    m.original_column,
+                    name_idx,
+                    m.is_range_mapping,
+                );
             }
         }
     }
 
     let json = builder.to_json();
     SourceMap::from_json(&json).expect("generated JSON should be valid")
+}
+
+/// Add a mapping to a streaming generator, dispatching to range/non-range variants.
+fn add_mapping_to_streaming(
+    builder: &mut StreamingGenerator,
+    gen_line: u32,
+    gen_col: u32,
+    src: u32,
+    orig_line: u32,
+    orig_col: u32,
+    name: Option<u32>,
+    is_range: bool,
+) {
+    match (name, is_range) {
+        (Some(n), true) => {
+            builder.add_named_range_mapping(gen_line, gen_col, src, orig_line, orig_col, n)
+        }
+        (Some(n), false) => {
+            builder.add_named_mapping(gen_line, gen_col, src, orig_line, orig_col, n)
+        }
+        (None, true) => builder.add_range_mapping(gen_line, gen_col, src, orig_line, orig_col),
+        (None, false) => builder.add_mapping(gen_line, gen_col, src, orig_line, orig_col),
+    }
+}
+
+/// Streaming variant of [`remap`] that avoids materializing the outer map.
+///
+/// Accepts pre-parsed metadata and a [`MappingsIter`](srcmap_sourcemap::MappingsIter)
+/// over the outer map's VLQ-encoded mappings. Uses [`StreamingGenerator`] to
+/// encode the result on-the-fly without collecting all mappings first.
+///
+/// Because `MappingsIter` yields mappings in sorted order, the streaming
+/// generator can encode VLQ incrementally, avoiding the sort + re-encode
+/// pass that [`remap`] requires.
+///
+/// Invalid segments from the iterator are silently skipped.
+pub fn remap_streaming<'a, F>(
+    mappings_iter: srcmap_sourcemap::MappingsIter<'a>,
+    sources: &[String],
+    names: &[String],
+    sources_content: &[Option<String>],
+    file: Option<String>,
+    loader: F,
+) -> SourceMap
+where
+    F: Fn(&str) -> Option<SourceMap>,
+{
+    let mut builder = StreamingGenerator::new(file);
+
+    // Cache: source index → loaded upstream map (or None)
+    let mut upstream_maps: HashMap<u32, Option<SourceMap>> = HashMap::new();
+
+    for item in mappings_iter {
+        let m = match item {
+            Ok(m) => m,
+            Err(_) => continue, // skip invalid segments
+        };
+
+        if m.source == u32::MAX {
+            builder.add_generated_mapping(m.generated_line, m.generated_column);
+            continue;
+        }
+
+        let source_name = &sources[m.source as usize];
+
+        // Load upstream map if we haven't already
+        let upstream = upstream_maps
+            .entry(m.source)
+            .or_insert_with(|| loader(source_name));
+
+        match upstream {
+            Some(upstream_sm) => {
+                // Trace through the upstream map
+                match upstream_sm.original_position_for(m.original_line, m.original_column) {
+                    Some(loc) => {
+                        let orig_source = upstream_sm.source(loc.source);
+                        let src_idx = builder.add_source(orig_source);
+
+                        // Copy sourcesContent from upstream if available
+                        if let Some(Some(content)) =
+                            upstream_sm.sources_content.get(loc.source as usize)
+                        {
+                            builder.set_source_content(src_idx, content.clone());
+                        }
+
+                        // Resolve name: prefer upstream name if available, else outer name
+                        let name_idx = loc
+                            .name
+                            .map(|n| builder.add_name(upstream_sm.name(n)))
+                            .or_else(|| {
+                                if m.name != u32::MAX {
+                                    Some(builder.add_name(&names[m.name as usize]))
+                                } else {
+                                    None
+                                }
+                            });
+
+                        add_mapping_to_streaming(
+                            &mut builder,
+                            m.generated_line,
+                            m.generated_column,
+                            src_idx,
+                            loc.line,
+                            loc.column,
+                            name_idx,
+                            m.is_range_mapping,
+                        );
+                    }
+                    None => {
+                        // No mapping in upstream — keep original reference
+                        let src_idx = builder.add_source(source_name);
+                        let name_idx = if m.name != u32::MAX {
+                            Some(builder.add_name(&names[m.name as usize]))
+                        } else {
+                            None
+                        };
+                        add_mapping_to_streaming(
+                            &mut builder,
+                            m.generated_line,
+                            m.generated_column,
+                            src_idx,
+                            m.original_line,
+                            m.original_column,
+                            name_idx,
+                            m.is_range_mapping,
+                        );
+                    }
+                }
+            }
+            None => {
+                // No upstream map — pass through as-is
+                let src_idx = builder.add_source(source_name);
+
+                // Copy sourcesContent from outer if available
+                if let Some(Some(content)) = sources_content.get(m.source as usize) {
+                    builder.set_source_content(src_idx, content.clone());
+                }
+
+                let name_idx = if m.name != u32::MAX {
+                    Some(builder.add_name(&names[m.name as usize]))
+                } else {
+                    None
+                };
+                add_mapping_to_streaming(
+                    &mut builder,
+                    m.generated_line,
+                    m.generated_column,
+                    src_idx,
+                    m.original_line,
+                    m.original_column,
+                    name_idx,
+                    m.is_range_mapping,
+                );
+            }
+        }
+    }
+
+    builder.to_decoded_map()
 }
 
 // ── Tests ─────────────────────────────────────────────────────────
@@ -788,5 +976,309 @@ mod tests {
         // Neither outer nor upstream has a name, so result has no name
         assert!(loc.name.is_none());
         assert!(result.names.is_empty());
+    }
+
+    // ── Range mapping preservation tests ────────────────────────
+
+    #[test]
+    fn concat_preserves_range_mappings() {
+        let a = SourceMap::from_json(
+            r#"{"version":3,"sources":["a.js"],"names":[],"mappings":"AAAA,CAAC","rangeMappings":"A"}"#,
+        )
+        .unwrap();
+
+        let mut builder = ConcatBuilder::new(None);
+        builder.add_map(&a, 0);
+
+        let result = builder.build();
+        assert!(result.has_range_mappings());
+        let mappings = result.all_mappings();
+        assert!(mappings[0].is_range_mapping);
+        assert!(!mappings[1].is_range_mapping);
+    }
+
+    #[test]
+    fn remap_preserves_range_mappings_passthrough() {
+        let outer = SourceMap::from_json(
+            r#"{"version":3,"sources":["a.js"],"names":[],"mappings":"AAAA","rangeMappings":"A"}"#,
+        )
+        .unwrap();
+
+        // No upstream — range mapping passes through
+        let result = remap(&outer, |_| None);
+        assert!(result.has_range_mappings());
+        let mappings = result.all_mappings();
+        assert!(mappings[0].is_range_mapping);
+    }
+
+    #[test]
+    fn remap_preserves_range_through_upstream() {
+        let outer = SourceMap::from_json(
+            r#"{"version":3,"sources":["intermediate.js"],"names":[],"mappings":"AAAA","rangeMappings":"A"}"#,
+        )
+        .unwrap();
+
+        let inner = SourceMap::from_json(
+            r#"{"version":3,"sources":["original.js"],"names":[],"mappings":"AACA"}"#,
+        )
+        .unwrap();
+
+        let result = remap(&outer, |_| Some(inner.clone()));
+        assert!(result.has_range_mappings());
+    }
+
+    #[test]
+    fn remap_non_range_stays_non_range() {
+        let outer = SourceMap::from_json(
+            r#"{"version":3,"sources":["a.js"],"names":[],"mappings":"AAAA"}"#,
+        )
+        .unwrap();
+
+        let result = remap(&outer, |_| None);
+        assert!(!result.has_range_mappings());
+    }
+
+    // ── Streaming remapping tests ────────────────────────────────
+
+    /// Helper: run `remap_streaming` from a parsed SourceMap, re-encoding
+    /// the VLQ string from its decoded mappings.
+    fn streaming_from_sm<F>(sm: &SourceMap, loader: F) -> SourceMap
+    where
+        F: Fn(&str) -> Option<SourceMap>,
+    {
+        let vlq = sm.encode_mappings();
+        let iter = srcmap_sourcemap::MappingsIter::new(&vlq);
+        remap_streaming(
+            iter,
+            &sm.sources,
+            &sm.names,
+            &sm.sources_content,
+            sm.file.clone(),
+            loader,
+        )
+    }
+
+    #[test]
+    fn streaming_single_level() {
+        let outer = SourceMap::from_json(
+            r#"{"version":3,"sources":["intermediate.js","other.js"],"names":[],"mappings":"AAAA,KCAA;ADCA"}"#,
+        )
+        .unwrap();
+
+        let inner = SourceMap::from_json(
+            r#"{"version":3,"sources":["original.js"],"names":[],"mappings":"AACA;AACA"}"#,
+        )
+        .unwrap();
+
+        let result = streaming_from_sm(&outer, |source| {
+            if source == "intermediate.js" {
+                Some(inner.clone())
+            } else {
+                None
+            }
+        });
+
+        assert!(result.sources.contains(&"original.js".to_string()));
+        assert!(result.sources.contains(&"other.js".to_string()));
+
+        let loc = result.original_position_for(0, 0).unwrap();
+        assert_eq!(result.source(loc.source), "original.js");
+        assert_eq!(loc.line, 1);
+    }
+
+    #[test]
+    fn streaming_no_upstream_passthrough() {
+        let outer = SourceMap::from_json(
+            r#"{"version":3,"sources":["already-original.js"],"names":[],"mappings":"AAAA"}"#,
+        )
+        .unwrap();
+
+        let result = streaming_from_sm(&outer, |_| None);
+
+        assert_eq!(result.sources, vec!["already-original.js"]);
+        let loc = result.original_position_for(0, 0).unwrap();
+        assert_eq!(result.source(loc.source), "already-original.js");
+        assert_eq!(loc.line, 0);
+        assert_eq!(loc.column, 0);
+    }
+
+    #[test]
+    fn streaming_preserves_names() {
+        let outer = SourceMap::from_json(
+            r#"{"version":3,"sources":["compiled.js"],"names":["myFunc"],"mappings":"AAAAA"}"#,
+        )
+        .unwrap();
+
+        let inner = SourceMap::from_json(
+            r#"{"version":3,"sources":["original.ts"],"names":[],"mappings":"AAAA"}"#,
+        )
+        .unwrap();
+
+        let result = streaming_from_sm(&outer, |_| Some(inner.clone()));
+
+        let loc = result.original_position_for(0, 0).unwrap();
+        assert!(loc.name.is_some());
+        assert_eq!(result.name(loc.name.unwrap()), "myFunc");
+    }
+
+    #[test]
+    fn streaming_upstream_name_wins() {
+        let outer = SourceMap::from_json(
+            r#"{"version":3,"sources":["compiled.js"],"names":["outerName"],"mappings":"AAAAA"}"#,
+        )
+        .unwrap();
+
+        let inner = SourceMap::from_json(
+            r#"{"version":3,"sources":["original.ts"],"names":["innerName"],"mappings":"AAAAA"}"#,
+        )
+        .unwrap();
+
+        let result = streaming_from_sm(&outer, |_| Some(inner.clone()));
+
+        let loc = result.original_position_for(0, 0).unwrap();
+        assert!(loc.name.is_some());
+        assert_eq!(result.name(loc.name.unwrap()), "innerName");
+    }
+
+    #[test]
+    fn streaming_sources_content_from_upstream() {
+        let outer = SourceMap::from_json(
+            r#"{"version":3,"sources":["compiled.js"],"names":[],"mappings":"AAAA"}"#,
+        )
+        .unwrap();
+
+        let inner = SourceMap::from_json(
+            r#"{"version":3,"sources":["original.ts"],"sourcesContent":["const x = 1;"],"names":[],"mappings":"AAAA"}"#,
+        )
+        .unwrap();
+
+        let result = streaming_from_sm(&outer, |_| Some(inner.clone()));
+
+        assert_eq!(
+            result.sources_content,
+            vec![Some("const x = 1;".to_string())]
+        );
+    }
+
+    #[test]
+    fn streaming_no_upstream_with_sources_content() {
+        let outer = SourceMap::from_json(
+            r#"{"version":3,"sources":["a.js"],"sourcesContent":["var a;"],"names":["fn1"],"mappings":"AAAAA"}"#,
+        )
+        .unwrap();
+
+        let result = streaming_from_sm(&outer, |_| None);
+
+        assert_eq!(result.sources, vec!["a.js"]);
+        assert_eq!(result.sources_content, vec![Some("var a;".to_string())]);
+        let loc = result.original_position_for(0, 0).unwrap();
+        assert!(loc.name.is_some());
+        assert_eq!(result.name(loc.name.unwrap()), "fn1");
+    }
+
+    #[test]
+    fn streaming_generated_only_passthrough() {
+        let outer = SourceMap::from_json(
+            r#"{"version":3,"sources":["a.js","other.js"],"names":[],"mappings":"A,AAAA,KCAA"}"#,
+        )
+        .unwrap();
+
+        let inner = SourceMap::from_json(
+            r#"{"version":3,"sources":["original.js"],"names":[],"mappings":"AAAA"}"#,
+        )
+        .unwrap();
+
+        let result = streaming_from_sm(&outer, |source| {
+            if source == "a.js" {
+                Some(inner.clone())
+            } else {
+                None
+            }
+        });
+
+        assert!(result.mapping_count() >= 2);
+        assert!(result.sources.contains(&"original.js".to_string()));
+        assert!(result.sources.contains(&"other.js".to_string()));
+    }
+
+    #[test]
+    fn streaming_matches_remap() {
+        // Verify streaming produces identical results to non-streaming
+        let outer = SourceMap::from_json(
+            r#"{"version":3,"sources":["intermediate.js","other.js"],"names":["foo"],"mappings":"AAAAA,KCAA;ADCA"}"#,
+        )
+        .unwrap();
+
+        let inner = SourceMap::from_json(
+            r#"{"version":3,"sources":["original.js"],"sourcesContent":["// src"],"names":["bar"],"mappings":"AAAAA;AACA"}"#,
+        )
+        .unwrap();
+
+        let loader = |source: &str| -> Option<SourceMap> {
+            if source == "intermediate.js" {
+                Some(inner.clone())
+            } else {
+                None
+            }
+        };
+
+        let result_normal = remap(&outer, &loader);
+        let result_stream = streaming_from_sm(&outer, &loader);
+
+        assert_eq!(result_normal.sources, result_stream.sources);
+        assert_eq!(result_normal.names, result_stream.names);
+        assert_eq!(result_normal.sources_content, result_stream.sources_content);
+        assert_eq!(result_normal.mapping_count(), result_stream.mapping_count());
+
+        // Verify all lookups match
+        for m in result_normal.all_mappings() {
+            let loc_n = result_normal.original_position_for(m.generated_line, m.generated_column);
+            let loc_s = result_stream.original_position_for(m.generated_line, m.generated_column);
+            assert_eq!(loc_n.is_some(), loc_s.is_some());
+            if let (Some(ln), Some(ls)) = (loc_n, loc_s) {
+                assert_eq!(result_normal.source(ln.source), result_stream.source(ls.source));
+                assert_eq!(ln.line, ls.line);
+                assert_eq!(ln.column, ls.column);
+            }
+        }
+    }
+
+    #[test]
+    fn streaming_no_upstream_mapping_fallback() {
+        let outer = SourceMap::from_json(
+            r#"{"version":3,"sources":["compiled.js"],"names":["myFunc"],"mappings":"AAAAA"}"#,
+        )
+        .unwrap();
+
+        // Inner map maps different position (line 5, not line 0)
+        let inner = SourceMap::from_json(
+            r#"{"version":3,"sources":["original.ts"],"names":[],"mappings":";;;;AAAA"}"#,
+        )
+        .unwrap();
+
+        let result = streaming_from_sm(&outer, |_| Some(inner.clone()));
+
+        let loc = result.original_position_for(0, 0).unwrap();
+        assert!(loc.name.is_some());
+        assert_eq!(result.name(loc.name.unwrap()), "myFunc");
+    }
+
+    #[test]
+    fn streaming_no_upstream_mapping_no_name() {
+        let outer = SourceMap::from_json(
+            r#"{"version":3,"sources":["compiled.js"],"names":[],"mappings":"AAAA"}"#,
+        )
+        .unwrap();
+
+        let inner = SourceMap::from_json(
+            r#"{"version":3,"sources":["original.ts"],"names":[],"mappings":";;;;AAAA"}"#,
+        )
+        .unwrap();
+
+        let result = streaming_from_sm(&outer, |_| Some(inner.clone()));
+
+        let loc = result.original_position_for(0, 0).unwrap();
+        assert_eq!(result.source(loc.source), "compiled.js");
+        assert!(loc.name.is_none());
     }
 }

@@ -162,4 +162,19 @@ impl JsSourceMap {
     pub fn line_count(&self) -> u32 {
         self.inner.line_count() as u32
     }
+
+    #[napi(getter)]
+    pub fn has_range_mappings(&self) -> bool {
+        self.inner.has_range_mappings()
+    }
+
+    #[napi(getter)]
+    pub fn range_mapping_count(&self) -> u32 {
+        self.inner.range_mapping_count() as u32
+    }
+
+    #[napi]
+    pub fn encoded_range_mappings(&self) -> Option<String> {
+        self.inner.encode_range_mappings()
+    }
 }

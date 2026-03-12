@@ -68,6 +68,8 @@ Parse a source map from a JSON string.
 |----------|------|-------------|
 | `lineCount` | `number` | Number of generated lines |
 | `mappingCount` | `number` | Total decoded mappings |
+| `hasRangeMappings` | `boolean` | Whether any range mappings exist |
+| `rangeMappingCount` | `number` | Number of range mappings |
 | `sources` | `string[]` | All source filenames |
 | `names` | `string[]` | All names |
 

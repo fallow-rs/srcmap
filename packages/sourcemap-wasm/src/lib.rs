@@ -357,13 +357,34 @@ impl SourceMap {
         self.inner.encode_mappings()
     }
 
+    /// Whether the source map has any range mappings (ECMA-426).
+    #[wasm_bindgen(getter, js_name = "hasRangeMappings")]
+    pub fn has_range_mappings(&self) -> bool {
+        self.inner.has_range_mappings()
+    }
+
+    /// Number of range mappings in the source map.
+    #[wasm_bindgen(getter, js_name = "rangeMappingCount")]
+    pub fn range_mapping_count(&self) -> u32 {
+        self.inner.range_mapping_count() as u32
+    }
+
+    /// Encode the range mappings back to a VLQ string, or null if none exist.
+    #[wasm_bindgen(js_name = "encodedRangeMappings")]
+    pub fn encoded_range_mappings(&self) -> JsValue {
+        match self.inner.encode_range_mappings() {
+            Some(s) => JsValue::from_str(&s),
+            None => JsValue::NULL,
+        }
+    }
+
     /// Get all mappings as a flat Int32Array.
-    /// Format: [genLine, genCol, source, origLine, origCol, name, ...] per mapping.
-    /// source = -1 means unmapped, name = -1 means no name.
+    /// Format: [genLine, genCol, source, origLine, origCol, name, isRange, ...] per mapping.
+    /// source = -1 means unmapped, name = -1 means no name, isRange = 1 if range mapping.
     #[wasm_bindgen(js_name = "allMappingsFlat")]
     pub fn all_mappings_flat(&self) -> Vec<i32> {
         let mappings = self.inner.all_mappings();
-        let mut out = Vec::with_capacity(mappings.len() * 6);
+        let mut out = Vec::with_capacity(mappings.len() * 7);
 
         for m in mappings {
             out.push(m.generated_line as i32);
@@ -380,6 +401,7 @@ impl SourceMap {
             } else {
                 m.name as i32
             });
+            out.push(i32::from(m.is_range_mapping));
         }
 
         out

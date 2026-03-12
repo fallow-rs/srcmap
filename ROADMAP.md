@@ -40,13 +40,13 @@ The `Mapping` struct gains an `is_range_mapping: bool` field (default `false`). 
 
 ### What to implement
 
-- [ ] Decode `rangeMappings` field and set `is_range_mapping` on `Mapping` structs
-- [ ] Encode `rangeMappings` from `Mapping` structs with `is_range_mapping = true`
-- [ ] Update `original_position_for` to apply range delta when the matched mapping is a range mapping
-- [ ] Update `remap()` to preserve and compose range mappings through transform chains
-- [ ] Generator API: `add_range_mapping()` for marking a mapping as a range
-- [ ] WASM/NAPI bindings
-- [ ] CLI: show range mappings in `srcmap info` and `srcmap mappings`
+- [x] Decode `rangeMappings` field and set `is_range_mapping` on `Mapping` structs
+- [x] Encode `rangeMappings` from `Mapping` structs with `is_range_mapping = true`
+- [x] Update `original_position_for` to apply range delta when the matched mapping is a range mapping
+- [x] Update `remap()` to preserve and compose range mappings through transform chains
+- [x] Generator API: `add_range_mapping()` for marking a mapping as a range
+- [x] WASM/NAPI bindings
+- [x] CLI: show range mappings in `srcmap info` and `srcmap mappings`
 
 ---
 
@@ -58,9 +58,11 @@ Rolldown's `collapse_sourcemaps` materializes the entire token stream into `Vec<
 
 ### What to implement
 
-- [ ] `remap()` accepts iterators instead of requiring materialized `Vec`s
+- [x] `MappingsIter`: lazy iterator over VLQ-encoded mappings (decodes one at a time, no `Vec<Mapping>`)
+- [x] `StreamingGenerator`: on-the-fly VLQ encoder that emits mappings in sorted order without collecting
+- [x] `remap_streaming()`: composition pipeline that streams through mappings without intermediate allocation
+- [x] Criterion benchmarks (500 / 10K / 60K mappings) — 15-20% faster than materialized `remap()`
 - [ ] Builder pattern for `SourceMap::new()` that consumes iterators for names/sources/source_contents
-- [ ] Composition pipeline that streams through mappings without intermediate allocation
 - [ ] Benchmark against Rolldown's current `collapse_sourcemaps`
 
 ---
