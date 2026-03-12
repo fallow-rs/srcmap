@@ -2013,9 +2013,15 @@ fn decode_mappings(input: &str) -> Result<(Vec<Mapping>, Vec<u32>), DecodeError>
     let bytes = input.as_bytes();
     let len = bytes.len();
 
-    // Pre-count for capacity hints
-    let line_count = bytes.iter().filter(|&&b| b == b';').count() + 1;
-    let approx_segments = bytes.iter().filter(|&&b| b == b',').count() + line_count;
+    // Pre-count lines and segments in a single pass for capacity hints
+    let mut semicolons = 0usize;
+    let mut commas = 0usize;
+    for &b in bytes {
+        semicolons += (b == b';') as usize;
+        commas += (b == b',') as usize;
+    }
+    let line_count = semicolons + 1;
+    let approx_segments = commas + line_count;
 
     let mut mappings: Vec<Mapping> = Vec::with_capacity(approx_segments);
     let mut line_offsets: Vec<u32> = Vec::with_capacity(line_count + 1);
@@ -2813,8 +2819,15 @@ mod tests {
         names: &[&str],
         mappings_data: &[Vec<Vec<i64>>],
     ) -> String {
-        let mappings_vec: Vec<Vec<Vec<i64>>> = mappings_data.to_vec();
-        let encoded = srcmap_codec::encode(&mappings_vec);
+        let converted: Vec<Vec<srcmap_codec::Segment>> = mappings_data
+            .iter()
+            .map(|line| {
+                line.iter()
+                    .map(|seg| srcmap_codec::Segment::from(seg.as_slice()))
+                    .collect()
+            })
+            .collect();
+        let encoded = srcmap_codec::encode(&converted);
         format!(
             r#"{{"version":3,"sources":[{}],"names":[{}],"mappings":"{}"}}"#,
             sources
@@ -2925,7 +2938,7 @@ mod tests {
 
     #[test]
     fn decode_mixed_single_and_four_field_segments() {
-        let mappings_data = vec![vec![vec![5_i64, 0, 0, 0]]];
+        let mappings_data = vec![vec![srcmap_codec::Segment::four(5, 0, 0, 0)]];
         let four_field_encoded = srcmap_codec::encode(&mappings_data);
         let combined_mappings = format!("A,{four_field_encoded}");
         let json = format!(
@@ -3819,9 +3832,9 @@ mod tests {
 
                 // Build segment using codec encode
                 let segment = if has_name {
-                    vec![gen_col, src, src_line, src_col, name]
+                    srcmap_codec::Segment::five(gen_col, src, src_line, src_col, name)
                 } else {
-                    vec![gen_col, src, src_line, src_col]
+                    srcmap_codec::Segment::four(gen_col, src, src_line, src_col)
                 };
 
                 line_parts.push(segment);

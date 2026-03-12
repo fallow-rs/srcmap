@@ -1,17 +1,26 @@
 use napi::bindgen_prelude::Buffer;
 use napi_derive::napi;
-use srcmap_codec::SourceMapMappings;
+use srcmap_codec::{Segment, SourceMapMappings};
 
 // ── Approach 1: NAPI nested arrays (current baseline) ──────────────
 
 #[napi]
 pub fn decode(mappings: String) -> napi::Result<Vec<Vec<Vec<i64>>>> {
-    srcmap_codec::decode(&mappings).map_err(|e| napi::Error::from_reason(e.to_string()))
+    let decoded =
+        srcmap_codec::decode(&mappings).map_err(|e| napi::Error::from_reason(e.to_string()))?;
+    Ok(decoded
+        .into_iter()
+        .map(|line| line.into_iter().map(|seg| seg.to_vec()).collect())
+        .collect())
 }
 
 #[napi]
 pub fn encode(mappings: Vec<Vec<Vec<i64>>>) -> String {
-    srcmap_codec::encode(&mappings)
+    let converted: SourceMapMappings = mappings
+        .into_iter()
+        .map(|line| line.into_iter().map(Segment::from).collect())
+        .collect();
+    srcmap_codec::encode(&converted)
 }
 
 // ── Approach 2: JSON string (V8's JSON.parse is very fast) ─────────
@@ -184,7 +193,7 @@ fn from_json(bytes: &[u8]) -> napi::Result<SourceMapMappings> {
             }
 
             expect(&mut pos, b'[')?;
-            let mut seg = Vec::new();
+            let mut seg_buf = Vec::new();
 
             loop {
                 skip_ws(&mut pos);
@@ -199,10 +208,10 @@ fn from_json(bytes: &[u8]) -> napi::Result<SourceMapMappings> {
                     pos += 1;
                     continue;
                 }
-                seg.push(parse_i64(&mut pos)?);
+                seg_buf.push(parse_i64(&mut pos)?);
             }
 
-            line.push(seg);
+            line.push(Segment::from(seg_buf));
         }
 
         mappings.push(line);
@@ -258,11 +267,11 @@ fn from_packed_buffer(buf: &[u8]) -> SourceMapMappings {
         let mut line = Vec::with_capacity(seg_count);
         for _ in 0..seg_count {
             let n_fields = read_i32(buf, &mut pos) as usize;
-            let mut seg = Vec::with_capacity(n_fields);
+            let mut seg_buf = Vec::with_capacity(n_fields);
             for _ in 0..n_fields {
-                seg.push(read_i32(buf, &mut pos) as i64);
+                seg_buf.push(read_i32(buf, &mut pos) as i64);
             }
-            line.push(seg);
+            line.push(Segment::from(seg_buf));
         }
         mappings.push(line);
     }

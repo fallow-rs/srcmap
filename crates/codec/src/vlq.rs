@@ -83,9 +83,35 @@ pub fn vlq_encode(out: &mut Vec<u8>, value: i64) {
 /// Returns `(decoded_value, bytes_consumed)` or a [`DecodeError`].
 #[inline]
 pub fn vlq_decode(input: &[u8], pos: usize) -> Result<(i64, usize), DecodeError> {
-    let mut result: u64 = 0;
-    let mut shift: u32 = 0;
-    let mut i = pos;
+    if pos >= input.len() {
+        return Err(DecodeError::UnexpectedEof { offset: pos });
+    }
+
+    let b0 = input[pos];
+    if b0 >= 128 {
+        return Err(DecodeError::InvalidBase64 {
+            byte: b0,
+            offset: pos,
+        });
+    }
+    let d0 = BASE64_DECODE[b0 as usize];
+    if d0 == 255 {
+        return Err(DecodeError::InvalidBase64 {
+            byte: b0,
+            offset: pos,
+        });
+    }
+
+    // Fast path: single character VLQ (values -15..15, ~60-70% of real data)
+    if (d0 & 0x20) == 0 {
+        let val = (d0 >> 1) as i64;
+        return Ok((if (d0 & 1) != 0 { -val } else { val }, 1));
+    }
+
+    // Multi-character VLQ
+    let mut result: u64 = (d0 & 0x1F) as u64;
+    let mut shift: u32 = 5;
+    let mut i = pos + 1;
 
     loop {
         if i >= input.len() {
@@ -104,17 +130,16 @@ pub fn vlq_decode(input: &[u8], pos: usize) -> Result<(i64, usize), DecodeError>
             return Err(DecodeError::InvalidBase64 { byte, offset: i });
         }
 
-        let digit = digit as u64;
         i += 1;
 
         if shift >= VLQ_MAX_SHIFT {
             return Err(DecodeError::VlqOverflow { offset: pos });
         }
 
-        result += (digit & VLQ_BASE_MASK) << shift;
+        result += ((digit & 0x1F) as u64) << shift;
         shift += VLQ_BASE_SHIFT;
 
-        if (digit & VLQ_CONTINUATION_BIT) == 0 {
+        if (digit & 0x20) == 0 {
             break;
         }
     }

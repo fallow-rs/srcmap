@@ -1,4 +1,5 @@
 use criterion::{Criterion, black_box, criterion_group, criterion_main};
+use srcmap_codec::Segment;
 use srcmap_sourcemap::SourceMap;
 
 fn generate_sourcemap_json(lines: usize, segs_per_line: usize, num_sources: usize) -> String {
@@ -10,7 +11,7 @@ fn generate_sourcemap_json(lines: usize, segs_per_line: usize, num_sources: usiz
         .map(|i| format!("// source file {i}\n{}", "const x = 1;\n".repeat(lines)))
         .collect();
 
-    let mut mappings_parts: Vec<Vec<Vec<i64>>> = Vec::with_capacity(lines);
+    let mut mappings_parts: Vec<Vec<Segment>> = Vec::with_capacity(lines);
     let mut src: i64 = 0;
     let mut src_line: i64 = 0;
     let mut src_col: i64;
@@ -30,9 +31,9 @@ fn generate_sourcemap_json(lines: usize, segs_per_line: usize, num_sources: usiz
 
             if s % 4 == 0 {
                 name = (name + 1) % names.len() as i64;
-                line_parts.push(vec![gen_col, src, src_line, src_col, name]);
+                line_parts.push(Segment::five(gen_col, src, src_line, src_col, name));
             } else {
-                line_parts.push(vec![gen_col, src, src_line, src_col]);
+                line_parts.push(Segment::four(gen_col, src, src_line, src_col));
             }
         }
         mappings_parts.push(line_parts);
@@ -71,7 +72,7 @@ fn generate_sourcemap_json_no_content(
         .collect();
     let names: Vec<String> = (0..20).map(|i| format!("var{i}")).collect();
 
-    let mut mappings_parts: Vec<Vec<Vec<i64>>> = Vec::with_capacity(lines);
+    let mut mappings_parts: Vec<Vec<Segment>> = Vec::with_capacity(lines);
     let mut src: i64 = 0;
     let mut src_line: i64 = 0;
     let mut src_col: i64;
@@ -91,9 +92,9 @@ fn generate_sourcemap_json_no_content(
 
             if s % 4 == 0 {
                 name = (name + 1) % names.len() as i64;
-                line_parts.push(vec![gen_col, src, src_line, src_col, name]);
+                line_parts.push(Segment::five(gen_col, src, src_line, src_col, name));
             } else {
-                line_parts.push(vec![gen_col, src, src_line, src_col]);
+                line_parts.push(Segment::four(gen_col, src, src_line, src_col));
             }
         }
         mappings_parts.push(line_parts);

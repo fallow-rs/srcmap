@@ -1,6 +1,7 @@
 use crate::vlq::vlq_decode;
 use crate::{DecodeError, Line, Segment, SourceMapMappings};
 
+
 /// Decode a VLQ-encoded source map mappings string into structured data.
 ///
 /// The mappings string uses `;` to separate lines and `,` to separate
@@ -24,8 +25,16 @@ pub fn decode(input: &str) -> Result<SourceMapMappings, DecodeError> {
     let bytes = input.as_bytes();
     let len = bytes.len();
 
-    // Pre-count lines for capacity hint
-    let line_count = bytes.iter().filter(|&&b| b == b';').count() + 1;
+    // Pre-count lines and segments in a single pass for capacity hints
+    let mut semicolons = 0usize;
+    let mut commas = 0usize;
+    for &b in bytes {
+        semicolons += (b == b';') as usize;
+        commas += (b == b',') as usize;
+    }
+    let line_count = semicolons + 1;
+    let approx_segments = commas + line_count;
+    let avg_segments_per_line = approx_segments / line_count;
     let mut mappings: SourceMapMappings = Vec::with_capacity(line_count);
 
     // Cumulative state across the entire mappings string
@@ -39,7 +48,7 @@ pub fn decode(input: &str) -> Result<SourceMapMappings, DecodeError> {
     loop {
         // Generated column resets per line
         let mut generated_column: i64 = 0;
-        let mut line: Line = Vec::new();
+        let mut line: Line = Vec::with_capacity(avg_segments_per_line);
         let mut saw_semicolon = false;
 
         while pos < len {
@@ -81,23 +90,23 @@ pub fn decode(input: &str) -> Result<SourceMapMappings, DecodeError> {
                     let (delta, consumed) = vlq_decode(bytes, pos)?;
                     name_index += delta;
                     pos += consumed;
-                    vec![
+                    Segment::five(
                         generated_column,
                         source_index,
                         original_line,
                         original_column,
                         name_index,
-                    ]
+                    )
                 } else {
-                    vec![
+                    Segment::four(
                         generated_column,
                         source_index,
                         original_line,
                         original_column,
-                    ]
+                    )
                 }
             } else {
-                vec![generated_column]
+                Segment::one(generated_column)
             };
 
             line.push(segment);

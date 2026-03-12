@@ -616,10 +616,14 @@ fn cmd_decode(mappings: Option<String>, compact: bool) -> Result<(), CliError> {
 
     reject_control_chars(&input, "mappings input")?;
     let decoded = decode(&input).map_err(|e| CliError::parse(format!("decode error: {e}")))?;
+    let as_vecs: Vec<Vec<Vec<i64>>> = decoded
+        .into_iter()
+        .map(|line| line.into_iter().map(|seg| seg.to_vec()).collect())
+        .collect();
     let json = if compact {
-        serde_json::to_string(&decoded)
+        serde_json::to_string(&as_vecs)
     } else {
-        serde_json::to_string_pretty(&decoded)
+        serde_json::to_string_pretty(&as_vecs)
     }
     .map_err(|e| CliError::parse(format!("JSON serialization error: {e}")))?;
     println!("{json}");
@@ -638,8 +642,16 @@ fn cmd_encode(file: Option<PathBuf>, json: bool) -> Result<(), CliError> {
         }
     };
 
-    let decoded: srcmap_codec::SourceMapMappings =
+    let raw: Vec<Vec<Vec<i64>>> =
         serde_json::from_str(&input).map_err(|e| CliError::parse(format!("invalid JSON: {e}")))?;
+    let decoded: srcmap_codec::SourceMapMappings = raw
+        .into_iter()
+        .map(|line| {
+            line.into_iter()
+                .map(srcmap_codec::Segment::from)
+                .collect()
+        })
+        .collect();
     let encoded = encode(&decoded);
 
     if json {

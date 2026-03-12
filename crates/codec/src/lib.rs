@@ -47,13 +47,111 @@ pub use vlq::{vlq_decode, vlq_decode_unsigned, vlq_encode, vlq_encode_unsigned};
 
 use std::fmt;
 
-/// A single source map segment.
+/// A single source map segment stored inline (no heap allocation).
 ///
 /// Segments have 1, 4, or 5 fields:
 /// - 1 field:  `[generated_column]`
 /// - 4 fields: `[generated_column, source_index, original_line, original_column]`
 /// - 5 fields: `[generated_column, source_index, original_line, original_column, name_index]`
-pub type Segment = Vec<i64>;
+///
+/// Implements `Deref<Target=[i64]>` so indexing, `len()`, `is_empty()`, and
+/// iteration work identically to `Vec<i64>`.
+#[derive(Debug, Clone, Copy)]
+pub struct Segment {
+    data: [i64; 5],
+    len: u8,
+}
+
+impl Segment {
+    /// Create a 1-field segment (generated column only).
+    #[inline]
+    pub fn one(a: i64) -> Self {
+        Self {
+            data: [a, 0, 0, 0, 0],
+            len: 1,
+        }
+    }
+
+    /// Create a 4-field segment (with source info, no name).
+    #[inline]
+    pub fn four(a: i64, b: i64, c: i64, d: i64) -> Self {
+        Self {
+            data: [a, b, c, d, 0],
+            len: 4,
+        }
+    }
+
+    /// Create a 5-field segment (with source info and name).
+    #[inline]
+    pub fn five(a: i64, b: i64, c: i64, d: i64, e: i64) -> Self {
+        Self {
+            data: [a, b, c, d, e],
+            len: 5,
+        }
+    }
+
+    /// Convert to a `Vec<i64>` (for interop with APIs that expect `Vec`).
+    pub fn to_vec(&self) -> Vec<i64> {
+        self.data[..self.len as usize].to_vec()
+    }
+}
+
+impl std::ops::Deref for Segment {
+    type Target = [i64];
+
+    #[inline]
+    fn deref(&self) -> &[i64] {
+        &self.data[..self.len as usize]
+    }
+}
+
+impl<'a> IntoIterator for &'a Segment {
+    type Item = &'a i64;
+    type IntoIter = std::slice::Iter<'a, i64>;
+
+    #[inline]
+    fn into_iter(self) -> Self::IntoIter {
+        self.data[..self.len as usize].iter()
+    }
+}
+
+impl PartialEq for Segment {
+    fn eq(&self, other: &Self) -> bool {
+        **self == **other
+    }
+}
+
+impl Eq for Segment {}
+
+impl PartialEq<Vec<i64>> for Segment {
+    fn eq(&self, other: &Vec<i64>) -> bool {
+        **self == **other
+    }
+}
+
+impl PartialEq<Segment> for Vec<i64> {
+    fn eq(&self, other: &Segment) -> bool {
+        **self == **other
+    }
+}
+
+impl From<Vec<i64>> for Segment {
+    fn from(v: Vec<i64>) -> Self {
+        let mut data = [0i64; 5];
+        let len = v.len().min(5);
+        data[..len].copy_from_slice(&v[..len]);
+        Self { data, len: len as u8 }
+    }
+}
+
+impl From<&[i64]> for Segment {
+    fn from(s: &[i64]) -> Self {
+        let mut data = [0i64; 5];
+        let len = s.len().min(5);
+        data[..len].copy_from_slice(&s[..len]);
+        Self { data, len: len as u8 }
+    }
+}
 
 /// A source map line is a list of segments.
 pub type Line = Vec<Segment>;
@@ -124,7 +222,7 @@ mod tests {
 
     #[test]
     fn roundtrip_large_values() {
-        let mappings = vec![vec![vec![1000_i64, 50, 999, 500, 100]]];
+        let mappings = vec![vec![Segment::five(1000, 50, 999, 500, 100)]];
         let encoded = encode(&mappings);
         let decoded = decode(&encoded).unwrap();
         assert_eq!(decoded, mappings);
@@ -132,7 +230,7 @@ mod tests {
 
     #[test]
     fn roundtrip_negative_deltas() {
-        let mappings = vec![vec![vec![10_i64, 0, 10, 10], vec![20, 0, 5, 5]]];
+        let mappings = vec![vec![Segment::four(10, 0, 10, 10), Segment::four(20, 0, 5, 5)]];
         let encoded = encode(&mappings);
         let decoded = decode(&encoded).unwrap();
         assert_eq!(decoded, mappings);
@@ -259,20 +357,22 @@ mod tests {
     #[test]
     fn encode_empty_segments_no_dangling_comma() {
         // Empty segments should be skipped without producing dangling commas
-        let mappings = vec![vec![vec![], vec![0, 0, 0, 0], vec![], vec![2, 0, 0, 1]]];
+        let empty = Segment::from(&[] as &[i64]);
+        let mappings = vec![vec![empty, Segment::four(0, 0, 0, 0), empty, Segment::four(2, 0, 0, 1)]];
         let encoded = encode(&mappings);
         assert!(
             !encoded.contains(",,"),
             "should not contain dangling commas"
         );
         // Should encode as if empty segments don't exist
-        let expected = encode(&vec![vec![vec![0, 0, 0, 0], vec![2, 0, 0, 1]]]);
+        let expected = encode(&vec![vec![Segment::four(0, 0, 0, 0), Segment::four(2, 0, 0, 1)]]);
         assert_eq!(encoded, expected);
     }
 
     #[test]
     fn encode_all_empty_segments() {
-        let mappings = vec![vec![vec![], vec![], vec![]]];
+        let empty = Segment::from(&[] as &[i64]);
+        let mappings = vec![vec![empty, empty, empty]];
         let encoded = encode(&mappings);
         assert_eq!(encoded, "");
     }
@@ -288,13 +388,13 @@ mod tests {
             for line in 0..lines {
                 let mut line_segments = Vec::with_capacity(segments_per_line);
                 for seg in 0..segments_per_line {
-                    line_segments.push(vec![
+                    line_segments.push(Segment::five(
                         (seg * 10) as i64, // generated column
                         (seg % 5) as i64,  // source index
                         line as i64,       // original line
                         (seg * 5) as i64,  // original column
                         (seg % 3) as i64,  // name index
-                    ]);
+                    ));
                 }
                 mappings.push(line_segments);
             }
@@ -328,25 +428,22 @@ mod tests {
                 let mut line_segments = Vec::new();
                 for seg in 0..8 {
                     if seg % 4 == 0 {
-                        // 1-field segment (generated-only)
-                        line_segments.push(vec![(seg * 10) as i64]);
+                        line_segments.push(Segment::one((seg * 10) as i64));
                     } else if seg % 4 == 3 {
-                        // 5-field segment (with name)
-                        line_segments.push(vec![
+                        line_segments.push(Segment::five(
                             (seg * 10) as i64,
                             (seg % 3) as i64,
                             line as i64,
                             (seg * 5) as i64,
                             (seg % 2) as i64,
-                        ]);
+                        ));
                     } else {
-                        // 4-field segment
-                        line_segments.push(vec![
+                        line_segments.push(Segment::four(
                             (seg * 10) as i64,
                             (seg % 3) as i64,
                             line as i64,
                             (seg * 5) as i64,
-                        ]);
+                        ));
                     }
                 }
                 mappings.push(line_segments);
@@ -411,7 +508,7 @@ mod tests {
 
     #[test]
     fn encode_single_segment_one_field() {
-        let mappings = vec![vec![vec![5_i64]]];
+        let mappings = vec![vec![Segment::one(5)]];
         let encoded = encode(&mappings);
         let decoded = decode(&encoded).unwrap();
         assert_eq!(decoded, mappings);

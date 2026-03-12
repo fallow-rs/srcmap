@@ -1,7 +1,7 @@
 use criterion::{Criterion, criterion_group, criterion_main};
 #[cfg(feature = "parallel")]
 use srcmap_codec::encode_parallel;
-use srcmap_codec::{decode, encode};
+use srcmap_codec::{Segment, decode, encode};
 use std::hint::black_box;
 
 /// Synthetic all-zero mappings (best case: single-char VLQ values).
@@ -50,9 +50,9 @@ fn make_realistic_mappings() -> String {
             // ~20% of segments have names
             if seg % 5 == 0 {
                 name += 1;
-                line.push(vec![gen_col, src, src_line, src_col, name]);
+                line.push(Segment::five(gen_col, src, src_line, src_col, name));
             } else {
-                line.push(vec![gen_col, src, src_line, src_col]);
+                line.push(Segment::four(gen_col, src, src_line, src_col));
             }
         }
 
@@ -106,9 +106,9 @@ fn make_large_realistic_mappings() -> srcmap_codec::SourceMapMappings {
 
             if seg % 5 == 0 {
                 name += 1;
-                line.push(vec![gen_col, src, src_line, src_col, name]);
+                line.push(Segment::five(gen_col, src, src_line, src_col, name));
             } else {
-                line.push(vec![gen_col, src, src_line, src_col]);
+                line.push(Segment::four(gen_col, src, src_line, src_col));
             }
         }
         mappings.push(line);
@@ -166,9 +166,9 @@ fn bench_encode(c: &mut Criterion) {
                     src_col = src_col.max(0);
                     if seg % 5 == 0 {
                         name += 1;
-                        line.push(vec![gen_col, src, src_line, src_col, name]);
+                        line.push(Segment::five(gen_col, src, src_line, src_col, name));
                     } else {
-                        line.push(vec![gen_col, src, src_line, src_col]);
+                        line.push(Segment::four(gen_col, src, src_line, src_col));
                     }
                 }
                 mappings.push(line);
