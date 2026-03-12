@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+set -e
+
+# Only check formatting on staged Rust files
+if git diff --cached --name-only --diff-filter=ACMR | grep -q '\.rs$'; then
+    echo "Running cargo fmt --check..."
+    cargo fmt --all -- --check
+fi
