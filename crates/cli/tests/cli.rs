@@ -16,7 +16,10 @@ fn fixture(name: &str) -> PathBuf {
 
 #[test]
 fn info_human() {
-    let out = srcmap().args(["info", fixture("simple.js.map").to_str().unwrap()]).output().unwrap();
+    let out = srcmap()
+        .args(["info", fixture("simple.js.map").to_str().unwrap()])
+        .output()
+        .unwrap();
     let stdout = String::from_utf8(out.stdout).unwrap();
     assert!(out.status.success());
     assert!(stdout.contains("File:         simple.js"));
@@ -56,7 +59,11 @@ fn validate_valid() {
 #[test]
 fn validate_valid_json() {
     let out = srcmap()
-        .args(["validate", fixture("simple.js.map").to_str().unwrap(), "--json"])
+        .args([
+            "validate",
+            fixture("simple.js.map").to_str().unwrap(),
+            "--json",
+        ])
         .output()
         .unwrap();
     assert!(out.status.success());
@@ -78,7 +85,11 @@ fn validate_invalid() {
 #[test]
 fn validate_invalid_json() {
     let out = srcmap()
-        .args(["validate", fixture("invalid.js.map").to_str().unwrap(), "--json"])
+        .args([
+            "validate",
+            fixture("invalid.js.map").to_str().unwrap(),
+            "--json",
+        ])
         .output()
         .unwrap();
     // validate exits with failure for invalid maps
@@ -93,7 +104,13 @@ fn validate_invalid_json() {
 #[test]
 fn lookup_found() {
     let out = srcmap()
-        .args(["lookup", fixture("simple.js.map").to_str().unwrap(), "0", "0", "--json"])
+        .args([
+            "lookup",
+            fixture("simple.js.map").to_str().unwrap(),
+            "0",
+            "0",
+            "--json",
+        ])
         .output()
         .unwrap();
     assert!(out.status.success());
@@ -106,7 +123,12 @@ fn lookup_found() {
 #[test]
 fn lookup_not_found() {
     let out = srcmap()
-        .args(["lookup", fixture("simple.js.map").to_str().unwrap(), "999", "0"])
+        .args([
+            "lookup",
+            fixture("simple.js.map").to_str().unwrap(),
+            "999",
+            "0",
+        ])
         .output()
         .unwrap();
     assert!(!out.status.success());
@@ -122,8 +144,10 @@ fn resolve_found() {
         .args([
             "resolve",
             fixture("simple.js.map").to_str().unwrap(),
-            "--source", "src/app.ts",
-            "0", "0",
+            "--source",
+            "src/app.ts",
+            "0",
+            "0",
             "--json",
         ])
         .output()
@@ -140,8 +164,10 @@ fn resolve_not_found() {
         .args([
             "resolve",
             fixture("simple.js.map").to_str().unwrap(),
-            "--source", "nonexistent.ts",
-            "0", "0",
+            "--source",
+            "nonexistent.ts",
+            "0",
+            "0",
         ])
         .output()
         .unwrap();
@@ -229,7 +255,8 @@ fn mappings_json() {
         .args([
             "mappings",
             fixture("simple.js.map").to_str().unwrap(),
-            "--limit", "3",
+            "--limit",
+            "3",
             "--json",
         ])
         .output()
@@ -248,7 +275,8 @@ fn mappings_with_source_filter() {
         .args([
             "mappings",
             fixture("simple.js.map").to_str().unwrap(),
-            "--source", "src/app.ts",
+            "--source",
+            "src/app.ts",
             "--json",
         ])
         .output()
@@ -266,7 +294,8 @@ fn mappings_source_not_found() {
         .args([
             "mappings",
             fixture("simple.js.map").to_str().unwrap(),
-            "--source", "nonexistent.ts",
+            "--source",
+            "nonexistent.ts",
         ])
         .output()
         .unwrap();
@@ -321,7 +350,8 @@ fn concat_to_file() {
             "concat",
             fixture("simple.js.map").to_str().unwrap(),
             fixture("second.js.map").to_str().unwrap(),
-            "-o", out_path.to_str().unwrap(),
+            "-o",
+            out_path.to_str().unwrap(),
         ])
         .output()
         .unwrap();
@@ -365,7 +395,11 @@ fn scopes_no_data() {
 #[test]
 fn scopes_no_data_json() {
     let out = srcmap()
-        .args(["scopes", fixture("simple.js.map").to_str().unwrap(), "--json"])
+        .args([
+            "scopes",
+            fixture("simple.js.map").to_str().unwrap(),
+            "--json",
+        ])
         .output()
         .unwrap();
     assert!(!out.status.success());
@@ -389,7 +423,12 @@ fn symbolicate_json() {
         .unwrap();
     assert!(out.status.success());
     let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
-    assert!(v["message"].as_str().unwrap().contains("something went wrong"));
+    assert!(
+        v["message"]
+            .as_str()
+            .unwrap()
+            .contains("something went wrong")
+    );
     assert!(!v["frames"].as_array().unwrap().is_empty());
 }
 
@@ -438,7 +477,11 @@ fn scopes_human() {
 #[test]
 fn scopes_json() {
     let out = srcmap()
-        .args(["scopes", fixture("scoped.js.map").to_str().unwrap(), "--json"])
+        .args([
+            "scopes",
+            fixture("scoped.js.map").to_str().unwrap(),
+            "--json",
+        ])
         .output()
         .unwrap();
     assert!(out.status.success());
@@ -448,7 +491,12 @@ fn scopes_json() {
     // Check original scope structure
     let scope = &v["originalScopes"][0]["scope"];
     assert_eq!(scope["kind"], "module");
-    assert!(scope["variables"].as_array().unwrap().contains(&serde_json::json!("result")));
+    assert!(
+        scope["variables"]
+            .as_array()
+            .unwrap()
+            .contains(&serde_json::json!("result"))
+    );
     // Check generated range bindings
     let range = &v["generatedRanges"][0];
     assert_eq!(range["definition"], 0);
@@ -467,7 +515,10 @@ fn schema_output() {
     let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
     assert_eq!(v["name"], "srcmap");
     let commands = v["commands"].as_array().unwrap();
-    let names: Vec<&str> = commands.iter().map(|c| c["name"].as_str().unwrap()).collect();
+    let names: Vec<&str> = commands
+        .iter()
+        .map(|c| c["name"].as_str().unwrap())
+        .collect();
     assert!(names.contains(&"info"));
     assert!(names.contains(&"validate"));
     assert!(names.contains(&"lookup"));
@@ -538,12 +589,7 @@ fn decode_from_stdin() {
         .spawn()
         .and_then(|mut child| {
             use std::io::Write;
-            child
-                .stdin
-                .take()
-                .unwrap()
-                .write_all(b"AAAA")
-                .unwrap();
+            child.stdin.take().unwrap().write_all(b"AAAA").unwrap();
             child.wait_with_output()
         })
         .unwrap();

@@ -1092,10 +1092,7 @@ fn cmd_symbolicate(
     Ok(())
 }
 
-fn format_scope_tree(
-    scope: &srcmap_scopes::OriginalScope,
-    indent: usize,
-) {
+fn format_scope_tree(scope: &srcmap_scopes::OriginalScope, indent: usize) {
     let pad = "  ".repeat(indent);
     let kind = scope.kind.as_deref().unwrap_or("?");
     let name = scope
@@ -1116,11 +1113,7 @@ fn format_scope_tree(
     }
 }
 
-fn format_range_tree(
-    range: &srcmap_scopes::GeneratedRange,
-    sources: &[String],
-    indent: usize,
-) {
+fn format_range_tree(range: &srcmap_scopes::GeneratedRange, sources: &[String], indent: usize) {
     let pad = "  ".repeat(indent);
     let frame = if range.is_stack_frame { " [frame]" } else { "" };
     let hidden = if range.is_hidden { " [hidden]" } else { "" };
@@ -1148,10 +1141,7 @@ fn format_range_tree(
             }
             srcmap_scopes::Binding::SubRanges(subs) => {
                 for sub in subs {
-                    let expr = sub
-                        .expression
-                        .as_deref()
-                        .unwrap_or("<unavailable>");
+                    let expr = sub.expression.as_deref().unwrap_or("<unavailable>");
                     println!(
                         "{pad}  binding: {expr} (from {}:{})",
                         sub.from.line, sub.from.column
@@ -1177,10 +1167,7 @@ fn scope_to_json(scope: &srcmap_scopes::OriginalScope) -> serde_json::Value {
     })
 }
 
-fn range_to_json(
-    range: &srcmap_scopes::GeneratedRange,
-    sources: &[String],
-) -> serde_json::Value {
+fn range_to_json(range: &srcmap_scopes::GeneratedRange, sources: &[String]) -> serde_json::Value {
     let bindings: Vec<serde_json::Value> = range
         .bindings
         .iter()
