@@ -71,15 +71,33 @@ pub fn decode(input: &str) -> Result<SourceMapMappings, DecodeError> {
 
             // Build segment with exact allocation (1, 4, or 5 fields)
             let segment: Segment = if pos < len && bytes[pos] != b',' && bytes[pos] != b';' {
-                // Fields 2-4: source, original line, original column
+                // Field 2: source index
                 let (delta, consumed) = vlq_decode(bytes, pos)?;
                 source_index += delta;
                 pos += consumed;
 
+                // Reject 2-field segments (only 1, 4, or 5 are valid per ECMA-426)
+                if pos >= len || bytes[pos] == b',' || bytes[pos] == b';' {
+                    return Err(DecodeError::InvalidSegmentLength {
+                        fields: 2,
+                        offset: pos,
+                    });
+                }
+
+                // Field 3: original line
                 let (delta, consumed) = vlq_decode(bytes, pos)?;
                 original_line += delta;
                 pos += consumed;
 
+                // Reject 3-field segments (only 1, 4, or 5 are valid per ECMA-426)
+                if pos >= len || bytes[pos] == b',' || bytes[pos] == b';' {
+                    return Err(DecodeError::InvalidSegmentLength {
+                        fields: 3,
+                        offset: pos,
+                    });
+                }
+
+                // Field 4: original column
                 let (delta, consumed) = vlq_decode(bytes, pos)?;
                 original_column += delta;
                 pos += consumed;

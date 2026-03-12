@@ -131,6 +131,10 @@ pub enum ParseError {
     InvalidVersion(u32),
     /// The ECMA-426 scopes data could not be decoded.
     Scopes(srcmap_scopes::ScopesError),
+    /// A section map in an indexed source map is itself an indexed map (not allowed per ECMA-426).
+    NestedIndexMap,
+    /// Sections in an indexed source map are not in ascending (line, column) order.
+    SectionsNotOrdered,
 }
 
 impl fmt::Display for ParseError {
@@ -140,6 +144,10 @@ impl fmt::Display for ParseError {
             Self::Vlq(e) => write!(f, "VLQ decode error: {e}"),
             Self::InvalidVersion(v) => write!(f, "unsupported source map version: {v}"),
             Self::Scopes(e) => write!(f, "scopes decode error: {e}"),
+            Self::NestedIndexMap => write!(f, "section map must not be an indexed source map"),
+            Self::SectionsNotOrdered => {
+                write!(f, "sections must be in ascending (line, column) order")
+            }
         }
     }
 }
@@ -150,7 +158,7 @@ impl std::error::Error for ParseError {
             Self::Json(e) => Some(e),
             Self::Vlq(e) => Some(e),
             Self::Scopes(e) => Some(e),
-            Self::InvalidVersion(_) => None,
+            Self::InvalidVersion(_) | Self::NestedIndexMap | Self::SectionsNotOrdered => None,
         }
     }
 }
@@ -214,7 +222,7 @@ struct RawSourceMap<'a> {
     #[serde(default, borrow)]
     mappings: &'a str,
     #[serde(default, rename = "ignoreList")]
-    ignore_list: Vec<u32>,
+    ignore_list: Option<Vec<u32>>,
     /// Deprecated Chrome DevTools field, fallback for `ignoreList`.
     #[serde(default, rename = "x_google_ignoreList")]
     x_google_ignore_list: Option<Vec<u32>>,
@@ -310,6 +318,11 @@ impl SourceMap {
     /// Parse a source map from a JSON string.
     /// Supports both regular and indexed (sectioned) source maps.
     pub fn from_json(json: &str) -> Result<Self, ParseError> {
+        Self::from_json_inner(json, true)
+    }
+
+    /// Internal parser with control over whether indexed maps (sections) are allowed.
+    fn from_json_inner(json: &str, allow_sections: bool) -> Result<Self, ParseError> {
         let raw: RawSourceMap<'_> = serde_json::from_str(json)?;
 
         if raw.version != 3 {
@@ -318,6 +331,9 @@ impl SourceMap {
 
         // Handle indexed source maps (sections)
         if let Some(sections) = raw.sections {
+            if !allow_sections {
+                return Err(ParseError::NestedIndexMap);
+            }
             return Self::from_sections(raw.file, sections);
         }
 
@@ -352,18 +368,17 @@ impl SourceMap {
             _ => None,
         };
 
-        // Use x_google_ignoreList as fallback when ignoreList is absent
-        let ignore_list = if raw.ignore_list.is_empty() {
-            raw.x_google_ignore_list.unwrap_or_default()
-        } else {
-            raw.ignore_list
+        // Use x_google_ignoreList as fallback only when ignoreList is absent
+        let ignore_list = match raw.ignore_list {
+            Some(list) => list,
+            None => raw.x_google_ignore_list.unwrap_or_default(),
         };
 
-        // Filter extensions to only keep x_* fields
+        // Filter extensions to only keep x_* and x-* fields
         let extensions: HashMap<String, serde_json::Value> = raw
             .extensions
             .into_iter()
-            .filter(|(k, _)| k.starts_with("x_"))
+            .filter(|(k, _)| k.starts_with("x_") || k.starts_with("x-"))
             .collect();
 
         let has_range_mappings = mappings.iter().any(|m| m.is_range_mapping);
@@ -399,8 +414,18 @@ impl SourceMap {
         let mut source_index_map: HashMap<String, u32> = HashMap::new();
         let mut name_index_map: HashMap<String, u32> = HashMap::new();
 
+        // Validate section ordering (must be in ascending line, column order)
+        for i in 1..sections.len() {
+            let prev = &sections[i - 1].offset;
+            let curr = &sections[i].offset;
+            if (curr.line, curr.column) <= (prev.line, prev.column) {
+                return Err(ParseError::SectionsNotOrdered);
+            }
+        }
+
         for section in &sections {
-            let sub = Self::from_json(section.map.get())?;
+            // Section maps must not be indexed maps themselves (ECMA-426)
+            let sub = Self::from_json_inner(section.map.get(), false)?;
 
             let line_offset = section.offset.line;
             let col_offset = section.offset.column;
@@ -888,6 +913,21 @@ impl SourceMap {
     pub fn to_json_with_options(&self, exclude_content: bool) -> String {
         let mappings = self.encode_mappings();
 
+        // Encode scopes first — this may add new names that need to be in the names array
+        let scopes_encoded = if let Some(ref scopes_info) = self.scopes {
+            let mut names_clone = self.names.clone();
+            let s = srcmap_scopes::encode_scopes(scopes_info, &mut names_clone);
+            Some((s, names_clone))
+        } else {
+            None
+        };
+        let names_for_json = match &scopes_encoded {
+            Some((_, expanded_names)) => expanded_names,
+            None => &self.names,
+        };
+
+        let source_root_prefix = self.source_root.as_deref().unwrap_or("");
+
         let mut json = String::with_capacity(256 + mappings.len());
         json.push_str(r#"{"version":3"#);
 
@@ -901,12 +941,18 @@ impl SourceMap {
             json_quote_into(&mut json, root);
         }
 
+        // Strip sourceRoot prefix from sources to avoid double-application on roundtrip
         json.push_str(r#","sources":["#);
         for (i, s) in self.sources.iter().enumerate() {
             if i > 0 {
                 json.push(',');
             }
-            json_quote_into(&mut json, s);
+            let source_name = if !source_root_prefix.is_empty() {
+                s.strip_prefix(source_root_prefix).unwrap_or(s)
+            } else {
+                s
+            };
+            json_quote_into(&mut json, source_name);
         }
         json.push(']');
 
@@ -928,7 +974,7 @@ impl SourceMap {
         }
 
         json.push_str(r#","names":["#);
-        for (i, n) in self.names.iter().enumerate() {
+        for (i, n) in names_for_json.iter().enumerate() {
             if i > 0 {
                 json.push(',');
             }
@@ -965,7 +1011,13 @@ impl SourceMap {
             json_quote_into(&mut json, id);
         }
 
-        // Emit extension fields (x_* keys)
+        // scopes (ECMA-426 scopes proposal)
+        if let Some((ref s, _)) = scopes_encoded {
+            json.push_str(r#","scopes":"#);
+            json_quote_into(&mut json, s);
+        }
+
+        // Emit extension fields (x_* and x-* keys)
         let mut ext_keys: Vec<&String> = self.extensions.keys().collect();
         ext_keys.sort();
         for key in ext_keys {
@@ -1139,17 +1191,16 @@ impl SourceMap {
             _ => None,
         };
 
-        let ignore_list = if raw.ignore_list.is_empty() {
-            raw.x_google_ignore_list.unwrap_or_default()
-        } else {
-            raw.ignore_list
+        let ignore_list = match raw.ignore_list {
+            Some(list) => list,
+            None => raw.x_google_ignore_list.unwrap_or_default(),
         };
 
-        // Filter extensions to only keep x_* fields
+        // Filter extensions to only keep x_* and x-* fields
         let extensions: HashMap<String, serde_json::Value> = raw
             .extensions
             .into_iter()
-            .filter(|(k, _)| k.starts_with("x_"))
+            .filter(|(k, _)| k.starts_with("x_") || k.starts_with("x-"))
             .collect();
 
         let has_range_mappings = mappings.iter().any(|m| m.is_range_mapping);
@@ -1373,17 +1424,16 @@ impl LazySourceMap {
             _ => None,
         };
 
-        let ignore_list = if raw.ignore_list.is_empty() {
-            raw.x_google_ignore_list.unwrap_or_default()
-        } else {
-            raw.ignore_list
+        let ignore_list = match raw.ignore_list {
+            Some(list) => list,
+            None => raw.x_google_ignore_list.unwrap_or_default(),
         };
 
-        // Filter extensions to only keep x_* fields
+        // Filter extensions to only keep x_* and x-* fields
         let extensions: HashMap<String, serde_json::Value> = raw
             .extensions
             .into_iter()
-            .filter(|(k, _)| k.starts_with("x_"))
+            .filter(|(k, _)| k.starts_with("x_") || k.starts_with("x-"))
             .collect();
 
         Ok(Self {
@@ -1450,9 +1500,31 @@ impl LazySourceMap {
             generated_column += vlq_fast(bytes, &mut abs_pos)?;
 
             if abs_pos < base_offset + len && bytes[abs_pos] != b',' && bytes[abs_pos] != b';' {
-                // Fields 2-4
+                // Field 2: source index
                 source_index += vlq_fast(bytes, &mut abs_pos)?;
+
+                // Reject 2-field segments (only 1, 4, or 5 are valid per ECMA-426)
+                if abs_pos >= base_offset + len || bytes[abs_pos] == b',' || bytes[abs_pos] == b';'
+                {
+                    return Err(DecodeError::InvalidSegmentLength {
+                        fields: 2,
+                        offset: abs_pos,
+                    });
+                }
+
+                // Field 3: original line
                 original_line += vlq_fast(bytes, &mut abs_pos)?;
+
+                // Reject 3-field segments (only 1, 4, or 5 are valid per ECMA-426)
+                if abs_pos >= base_offset + len || bytes[abs_pos] == b',' || bytes[abs_pos] == b';'
+                {
+                    return Err(DecodeError::InvalidSegmentLength {
+                        fields: 3,
+                        offset: abs_pos,
+                    });
+                }
+
+                // Field 4: original column
                 original_column += vlq_fast(bytes, &mut abs_pos)?;
 
                 // Field 5: name (optional)
@@ -1662,9 +1734,29 @@ fn prescan_mappings(input: &str) -> Result<Vec<LineInfo>, DecodeError> {
             vlq_fast(bytes, &mut pos)?;
 
             if pos < len && bytes[pos] != b',' && bytes[pos] != b';' {
-                // Fields 2-4: source, original line, original column
+                // Field 2: source index
                 source_index += vlq_fast(bytes, &mut pos)?;
+
+                // Reject 2-field segments (only 1, 4, or 5 are valid per ECMA-426)
+                if pos >= len || bytes[pos] == b',' || bytes[pos] == b';' {
+                    return Err(DecodeError::InvalidSegmentLength {
+                        fields: 2,
+                        offset: pos,
+                    });
+                }
+
+                // Field 3: original line
                 original_line += vlq_fast(bytes, &mut pos)?;
+
+                // Reject 3-field segments (only 1, 4, or 5 are valid per ECMA-426)
+                if pos >= len || bytes[pos] == b',' || bytes[pos] == b';' {
+                    return Err(DecodeError::InvalidSegmentLength {
+                        fields: 3,
+                        offset: pos,
+                    });
+                }
+
+                // Field 4: original column
                 original_column += vlq_fast(bytes, &mut pos)?;
 
                 // Field 5: name (optional)
@@ -2119,9 +2211,29 @@ fn decode_mappings(input: &str) -> Result<(Vec<Mapping>, Vec<u32>), DecodeError>
             generated_column += vlq_fast(bytes, &mut pos)?;
 
             if pos < len && bytes[pos] != b',' && bytes[pos] != b';' {
-                // Fields 2-4: source, original line, original column
+                // Field 2: source index
                 source_index += vlq_fast(bytes, &mut pos)?;
+
+                // Reject 2-field segments (only 1, 4, or 5 are valid per ECMA-426)
+                if pos >= len || bytes[pos] == b',' || bytes[pos] == b';' {
+                    return Err(DecodeError::InvalidSegmentLength {
+                        fields: 2,
+                        offset: pos,
+                    });
+                }
+
+                // Field 3: original line
                 original_line += vlq_fast(bytes, &mut pos)?;
+
+                // Reject 3-field segments (only 1, 4, or 5 are valid per ECMA-426)
+                if pos >= len || bytes[pos] == b',' || bytes[pos] == b';' {
+                    return Err(DecodeError::InvalidSegmentLength {
+                        fields: 3,
+                        offset: pos,
+                    });
+                }
+
+                // Field 4: original column
                 original_column += vlq_fast(bytes, &mut pos)?;
 
                 // Field 5: name (optional)
@@ -2225,9 +2337,29 @@ fn decode_mappings_range(
             generated_column += vlq_fast(bytes, &mut pos)?;
 
             if pos < len && bytes[pos] != b',' && bytes[pos] != b';' {
-                // Fields 2-4: source, original line, original column
+                // Field 2: source index
                 source_index += vlq_fast(bytes, &mut pos)?;
+
+                // Reject 2-field segments (only 1, 4, or 5 are valid per ECMA-426)
+                if pos >= len || bytes[pos] == b',' || bytes[pos] == b';' {
+                    return Err(DecodeError::InvalidSegmentLength {
+                        fields: 2,
+                        offset: pos,
+                    });
+                }
+
+                // Field 3: original line
                 original_line += vlq_fast(bytes, &mut pos)?;
+
+                // Reject 3-field segments (only 1, 4, or 5 are valid per ECMA-426)
+                if pos >= len || bytes[pos] == b',' || bytes[pos] == b';' {
+                    return Err(DecodeError::InvalidSegmentLength {
+                        fields: 3,
+                        offset: pos,
+                    });
+                }
+
+                // Field 4: original column
                 original_column += vlq_fast(bytes, &mut pos)?;
 
                 // Field 5: name (optional)
@@ -3493,7 +3625,12 @@ mod tests {
         let json =
             r#"{"version":3,"sourceRoot":"src","sources":["a.js"],"names":[],"mappings":"AAAA"}"#;
         let sm = SourceMap::from_json(json).unwrap();
-        assert_eq!(sm.sources[0], "srca.js"); // No auto-slash — sourceRoot is raw prefix
+        // sourceRoot is applied as raw prefix during parsing
+        assert_eq!(sm.sources[0], "srca.js");
+        // Roundtrip should strip the prefix back correctly
+        let output = sm.to_json();
+        let sm2 = SourceMap::from_json(&output).unwrap();
+        assert_eq!(sm2.sources[0], "srca.js");
     }
 
     // -- JSON/parsing error cases --

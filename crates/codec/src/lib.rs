@@ -195,6 +195,8 @@ pub enum DecodeError {
     UnexpectedEof { offset: usize },
     /// A VLQ value exceeded the maximum representable range.
     VlqOverflow { offset: usize },
+    /// A segment has an invalid number of fields (only 1, 4, or 5 are valid per ECMA-426).
+    InvalidSegmentLength { fields: u8, offset: usize },
 }
 
 impl fmt::Display for DecodeError {
@@ -211,6 +213,12 @@ impl fmt::Display for DecodeError {
             }
             Self::VlqOverflow { offset } => {
                 write!(f, "VLQ value overflow at offset {offset}")
+            }
+            Self::InvalidSegmentLength { fields, offset } => {
+                write!(
+                    f,
+                    "invalid segment with {fields} fields at offset {offset} (expected 1, 4, or 5)"
+                )
             }
         }
     }
@@ -373,12 +381,42 @@ mod tests {
     }
 
     #[test]
-    fn decode_truncated_segment() {
-        // "AC" = two VLQ values (0, 1) — starts a 4-field segment but only has 2 values
+    fn decode_truncated_segment_two_fields() {
+        // "AC" = two VLQ values (0, 1) — 2-field segment is invalid per ECMA-426
         let err = decode("AC").unwrap_err();
         assert!(matches!(
             err,
-            DecodeError::UnexpectedEof { .. } | DecodeError::InvalidBase64 { .. }
+            DecodeError::InvalidSegmentLength { fields: 2, .. }
+        ));
+    }
+
+    #[test]
+    fn decode_truncated_segment_three_fields() {
+        // "ACA" = three VLQ values (0, 1, 0) — 3-field segment is invalid per ECMA-426
+        let err = decode("ACA").unwrap_err();
+        assert!(matches!(
+            err,
+            DecodeError::InvalidSegmentLength { fields: 3, .. }
+        ));
+    }
+
+    #[test]
+    fn decode_two_field_segment_followed_by_separator() {
+        // "AC,AAAA" — first segment has 2 fields, invalid
+        let err = decode("AC,AAAA").unwrap_err();
+        assert!(matches!(
+            err,
+            DecodeError::InvalidSegmentLength { fields: 2, .. }
+        ));
+    }
+
+    #[test]
+    fn decode_three_field_segment_followed_by_separator() {
+        // "ACA;AAAA" — first segment has 3 fields, invalid
+        let err = decode("ACA;AAAA").unwrap_err();
+        assert!(matches!(
+            err,
+            DecodeError::InvalidSegmentLength { fields: 3, .. }
         ));
     }
 
@@ -530,6 +568,18 @@ mod tests {
     fn decode_error_display_overflow() {
         let err = DecodeError::VlqOverflow { offset: 10 };
         assert_eq!(err.to_string(), "VLQ value overflow at offset 10");
+    }
+
+    #[test]
+    fn decode_error_display_invalid_segment_length() {
+        let err = DecodeError::InvalidSegmentLength {
+            fields: 2,
+            offset: 3,
+        };
+        assert_eq!(
+            err.to_string(),
+            "invalid segment with 2 fields at offset 3 (expected 1, 4, or 5)"
+        );
     }
 
     // --- Decode edge case: 5-field segment with name ---

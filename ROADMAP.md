@@ -62,14 +62,37 @@ Rolldown's `collapse_sourcemaps` materializes the entire token stream into `Vec<
 - [x] `StreamingGenerator`: on-the-fly VLQ encoder that emits mappings in sorted order without collecting
 - [x] `remap_streaming()`: composition pipeline that streams through mappings without intermediate allocation
 - [x] Criterion benchmarks (500 / 10K / 60K mappings) — 15-20% faster than materialized `remap()`
+
+Remaining nice-to-haves (low priority):
 - [ ] Builder pattern for `SourceMap::new()` that consumes iterators for names/sources/source_contents
 - [ ] Benchmark against Rolldown's current `collapse_sourcemaps`
 
 ---
 
+## Function Name Mappings
+
+**ECMA-426, standardized** — [bloomberg.github.io/js-blog/post/standardizing-source-maps](https://bloomberg.github.io/js-blog/post/standardizing-source-maps/)
+
+A `"sourcesFunctionMappings"` array parallel to `"sources"`, where each entry is a VLQ-encoded string mapping generated positions to original function names. Previously the `x_com_bloomberg_sourcesFunctionMappings` extension, now standardized in ECMA-426.
+
+This is a simpler alternative to the full scopes proposal for resolving minified function names in stack traces. Tools that don't need full scope/binding information can use this field alone. For tools that support scopes, `FindOriginalFunctionName` from the scopes proposal supersedes this — but both should be supported for interop, since most source maps in the wild won't have scopes data.
+
+### What to implement
+
+- [ ] Parse `sourcesFunctionMappings` field in `srcmap-sourcemap`
+- [ ] Decode per-source function name mappings (VLQ → function name index at position)
+- [ ] `original_function_name_for(source, line, col)` lookup API
+- [ ] Generate `sourcesFunctionMappings` in `srcmap-generator`
+- [ ] Preserve through remapping/concatenation
+- [ ] Use in symbolicate crate as fallback when scopes data is absent
+- [ ] WASM bindings
+- [ ] CLI: show function mappings in `srcmap info`
+
+---
+
 ## Scopes Spec Alignment
 
-**ECMA-426 scopes proposal, actively evolving** — srcmap already has `srcmap-scopes`, but the spec is still changing.
+**ECMA-426 scopes proposal, actively evolving** — srcmap already has `srcmap-scopes`, but the spec is still changing. The scopes proposal is the comprehensive approach to debugging metadata — it supersedes `sourcesFunctionMappings` for function name resolution and adds variable bindings, scope chains, and inlined frame reconstruction.
 
 ### Open issues to track
 
@@ -105,7 +128,7 @@ Rolldown's `collapse_sourcemaps` materializes the entire token stream into `Vec<
 
 ---
 
-## Sources Hash
+## Sources Hash `[Stage 1 — not implementing yet]`
 
 **ECMA-426 proposal, Stage 1** — [tc39/ecma426#208](https://github.com/nicolo-ribaudo/ecma-426/blob/main/proposals/range-mappings.md)
 
@@ -136,7 +159,7 @@ Hash algorithm is implementation-defined (SHA-256 recommended). Format is a pref
 
 ---
 
-## Debug ID Extraction
+## Debug ID Extraction `[Stage 2 — not implementing yet]`
 
 **ECMA-426 proposal, Stage 2** — [tc39/ecma426#207](https://github.com/nicolo-ribaudo/ecma-426/blob/main/proposals/range-mappings.md)
 
@@ -188,7 +211,7 @@ Split the mappings string into chunks and encode VLQ segments in parallel using 
 
 ---
 
-## Mappings v2 Encoding
+## Mappings v2 Encoding `[Discussion — not implementing yet]`
 
 **ECMA-426 discussion** — [tc39/ecma426#155](https://github.com/nicolo-ribaudo/ecma-426/blob/main/proposals/range-mappings.md)
 
@@ -223,7 +246,7 @@ This is early-stage and may never land. Worth implementing as an experimental en
 
 ---
 
-## Env Metadata
+## Env Metadata `[Stage 1 — not implementing yet]`
 
 **ECMA-426 proposal, Stage 1** — [tc39/ecma426 proposals/env.md](https://github.com/nicolo-ribaudo/ecma-426/blob/main/proposals/range-mappings.md)
 
