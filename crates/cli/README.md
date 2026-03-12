@@ -26,6 +26,8 @@ cargo install srcmap-cli
 | `mappings` | List all mappings with pagination |
 | `concat` | Concatenate multiple source maps into one |
 | `remap` | Compose/remap source maps through a transform chain |
+| `symbolicate` | Symbolicate a stack trace using source maps |
+| `scopes` | Inspect ECMA-426 scopes and variable bindings |
 | `schema` | Describe all commands as JSON (for agent introspection) |
 
 ## Usage
@@ -54,6 +56,12 @@ srcmap concat a.js.map b.js.map -o bundle.js.map
 
 # Remap through upstream maps
 srcmap remap minified.js.map --dir ./sourcemaps -o original.js.map
+
+# Symbolicate a stack trace
+srcmap symbolicate stacktrace.txt --dir ./sourcemaps
+
+# Inspect ECMA-426 scopes
+srcmap scopes bundle.js.map
 
 # All commands support --json for structured output
 srcmap info bundle.js.map --json

@@ -1,0 +1,3 @@
+Error: something went wrong
+    at greet (simple.js:1:5)
+    at Object.<anonymous> (simple.js:2:1)

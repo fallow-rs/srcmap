@@ -195,6 +195,16 @@ enum Command {
         json: bool,
     },
 
+    /// Inspect ECMA-426 scopes and variable bindings in a source map
+    Scopes {
+        /// Source map file
+        file: PathBuf,
+
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
+    },
+
     /// Describe all commands and their arguments as JSON (for agent introspection)
     Schema,
 }
@@ -1082,6 +1092,204 @@ fn cmd_symbolicate(
     Ok(())
 }
 
+fn format_scope_tree(
+    scope: &srcmap_scopes::OriginalScope,
+    indent: usize,
+) {
+    let pad = "  ".repeat(indent);
+    let kind = scope.kind.as_deref().unwrap_or("?");
+    let name = scope
+        .name
+        .as_deref()
+        .map(|n| format!(" \"{n}\""))
+        .unwrap_or_default();
+    let frame = if scope.is_stack_frame { " [frame]" } else { "" };
+    println!(
+        "{pad}{kind}{name}{frame}  {}:{}-{}:{}",
+        scope.start.line, scope.start.column, scope.end.line, scope.end.column
+    );
+    if !scope.variables.is_empty() {
+        println!("{pad}  vars: {}", scope.variables.join(", "));
+    }
+    for child in &scope.children {
+        format_scope_tree(child, indent + 1);
+    }
+}
+
+fn format_range_tree(
+    range: &srcmap_scopes::GeneratedRange,
+    sources: &[String],
+    indent: usize,
+) {
+    let pad = "  ".repeat(indent);
+    let frame = if range.is_stack_frame { " [frame]" } else { "" };
+    let hidden = if range.is_hidden { " [hidden]" } else { "" };
+    println!(
+        "{pad}{}:{}-{}:{}{frame}{hidden}",
+        range.start.line, range.start.column, range.end.line, range.end.column
+    );
+    if let Some(def) = range.definition {
+        println!("{pad}  definition: scope #{def}");
+    }
+    if let Some(ref cs) = range.call_site {
+        let source = sources
+            .get(cs.source_index as usize)
+            .map(|s| s.as_str())
+            .unwrap_or("?");
+        println!("{pad}  call site: {source}:{}:{}", cs.line, cs.column);
+    }
+    for binding in &range.bindings {
+        match binding {
+            srcmap_scopes::Binding::Expression(expr) => {
+                println!("{pad}  binding: {expr}");
+            }
+            srcmap_scopes::Binding::Unavailable => {
+                println!("{pad}  binding: <unavailable>");
+            }
+            srcmap_scopes::Binding::SubRanges(subs) => {
+                for sub in subs {
+                    let expr = sub
+                        .expression
+                        .as_deref()
+                        .unwrap_or("<unavailable>");
+                    println!(
+                        "{pad}  binding: {expr} (from {}:{})",
+                        sub.from.line, sub.from.column
+                    );
+                }
+            }
+        }
+    }
+    for child in &range.children {
+        format_range_tree(child, sources, indent + 1);
+    }
+}
+
+fn scope_to_json(scope: &srcmap_scopes::OriginalScope) -> serde_json::Value {
+    serde_json::json!({
+        "start": { "line": scope.start.line, "column": scope.start.column },
+        "end": { "line": scope.end.line, "column": scope.end.column },
+        "kind": scope.kind,
+        "name": scope.name,
+        "isStackFrame": scope.is_stack_frame,
+        "variables": scope.variables,
+        "children": scope.children.iter().map(scope_to_json).collect::<Vec<_>>(),
+    })
+}
+
+fn range_to_json(
+    range: &srcmap_scopes::GeneratedRange,
+    sources: &[String],
+) -> serde_json::Value {
+    let bindings: Vec<serde_json::Value> = range
+        .bindings
+        .iter()
+        .map(|b| match b {
+            srcmap_scopes::Binding::Expression(expr) => {
+                serde_json::json!({ "expression": expr })
+            }
+            srcmap_scopes::Binding::Unavailable => {
+                serde_json::json!({ "unavailable": true })
+            }
+            srcmap_scopes::Binding::SubRanges(subs) => {
+                let entries: Vec<serde_json::Value> = subs
+                    .iter()
+                    .map(|s| {
+                        serde_json::json!({
+                            "expression": s.expression,
+                            "from": { "line": s.from.line, "column": s.from.column },
+                        })
+                    })
+                    .collect();
+                serde_json::json!({ "subRanges": entries })
+            }
+        })
+        .collect();
+
+    let call_site = range.call_site.as_ref().map(|cs| {
+        let source = sources
+            .get(cs.source_index as usize)
+            .map(|s| s.as_str())
+            .unwrap_or("?");
+        serde_json::json!({
+            "source": source,
+            "line": cs.line,
+            "column": cs.column,
+        })
+    });
+
+    serde_json::json!({
+        "start": { "line": range.start.line, "column": range.start.column },
+        "end": { "line": range.end.line, "column": range.end.column },
+        "isStackFrame": range.is_stack_frame,
+        "isHidden": range.is_hidden,
+        "definition": range.definition,
+        "callSite": call_site,
+        "bindings": bindings,
+        "children": range.children.iter().map(|c| range_to_json(c, sources)).collect::<Vec<_>>(),
+    })
+}
+
+fn cmd_scopes(file: &PathBuf, json: bool) -> Result<(), CliError> {
+    let (sm, _) = parse_source_map(file)?;
+
+    let scopes = sm
+        .scopes
+        .as_ref()
+        .ok_or_else(|| CliError::not_found("source map does not contain scopes data"))?;
+
+    if json {
+        let original: Vec<serde_json::Value> = scopes
+            .scopes
+            .iter()
+            .enumerate()
+            .filter_map(|(i, s)| {
+                s.as_ref().map(|scope| {
+                    let source = sm.sources.get(i).map(|s| s.as_str()).unwrap_or("?");
+                    serde_json::json!({
+                        "source": source,
+                        "scope": scope_to_json(scope),
+                    })
+                })
+            })
+            .collect();
+
+        let ranges: Vec<serde_json::Value> = scopes
+            .ranges
+            .iter()
+            .map(|r| range_to_json(r, &sm.sources))
+            .collect();
+
+        let obj = serde_json::json!({
+            "originalScopes": original,
+            "generatedRanges": ranges,
+        });
+        println!("{}", serde_json::to_string_pretty(&obj).unwrap());
+    } else {
+        // Original scopes
+        let scope_count: usize = scopes.scopes.iter().filter(|s| s.is_some()).count();
+        println!("Original scopes ({scope_count} sources with scopes):");
+        for (i, scope) in scopes.scopes.iter().enumerate() {
+            if let Some(scope) = scope {
+                let source = sm.sources.get(i).map(|s| s.as_str()).unwrap_or("?");
+                println!();
+                println!("  [{i}] {source}:");
+                format_scope_tree(scope, 2);
+            }
+        }
+
+        // Generated ranges
+        println!();
+        println!("Generated ranges ({}):", scopes.ranges.len());
+        for range in &scopes.ranges {
+            println!();
+            format_range_tree(range, &sm.sources, 1);
+        }
+    }
+
+    Ok(())
+}
+
 fn cmd_schema() -> Result<(), CliError> {
     let schema = serde_json::json!({
         "name": "srcmap",
@@ -1213,6 +1421,16 @@ fn cmd_schema() -> Result<(), CliError> {
                 }
             },
             {
+                "name": "scopes",
+                "description": "Inspect ECMA-426 scopes and variable bindings in a source map",
+                "args": [
+                    {"name": "file", "type": "path", "required": true, "description": "Source map file"}
+                ],
+                "flags": {
+                    "--json": {"type": "bool", "default": false, "description": "Output as JSON"}
+                }
+            },
+            {
                 "name": "schema",
                 "description": "Describe all commands and their arguments as JSON (this output)",
                 "args": [],
@@ -1241,6 +1459,7 @@ fn main() -> ExitCode {
             | Command::Concat { json: true, .. }
             | Command::Remap { json: true, .. }
             | Command::Symbolicate { json: true, .. }
+            | Command::Scopes { json: true, .. }
     );
 
     let result = match &cli.command {
@@ -1295,6 +1514,7 @@ fn main() -> ExitCode {
             maps,
             json,
         } => cmd_symbolicate(file, dir, maps, *json),
+        Command::Scopes { file, json } => cmd_scopes(file, *json),
         Command::Schema => cmd_schema(),
     };
 

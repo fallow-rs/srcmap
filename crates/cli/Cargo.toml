@@ -17,6 +17,11 @@ path = "src/main.rs"
 srcmap-codec = { workspace = true }
 srcmap-sourcemap = { workspace = true }
 srcmap-remapping = { workspace = true }
+srcmap-scopes = { workspace = true }
 srcmap-symbolicate = { workspace = true }
 clap = { workspace = true }
 serde_json = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }
+tempfile = "3"
