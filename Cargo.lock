@@ -672,6 +672,7 @@ name = "srcmap-remapping"
 version = "0.2.0"
 dependencies = [
  "criterion",
+ "serde_json",
  "srcmap-codec",
  "srcmap-generator",
  "srcmap-sourcemap",

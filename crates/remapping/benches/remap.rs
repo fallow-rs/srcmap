@@ -68,14 +68,14 @@ fn bench_remap_bundler(c: &mut Criterion) {
         .map(|s| {
             let source_name = format!("src/module_{s}.ts");
             let intermediate_name = format!("dist/module_{s}.js");
-            let mut gen = SourceMapGenerator::new(Some(intermediate_name.clone()));
-            let src = gen.add_source(&source_name);
+            let mut builder = SourceMapGenerator::new(Some(intermediate_name.clone()));
+            let src = builder.add_source(&source_name);
             for i in 0..mappings_per_source {
                 let line = i / 15;
                 let col = (i % 15) * 4;
-                gen.add_mapping(line, col, src, line + 1, col);
+                builder.add_mapping(line, col, src, line + 1, col);
             }
-            (intermediate_name, gen.to_decoded_map())
+            (intermediate_name, builder.to_decoded_map())
         })
         .collect();
 
