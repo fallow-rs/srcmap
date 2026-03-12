@@ -344,10 +344,11 @@ impl SourceMap {
         // Decode scopes if present
         let num_sources = sources.len();
         let scopes = match raw.scopes {
-            Some(scopes_str) if !scopes_str.is_empty() => Some(
-                srcmap_scopes::decode_scopes(scopes_str, &raw.names, num_sources)
-                    ?,
-            ),
+            Some(scopes_str) if !scopes_str.is_empty() => Some(srcmap_scopes::decode_scopes(
+                scopes_str,
+                &raw.names,
+                num_sources,
+            )?),
             _ => None,
         };
 
@@ -1130,10 +1131,11 @@ impl SourceMap {
         // Decode scopes if present
         let num_sources = sources.len();
         let scopes = match raw.scopes {
-            Some(scopes_str) if !scopes_str.is_empty() => Some(
-                srcmap_scopes::decode_scopes(scopes_str, &raw.names, num_sources)
-                    ?,
-            ),
+            Some(scopes_str) if !scopes_str.is_empty() => Some(srcmap_scopes::decode_scopes(
+                scopes_str,
+                &raw.names,
+                num_sources,
+            )?),
             _ => None,
         };
 
@@ -1363,10 +1365,11 @@ impl LazySourceMap {
         // Decode scopes if present
         let num_sources = sources.len();
         let scopes = match raw.scopes {
-            Some(scopes_str) if !scopes_str.is_empty() => Some(
-                srcmap_scopes::decode_scopes(scopes_str, &raw.names, num_sources)
-                    ?,
-            ),
+            Some(scopes_str) if !scopes_str.is_empty() => Some(srcmap_scopes::decode_scopes(
+                scopes_str,
+                &raw.names,
+                num_sources,
+            )?),
             _ => None,
         };
 

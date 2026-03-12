@@ -161,7 +161,10 @@ impl From<Vec<i64>> for Segment {
         let mut data = [0i64; 5];
         let len = v.len().min(5);
         data[..len].copy_from_slice(&v[..len]);
-        Self { data, len: len as u8 }
+        Self {
+            data,
+            len: len as u8,
+        }
     }
 }
 
@@ -170,7 +173,10 @@ impl From<&[i64]> for Segment {
         let mut data = [0i64; 5];
         let len = s.len().min(5);
         data[..len].copy_from_slice(&s[..len]);
-        Self { data, len: len as u8 }
+        Self {
+            data,
+            len: len as u8,
+        }
     }
 }
 
@@ -251,7 +257,10 @@ mod tests {
 
     #[test]
     fn roundtrip_negative_deltas() {
-        let mappings = vec![vec![Segment::four(10, 0, 10, 10), Segment::four(20, 0, 5, 5)]];
+        let mappings = vec![vec![
+            Segment::four(10, 0, 10, 10),
+            Segment::four(20, 0, 5, 5),
+        ]];
         let encoded = encode(&mappings);
         let decoded = decode(&encoded).unwrap();
         assert_eq!(decoded, mappings);
@@ -379,14 +388,22 @@ mod tests {
     fn encode_empty_segments_no_dangling_comma() {
         // Empty segments should be skipped without producing dangling commas
         let empty = Segment::from(&[] as &[i64]);
-        let mappings = vec![vec![empty, Segment::four(0, 0, 0, 0), empty, Segment::four(2, 0, 0, 1)]];
+        let mappings = vec![vec![
+            empty,
+            Segment::four(0, 0, 0, 0),
+            empty,
+            Segment::four(2, 0, 0, 1),
+        ]];
         let encoded = encode(&mappings);
         assert!(
             !encoded.contains(",,"),
             "should not contain dangling commas"
         );
         // Should encode as if empty segments don't exist
-        let expected = encode(&vec![vec![Segment::four(0, 0, 0, 0), Segment::four(2, 0, 0, 1)]]);
+        let expected = encode(&vec![vec![
+            Segment::four(0, 0, 0, 0),
+            Segment::four(2, 0, 0, 1),
+        ]]);
         assert_eq!(encoded, expected);
     }
 

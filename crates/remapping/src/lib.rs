@@ -98,11 +98,7 @@ impl ConcatBuilder {
             .collect();
 
         // Remap names (add_name deduplicates internally)
-        let name_indices: Vec<u32> = sm
-            .names
-            .iter()
-            .map(|n| self.builder.add_name(n))
-            .collect();
+        let name_indices: Vec<u32> = sm.names.iter().map(|n| self.builder.add_name(n)).collect();
 
         // Copy ignore_list entries
         for &ignored in &sm.ignore_list {
@@ -594,7 +590,9 @@ where
         }
     }
 
-    builder.to_decoded_map().expect("streaming VLQ should be valid")
+    builder
+        .to_decoded_map()
+        .expect("streaming VLQ should be valid")
 }
 
 // ── Tests ─────────────────────────────────────────────────────────

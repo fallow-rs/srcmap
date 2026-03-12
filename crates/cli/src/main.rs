@@ -646,11 +646,7 @@ fn cmd_encode(file: Option<PathBuf>, json: bool) -> Result<(), CliError> {
         serde_json::from_str(&input).map_err(|e| CliError::parse(format!("invalid JSON: {e}")))?;
     let decoded: srcmap_codec::SourceMapMappings = raw
         .into_iter()
-        .map(|line| {
-            line.into_iter()
-                .map(srcmap_codec::Segment::from)
-                .collect()
-        })
+        .map(|line| line.into_iter().map(srcmap_codec::Segment::from).collect())
         .collect();
     let encoded = encode(&decoded);
 

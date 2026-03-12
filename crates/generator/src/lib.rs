@@ -364,7 +364,10 @@ impl SourceMapGenerator {
     fn encode_parallel_impl(sorted: &[&Mapping]) -> String {
         use rayon::prelude::*;
 
-        let max_line = sorted.last().expect("encode_parallel_impl requires non-empty sorted slice").generated_line as usize;
+        let max_line = sorted
+            .last()
+            .expect("encode_parallel_impl requires non-empty sorted slice")
+            .generated_line as usize;
 
         // Build line ranges: (start_idx, end_idx) into sorted slice
         let mut line_ranges: Vec<(usize, usize)> = vec![(0, 0); max_line + 1];
@@ -1136,7 +1139,9 @@ impl StreamingGenerator {
     /// Panics if the internal VLQ-encoded mappings string is corrupted or
     /// contains invalid VLQ sequences. This is not expected under normal use,
     /// since the streaming encoder always produces valid output.
-    pub fn to_decoded_map(&self) -> Result<srcmap_sourcemap::SourceMap, srcmap_sourcemap::ParseError> {
+    pub fn to_decoded_map(
+        &self,
+    ) -> Result<srcmap_sourcemap::SourceMap, srcmap_sourcemap::ParseError> {
         let vlq = self.vlq_string();
         let range_mappings = self.encode_range_mappings();
 

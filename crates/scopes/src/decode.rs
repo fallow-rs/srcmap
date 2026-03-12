@@ -220,7 +220,11 @@ pub fn decode_scopes(
                     source_idx += 1;
                 } else {
                     // Safe: just checked !is_empty()
-                    scope_stack.last_mut().expect("non-empty: checked above").children.push(finished);
+                    scope_stack
+                        .last_mut()
+                        .expect("non-empty: checked above")
+                        .children
+                        .push(finished);
                 }
             }
 
@@ -341,7 +345,11 @@ pub fn decode_scopes(
                     ranges.push(finished);
                 } else {
                     // Safe: just checked !is_empty()
-                    range_stack.last_mut().expect("non-empty: checked above").children.push(finished);
+                    range_stack
+                        .last_mut()
+                        .expect("non-empty: checked above")
+                        .children
+                        .push(finished);
                 }
             }
 
