@@ -13,7 +13,7 @@ Builds source maps incrementally by adding mappings one at a time. Outputs stand
 
 ```toml
 [dependencies]
-srcmap-generator = "0.1"
+srcmap-generator = "0.2"
 ```
 
 ## Usage
@@ -67,7 +67,7 @@ Enable the `parallel` feature for multi-threaded VLQ encoding via [rayon](https:
 
 ```toml
 [dependencies]
-srcmap-generator = { version = "0.1", features = ["parallel"] }
+srcmap-generator = { version = "0.2", features = ["parallel"] }
 ```
 
 ### `StreamingGenerator`
