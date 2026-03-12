@@ -797,6 +797,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "srcmap-hermes"
+version = "0.2.1"
+dependencies = [
+ "serde",
+ "serde_json",
+ "srcmap-codec",
+ "srcmap-sourcemap",
+]
+
+[[package]]
+name = "srcmap-ram-bundle"
+version = "0.2.1"
+dependencies = [
+ "srcmap-sourcemap",
+]
+
+[[package]]
 name = "srcmap-remapping"
 version = "0.2.1"
 dependencies = [

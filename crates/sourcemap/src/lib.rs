@@ -31,6 +31,12 @@ use serde::Deserialize;
 use srcmap_codec::{DecodeError, vlq_encode_unsigned};
 use srcmap_scopes::ScopeInfo;
 
+pub mod js_identifiers;
+pub mod source_view;
+pub mod utils;
+
+pub use source_view::SourceView;
+
 // ── Constants ──────────────────────────────────────────────────────
 
 const NO_SOURCE: u32 = u32::MAX;

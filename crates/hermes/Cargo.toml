@@ -1,0 +1,16 @@
+[package]
+name = "srcmap-hermes"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Hermes/React Native source map support"
+readme = "README.md"
+keywords = ["sourcemap", "hermes", "react-native", "metro"]
+categories = ["parser-implementations", "development-tools"]
+
+[dependencies]
+srcmap-sourcemap = { workspace = true }
+srcmap-codec = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
