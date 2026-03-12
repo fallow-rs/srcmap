@@ -268,7 +268,6 @@ impl<'a> ScopesEncoder<'a> {
 
         // H items: sub-range bindings
         let mut h_var_idx = 0u64;
-        let mut h_first = true;
         for (i, binding) in range.bindings.iter().enumerate() {
             if let Binding::SubRanges(subs) = binding
                 && subs.len() > 1
@@ -276,11 +275,10 @@ impl<'a> ScopesEncoder<'a> {
                 self.emit_comma();
                 self.emit_tag(TAG_GENERATED_RANGE_SUB_RANGE_BINDINGS);
 
-                // Variable index (relative)
-                let var_delta = i as u64 - if h_first { 0 } else { h_var_idx };
+                // Variable index (relative to previous H item, or 0 for the first)
+                let var_delta = i as u64 - h_var_idx;
                 self.emit_unsigned(var_delta);
                 h_var_idx = i as u64;
-                h_first = false;
 
                 // Sub-range line/col state (relative to range start)
                 let mut h_line = range.start.line;
