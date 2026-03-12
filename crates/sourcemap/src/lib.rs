@@ -1160,6 +1160,36 @@ impl SourceMap {
         })
     }
 
+    /// Create a builder for incrementally constructing a `SourceMap`.
+    ///
+    /// The builder accepts iterators for sources, names, and mappings,
+    /// avoiding the need to pre-collect into `Vec`s.
+    ///
+    /// ```
+    /// use srcmap_sourcemap::{SourceMap, Mapping};
+    ///
+    /// let sm = SourceMap::builder()
+    ///     .file("output.js")
+    ///     .sources(["input.ts"])
+    ///     .sources_content([Some("let x = 1;")])
+    ///     .names(["x"])
+    ///     .mappings([Mapping {
+    ///         generated_line: 0,
+    ///         generated_column: 0,
+    ///         source: 0,
+    ///         original_line: 0,
+    ///         original_column: 0,
+    ///         name: 0,
+    ///         is_range_mapping: false,
+    ///     }])
+    ///     .build();
+    ///
+    /// assert_eq!(sm.mapping_count(), 1);
+    /// ```
+    pub fn builder() -> SourceMapBuilder {
+        SourceMapBuilder::new()
+    }
+
     /// Parse a source map from JSON, decoding only mappings for lines in `[start_line, end_line)`.
     ///
     /// This is useful for large source maps where only a subset of lines is needed.
@@ -2653,6 +2683,111 @@ impl Iterator for MappingsIter<'_> {
                 }));
             }
         }
+    }
+}
+
+// ── Builder ────────────────────────────────────────────────────────
+
+/// Builder for incrementally constructing a [`SourceMap`] from iterators.
+///
+/// Avoids the need to pre-collect sources, names, and mappings into `Vec`s.
+/// Delegates to [`SourceMap::from_parts`] internally.
+pub struct SourceMapBuilder {
+    file: Option<String>,
+    source_root: Option<String>,
+    sources: Vec<String>,
+    sources_content: Vec<Option<String>>,
+    names: Vec<String>,
+    mappings: Vec<Mapping>,
+    ignore_list: Vec<u32>,
+    debug_id: Option<String>,
+    scopes: Option<ScopeInfo>,
+}
+
+impl SourceMapBuilder {
+    pub fn new() -> Self {
+        Self {
+            file: None,
+            source_root: None,
+            sources: Vec::new(),
+            sources_content: Vec::new(),
+            names: Vec::new(),
+            mappings: Vec::new(),
+            ignore_list: Vec::new(),
+            debug_id: None,
+            scopes: None,
+        }
+    }
+
+    pub fn file(mut self, file: impl Into<String>) -> Self {
+        self.file = Some(file.into());
+        self
+    }
+
+    pub fn source_root(mut self, root: impl Into<String>) -> Self {
+        self.source_root = Some(root.into());
+        self
+    }
+
+    pub fn sources(mut self, sources: impl IntoIterator<Item = impl Into<String>>) -> Self {
+        self.sources = sources.into_iter().map(Into::into).collect();
+        self
+    }
+
+    pub fn sources_content(
+        mut self,
+        content: impl IntoIterator<Item = Option<impl Into<String>>>,
+    ) -> Self {
+        self.sources_content = content.into_iter().map(|c| c.map(Into::into)).collect();
+        self
+    }
+
+    pub fn names(mut self, names: impl IntoIterator<Item = impl Into<String>>) -> Self {
+        self.names = names.into_iter().map(Into::into).collect();
+        self
+    }
+
+    pub fn mappings(mut self, mappings: impl IntoIterator<Item = Mapping>) -> Self {
+        self.mappings = mappings.into_iter().collect();
+        self
+    }
+
+    pub fn ignore_list(mut self, list: impl IntoIterator<Item = u32>) -> Self {
+        self.ignore_list = list.into_iter().collect();
+        self
+    }
+
+    pub fn debug_id(mut self, id: impl Into<String>) -> Self {
+        self.debug_id = Some(id.into());
+        self
+    }
+
+    pub fn scopes(mut self, scopes: ScopeInfo) -> Self {
+        self.scopes = Some(scopes);
+        self
+    }
+
+    /// Consume the builder and produce a [`SourceMap`].
+    ///
+    /// Mappings must be sorted by (generated_line, generated_column).
+    pub fn build(self) -> SourceMap {
+        SourceMap::from_parts(
+            self.file,
+            self.source_root,
+            self.sources,
+            self.sources_content,
+            self.names,
+            self.mappings,
+            self.ignore_list,
+            self.debug_id,
+            self.scopes,
+        )
+    }
+}
+
+impl Default for SourceMapBuilder {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -6014,5 +6149,222 @@ mod tests {
         // Should return the mapping's own position, not apply a delta
         assert_eq!(loc.line, 0);
         assert_eq!(loc.column, 5);
+    }
+
+    // ── Builder tests ──────────────────────────────────────────────
+
+    #[test]
+    fn builder_basic() {
+        let sm = SourceMap::builder()
+            .file("output.js")
+            .sources(["input.ts"])
+            .sources_content([Some("let x = 1;")])
+            .names(["x"])
+            .mappings([Mapping {
+                generated_line: 0,
+                generated_column: 0,
+                source: 0,
+                original_line: 0,
+                original_column: 4,
+                name: 0,
+                is_range_mapping: false,
+            }])
+            .build();
+
+        assert_eq!(sm.file.as_deref(), Some("output.js"));
+        assert_eq!(sm.sources, vec!["input.ts"]);
+        assert_eq!(sm.sources_content, vec![Some("let x = 1;".to_string())]);
+        assert_eq!(sm.names, vec!["x"]);
+        assert_eq!(sm.mapping_count(), 1);
+
+        let loc = sm.original_position_for(0, 0).unwrap();
+        assert_eq!(sm.source(loc.source), "input.ts");
+        assert_eq!(loc.column, 4);
+        assert_eq!(sm.name(loc.name.unwrap()), "x");
+    }
+
+    #[test]
+    fn builder_empty() {
+        let sm = SourceMap::builder().build();
+        assert_eq!(sm.mapping_count(), 0);
+        assert_eq!(sm.sources.len(), 0);
+        assert_eq!(sm.names.len(), 0);
+        assert!(sm.file.is_none());
+    }
+
+    #[test]
+    fn builder_multiple_sources() {
+        let sm = SourceMap::builder()
+            .sources(["a.ts", "b.ts", "c.ts"])
+            .sources_content([Some("// a"), Some("// b"), None])
+            .mappings([
+                Mapping {
+                    generated_line: 0,
+                    generated_column: 0,
+                    source: 0,
+                    original_line: 0,
+                    original_column: 0,
+                    name: u32::MAX,
+                    is_range_mapping: false,
+                },
+                Mapping {
+                    generated_line: 1,
+                    generated_column: 0,
+                    source: 1,
+                    original_line: 0,
+                    original_column: 0,
+                    name: u32::MAX,
+                    is_range_mapping: false,
+                },
+                Mapping {
+                    generated_line: 2,
+                    generated_column: 0,
+                    source: 2,
+                    original_line: 0,
+                    original_column: 0,
+                    name: u32::MAX,
+                    is_range_mapping: false,
+                },
+            ])
+            .build();
+
+        assert_eq!(sm.sources.len(), 3);
+        assert_eq!(sm.mapping_count(), 3);
+        assert_eq!(sm.line_count(), 3);
+
+        let loc0 = sm.original_position_for(0, 0).unwrap();
+        assert_eq!(sm.source(loc0.source), "a.ts");
+
+        let loc1 = sm.original_position_for(1, 0).unwrap();
+        assert_eq!(sm.source(loc1.source), "b.ts");
+
+        let loc2 = sm.original_position_for(2, 0).unwrap();
+        assert_eq!(sm.source(loc2.source), "c.ts");
+    }
+
+    #[test]
+    fn builder_with_iterators() {
+        let source_names: Vec<String> = (0..5).map(|i| format!("mod_{i}.ts")).collect();
+        let mappings = (0..5u32).map(|i| Mapping {
+            generated_line: i,
+            generated_column: 0,
+            source: i,
+            original_line: i,
+            original_column: 0,
+            name: u32::MAX,
+            is_range_mapping: false,
+        });
+
+        let sm = SourceMap::builder()
+            .sources(source_names.iter().map(|s| s.as_str()))
+            .mappings(mappings)
+            .build();
+
+        assert_eq!(sm.sources.len(), 5);
+        assert_eq!(sm.mapping_count(), 5);
+        for i in 0..5u32 {
+            let loc = sm.original_position_for(i, 0).unwrap();
+            assert_eq!(sm.source(loc.source), format!("mod_{i}.ts"));
+        }
+    }
+
+    #[test]
+    fn builder_ignore_list_and_debug_id() {
+        let sm = SourceMap::builder()
+            .sources(["app.ts", "node_modules/lib.js"])
+            .ignore_list([1])
+            .debug_id("85314830-023f-4cf1-a267-535f4e37bb17")
+            .build();
+
+        assert_eq!(sm.ignore_list, vec![1]);
+        assert_eq!(
+            sm.debug_id.as_deref(),
+            Some("85314830-023f-4cf1-a267-535f4e37bb17")
+        );
+    }
+
+    #[test]
+    fn builder_range_mappings() {
+        let sm = SourceMap::builder()
+            .sources(["input.ts"])
+            .mappings([
+                Mapping {
+                    generated_line: 0,
+                    generated_column: 0,
+                    source: 0,
+                    original_line: 0,
+                    original_column: 0,
+                    name: u32::MAX,
+                    is_range_mapping: true,
+                },
+                Mapping {
+                    generated_line: 0,
+                    generated_column: 10,
+                    source: 0,
+                    original_line: 5,
+                    original_column: 0,
+                    name: u32::MAX,
+                    is_range_mapping: false,
+                },
+            ])
+            .build();
+
+        assert!(sm.has_range_mappings());
+        assert_eq!(sm.mapping_count(), 2);
+    }
+
+    #[test]
+    fn builder_json_roundtrip() {
+        let sm = SourceMap::builder()
+            .file("out.js")
+            .source_root("/src/")
+            .sources(["a.ts", "b.ts"])
+            .sources_content([Some("// a"), Some("// b")])
+            .names(["foo", "bar"])
+            .mappings([
+                Mapping {
+                    generated_line: 0,
+                    generated_column: 0,
+                    source: 0,
+                    original_line: 0,
+                    original_column: 0,
+                    name: 0,
+                    is_range_mapping: false,
+                },
+                Mapping {
+                    generated_line: 1,
+                    generated_column: 5,
+                    source: 1,
+                    original_line: 3,
+                    original_column: 2,
+                    name: 1,
+                    is_range_mapping: false,
+                },
+            ])
+            .build();
+
+        let json = sm.to_json();
+        let sm2 = SourceMap::from_json(&json).unwrap();
+
+        assert_eq!(sm2.file, sm.file);
+        // source_root is prepended to sources on parse
+        assert_eq!(sm2.sources, vec!["/src/a.ts", "/src/b.ts"]);
+        assert_eq!(sm2.names, sm.names);
+        assert_eq!(sm2.mapping_count(), sm.mapping_count());
+
+        for m in sm.all_mappings() {
+            let a = sm.original_position_for(m.generated_line, m.generated_column);
+            let b = sm2.original_position_for(m.generated_line, m.generated_column);
+            match (a, b) {
+                (Some(a), Some(b)) => {
+                    assert_eq!(a.source, b.source);
+                    assert_eq!(a.line, b.line);
+                    assert_eq!(a.column, b.column);
+                    assert_eq!(a.name, b.name);
+                }
+                (None, None) => {}
+                _ => panic!("lookup mismatch"),
+            }
+        }
     }
 }

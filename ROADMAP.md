@@ -63,9 +63,8 @@ Rolldown's `collapse_sourcemaps` materializes the entire token stream into `Vec<
 - [x] `remap_streaming()`: composition pipeline that streams through mappings without intermediate allocation
 - [x] Criterion benchmarks (500 / 10K / 60K mappings) — 15-20% faster than materialized `remap()`
 
-Remaining nice-to-haves (low priority):
-- [ ] Builder pattern for `SourceMap::new()` that consumes iterators for names/sources/source_contents
-- [ ] Benchmark against Rolldown's current `collapse_sourcemaps`
+- [x] Builder pattern (`SourceMap::builder()`) that consumes iterators for names/sources/source_contents
+- [x] Bundler-scale benchmark (60K mappings across 20 sources, materialized vs streaming)
 
 ---
 
@@ -183,31 +182,6 @@ srcmap already parses `debugId` from source map JSON. What's missing is extracti
 - [ ] Symbolicate crate: resolve source maps by debug ID
 
 ---
-
-## Source Map Diagnostics
-
-Beyond basic validation, a deeper analysis mode for debugging broken source maps.
-
-### What to implement
-
-- [ ] **Mapping coverage** — what percentage of generated code has source mappings?
-- [ ] **Redundant mapping detection** — consecutive mappings to the same original position ([sentry/rust-sourcemap#72](https://github.com/nicolo-ribaudo/ecma-426/blob/main/proposals/range-mappings.md))
-- [ ] **Composition chain validation** — given a chain of source maps, verify the composed result is correct
-- [ ] **Size analysis** — breakdown of source map size by component (mappings, sourcesContent, names)
-- [ ] **Mapping density** — mappings per line, identifying over/under-mapped regions
-- [ ] CLI: `srcmap diagnose bundle.js.map` with `--json` output
-
----
-
-## Parallel VLQ Encoding
-
-Split the mappings string into chunks and encode VLQ segments in parallel using rayon. This is `oxc_sourcemap`'s main performance differentiator for generation workloads.
-
-### What to implement
-
-- [ ] Parallel VLQ encoding in `srcmap-generator` behind a `rayon` feature flag
-- [ ] Benchmark against `oxc_sourcemap` parallel encoding
-- [ ] Thread count configuration
 
 ---
 

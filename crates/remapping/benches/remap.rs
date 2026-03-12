@@ -57,5 +57,76 @@ fn bench_remap(c: &mut Criterion) {
     }
 }
 
-criterion_group!(benches, bench_remap);
+/// Simulate a bundler workload: multiple source files each with their own
+/// source map, composed through a single bundler output map.
+fn bench_remap_bundler(c: &mut Criterion) {
+    let source_count = 20;
+    let mappings_per_source = 3000; // 60K total
+
+    // Build inner maps (one per source file, simulating TS → JS transforms)
+    let inner_maps: Vec<(String, SourceMap)> = (0..source_count)
+        .map(|s| {
+            let source_name = format!("src/module_{s}.ts");
+            let intermediate_name = format!("dist/module_{s}.js");
+            let mut gen = SourceMapGenerator::new(Some(intermediate_name.clone()));
+            let src = gen.add_source(&source_name);
+            for i in 0..mappings_per_source {
+                let line = i / 15;
+                let col = (i % 15) * 4;
+                gen.add_mapping(line, col, src, line + 1, col);
+            }
+            (intermediate_name, gen.to_decoded_map())
+        })
+        .collect();
+
+    // Build outer map (bundler output referencing all intermediate files)
+    let mut outer_gen = SourceMapGenerator::new(Some("bundle.js".to_string()));
+    let src_indices: Vec<u32> = inner_maps
+        .iter()
+        .map(|(name, _)| outer_gen.add_source(name))
+        .collect();
+    for (s, &src) in src_indices.iter().enumerate() {
+        let line_offset = (s as u32) * (mappings_per_source / 15);
+        for i in 0..mappings_per_source {
+            let orig_line = i / 15;
+            let col = (i % 15) * 4;
+            outer_gen.add_mapping(line_offset + orig_line, col, src, orig_line, col);
+        }
+    }
+    let outer = outer_gen.to_decoded_map();
+    let vlq = outer.encode_mappings();
+
+    c.bench_function("remap_bundler_60k_20src", |b| {
+        b.iter(|| {
+            black_box(remap(&outer, |source| {
+                inner_maps
+                    .iter()
+                    .find(|(name, _)| name == source)
+                    .map(|(_, sm)| sm.clone())
+            }));
+        })
+    });
+
+    c.bench_function("remap_streaming_bundler_60k_20src", |b| {
+        b.iter(|| {
+            let iter = MappingsIter::new(&vlq);
+            black_box(remap_streaming(
+                iter,
+                &outer.sources,
+                &outer.names,
+                &outer.sources_content,
+                &outer.ignore_list,
+                outer.file.clone(),
+                |source| {
+                    inner_maps
+                        .iter()
+                        .find(|(name, _)| name == source)
+                        .map(|(_, sm)| sm.clone())
+                },
+            ));
+        })
+    });
+}
+
+criterion_group!(benches, bench_remap, bench_remap_bundler);
 criterion_main!(benches);
