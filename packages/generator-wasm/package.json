@@ -1,6 +1,6 @@
 {
   "name": "@srcmap/generator-wasm",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "High-performance source map generator powered by Rust (WebAssembly)",
   "type": "module",
   "main": "pkg/srcmap_generator_wasm.js",

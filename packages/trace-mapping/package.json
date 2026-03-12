@@ -1,6 +1,6 @@
 {
   "name": "@srcmap/trace-mapping",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Drop-in replacement for @jridgewell/trace-mapping powered by Rust via WebAssembly",
   "type": "module",
   "main": "src/trace-mapping.mjs",
