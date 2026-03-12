@@ -80,7 +80,9 @@ struct BuildingRange {
 /// Decode a `scopes` string into structured scope information.
 ///
 /// - `input`: the VLQ-encoded scopes string from the source map
-/// - `names`: the `names` array from the source map (for resolving indices)
+/// - `names`: the `names` array from the source map (for resolving indices).
+///   Must contain all names referenced by the encoded string, or
+///   `ScopesError::InvalidNameIndex` will be returned.
 /// - `num_sources`: number of source files (length of `sources` array)
 pub fn decode_scopes(
     input: &str,
@@ -113,6 +115,7 @@ pub fn decode_scopes(
     let mut gr_line = 0u32;
     let mut gr_col = 0u32;
     let mut gr_def = 0i64;
+    let mut h_var_acc: u64 = 0;
     let mut in_generated_ranges = false;
 
     while tok.has_next() {
@@ -222,6 +225,10 @@ pub fn decode_scopes(
                         os_var += d;
                         current.variables.push(resolve_name(names, os_var)?);
                     }
+                } else {
+                    while !tok.at_item_end() {
+                        let _ = tok.read_signed()?;
+                    }
                 }
             }
 
@@ -261,6 +268,9 @@ pub fn decode_scopes(
 
                 let is_stack_frame = flags & crate::GR_FLAG_IS_STACK_FRAME != 0;
                 let is_hidden = flags & crate::GR_FLAG_IS_HIDDEN != 0;
+
+                // Reset H-tag variable index accumulator for each new range
+                h_var_acc = 0;
 
                 range_stack.push(BuildingRange {
                     start: Position {
@@ -337,12 +347,18 @@ pub fn decode_scopes(
                         };
                         current.bindings.push(binding);
                     }
+                } else {
+                    while !tok.at_item_end() {
+                        let _ = tok.read_unsigned()?;
+                    }
                 }
             }
 
             TAG_GENERATED_RANGE_SUB_RANGE_BINDINGS => {
                 if let Some(current) = range_stack.last_mut() {
-                    let var_idx = tok.read_unsigned()? as usize;
+                    let var_delta = tok.read_unsigned()?;
+                    h_var_acc += var_delta;
+                    let var_idx = h_var_acc as usize;
 
                     let mut sub_ranges: Vec<SubRangeBinding> = Vec::new();
                     // Line/column state relative to range start
@@ -372,6 +388,10 @@ pub fn decode_scopes(
                     }
 
                     current.sub_range_bindings.push((var_idx, sub_ranges));
+                } else {
+                    while !tok.at_item_end() {
+                        let _ = tok.read_unsigned()?;
+                    }
                 }
             }
 
@@ -385,6 +405,10 @@ pub fn decode_scopes(
                         line,
                         column,
                     });
+                } else {
+                    while !tok.at_item_end() {
+                        let _ = tok.read_unsigned()?;
+                    }
                 }
             }
 

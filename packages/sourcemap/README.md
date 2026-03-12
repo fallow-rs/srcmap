@@ -38,9 +38,9 @@ const pos = sm.generatedPositionFor('src/app.ts', 10, 4);
 // { line: 42, column: 10 }
 
 // Batch lookup — amortizes NAPI overhead
-const positions = new Int32Array([42, 10, 43, 0, 44, 5]);
+const positions = [42, 10, 43, 0, 44, 5];
 const results = sm.originalPositionsFor(positions);
-// Int32Array [srcIdx, line, col, nameIdx, ...]
+// number[] [srcIdx, line, col, nameIdx, ...]
 // -1 means no mapping / no name
 
 // Resolve indices
@@ -60,7 +60,7 @@ Parse a source map from a JSON string.
 |--------|---------|-------------|
 | `originalPositionFor(line, column)` | `{ source, line, column, name } \| null` | Forward lookup (0-based) |
 | `generatedPositionFor(source, line, column)` | `{ line, column } \| null` | Reverse lookup (0-based) |
-| `originalPositionsFor(positions: Int32Array)` | `Int32Array` | Batch forward lookup |
+| `originalPositionsFor(positions: number[])` | `number[]` | Batch forward lookup |
 | `source(index)` | `string` | Resolve source index to filename |
 | `name(index)` | `string` | Resolve name index to string |
 

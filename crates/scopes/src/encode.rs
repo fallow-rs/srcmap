@@ -83,18 +83,7 @@ impl<'a> ScopesEncoder<'a> {
 
     fn encode(mut self, info: &ScopeInfo) -> String {
         // Phase 1: Encode original scope trees
-        for (i, scope) in info.scopes.iter().enumerate() {
-            if i > 0 || !self.first_item {
-                // Emit separator between scope trees (or after previous items)
-                if self.first_item && scope.is_none() {
-                    // First item and no scope: emit empty
-                    self.first_item = false;
-                } else if scope.is_none() {
-                    // Empty item for source with no scopes
-                    // (comma already emitted or will be emitted)
-                }
-            }
-
+        for scope in &info.scopes {
             match scope {
                 Some(s) => {
                     // Reset position state for new top-level tree

@@ -65,8 +65,10 @@ let encoded = encode_parallel(&mappings);
 | `decode(mappings) -> Result<SourceMapMappings>` | Decode a VLQ mappings string into lines of segments |
 | `encode(mappings) -> String` | Encode decoded mappings back to a VLQ string |
 | `encode_parallel(mappings) -> String` | Parallel encoding via rayon (requires `parallel` feature) |
-| `vlq_decode(bytes, offset) -> Result<(i64, usize)>` | Decode a single VLQ value at the given byte offset |
-| `vlq_encode(buf, value)` | Encode a single VLQ value and append to buffer |
+| `vlq_decode(bytes, offset) -> Result<(i64, usize)>` | Decode a single signed VLQ value at the given byte offset |
+| `vlq_encode(buf, value)` | Encode a single signed VLQ value and append to buffer |
+| `vlq_decode_unsigned(bytes, offset) -> Result<(u64, usize)>` | Decode a single unsigned VLQ value at the given byte offset |
+| `vlq_encode_unsigned(buf, value)` | Encode a single unsigned VLQ value and append to buffer |
 
 ### Types
 
@@ -83,7 +85,7 @@ Segments have 1, 4, or 5 fields:
 
 ## Performance
 
-Inlined VLQ decoder with a single-char fast path covering values -15..15 (~85% of real-world source map values).
+Standard VLQ loop with a pre-computed base64 lookup table and continuation-bit processing. The encoder includes a single-char fast path for small values.
 
 ## Part of [srcmap](https://github.com/BartWaardenburg/srcmap)
 

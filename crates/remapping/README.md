@@ -66,15 +66,15 @@ let result = remap(&minified_map, |source| {
 |--------|-------------|
 | `ConcatBuilder::new(file) -> Self` | Create a new concatenation builder |
 | `builder.add_map(sourcemap, line_offset)` | Add a source map at the given line offset |
-| `builder.build() -> SourceMap` | Finish and return the concatenated source map |
-| `builder.to_json() -> String` | Finish and return as JSON string |
+| `builder.build() -> SourceMap` | Serialize the current state as a decoded `SourceMap` |
+| `builder.to_json() -> String` | Serialize the current state as a JSON string |
 
 ### Composition
 
 | Function | Description |
 |----------|-------------|
 | `remap(outer, loader) -> SourceMap` | Compose through upstream maps resolved by `loader` |
-| `remap_streaming(iter, sources, names, ..., loader) -> SourceMap` | Streaming variant — avoids materializing the outer map |
+| `remap_streaming(iter, sources, names, sources_content, ignore_list, file, loader) -> SourceMap` | Streaming variant — avoids materializing the outer map |
 
 The `loader` function receives each source filename and returns `Option<SourceMap>`. Return `Some` to trace through an upstream map, or `None` to keep the source as-is.
 
@@ -88,7 +88,7 @@ The `loader` function receives each source filename and returns `Option<SourceMa
 - **Name resolution** prefers upstream names over outer names
 - **Lazy loading** via the `loader` callback — only loads maps that are actually referenced
 - **Range mapping preservation** through both concatenation and composition
-- **Streaming composition** via `remap_streaming` for zero-allocation pipelines
+- **Streaming composition** via `remap_streaming` for reduced-allocation pipelines
 
 ## Part of [srcmap](https://github.com/BartWaardenburg/srcmap)
 

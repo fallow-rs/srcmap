@@ -5,7 +5,7 @@
 //!
 //! # Features
 //!
-//! - **`parallel`** — enables [`encode_parallel`] for multi-threaded encoding via rayon.
+//! - **`parallel`** — enables `encode_parallel` for multi-threaded encoding via rayon.
 //!   ~1.5x faster for large maps (5K+ lines).
 //!
 //! # Examples
@@ -239,9 +239,9 @@ mod tests {
     #[test]
     fn decode_vlq_overflow() {
         // 14 continuation characters: each 'g' = value 32 (continuation bit set)
-        // After 13 digits, shift reaches 65 which exceeds i64 range
+        // After 12 digits, shift reaches 60 which exceeds the VLQ_MAX_SHIFT limit
         let err = decode("gggggggggggggg").unwrap_err();
-        matches!(err, DecodeError::VlqOverflow { .. });
+        assert!(matches!(err, DecodeError::VlqOverflow { .. }));
     }
 
     #[test]

@@ -79,6 +79,9 @@ On-the-fly VLQ encoder that emits mappings as they are added, without collecting
 | `new(file) -> Self` | Create a new streaming generator |
 | `add_source(path) -> u32` | Register a source file (deduped) |
 | `add_name(name) -> u32` | Register a name (deduped) |
+| `set_source_root(root)` | Set the `sourceRoot` prefix |
+| `set_debug_id(id)` | Set the `debugId` field |
+| `add_to_ignore_list(source_idx)` | Mark a source as ignored (third-party) |
 | `add_mapping(...)` | Add a mapping (encoded immediately) |
 | `add_named_mapping(...)` | Add a mapping with a name |
 | `add_range_mapping(...)` | Add a range mapping (ECMA-426) |

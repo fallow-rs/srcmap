@@ -56,49 +56,49 @@ pub fn decode(input: &str) -> Result<SourceMapMappings, DecodeError> {
                 continue;
             }
 
-            // Decode a segment
-            let mut segment: Segment = Vec::with_capacity(5);
-
             // Field 1: generated column (always present)
             let (delta, consumed) = vlq_decode(bytes, pos)?;
             generated_column += delta;
-            segment.push(generated_column);
             pos += consumed;
 
-            // Check if there are more fields in this segment
-            if pos < len && bytes[pos] != b',' && bytes[pos] != b';' {
-                // Field 2: source index
+            // Build segment with exact allocation (1, 4, or 5 fields)
+            let segment: Segment = if pos < len && bytes[pos] != b',' && bytes[pos] != b';' {
+                // Fields 2-4: source, original line, original column
                 let (delta, consumed) = vlq_decode(bytes, pos)?;
                 source_index += delta;
-                segment.push(source_index);
                 pos += consumed;
 
-                // Field 3: original line
                 let (delta, consumed) = vlq_decode(bytes, pos)?;
                 original_line += delta;
-                segment.push(original_line);
                 pos += consumed;
 
-                // Field 4: original column
                 let (delta, consumed) = vlq_decode(bytes, pos)?;
                 original_column += delta;
-                segment.push(original_column);
                 pos += consumed;
 
                 // Field 5: name index (optional)
                 if pos < len && bytes[pos] != b',' && bytes[pos] != b';' {
                     let (delta, consumed) = vlq_decode(bytes, pos)?;
                     name_index += delta;
-                    segment.push(name_index);
                     pos += consumed;
+                    vec![
+                        generated_column,
+                        source_index,
+                        original_line,
+                        original_column,
+                        name_index,
+                    ]
+                } else {
+                    vec![
+                        generated_column,
+                        source_index,
+                        original_line,
+                        original_column,
+                    ]
                 }
-            }
-
-            debug_assert!(
-                segment.len() == 1 || segment.len() == 4 || segment.len() == 5,
-                "invalid segment length {}",
-                segment.len()
-            );
+            } else {
+                vec![generated_column]
+            };
 
             line.push(segment);
         }

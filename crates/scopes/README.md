@@ -55,8 +55,10 @@ assert_eq!(decoded.scopes.len(), 1);
 | `OriginalScope` | A scope in authored source code (tree structure) |
 | `GeneratedRange` | A range in generated output mapped to an original scope |
 | `Binding` | Variable binding: expression, unavailable, or sub-range bindings |
+| `SubRangeBinding` | A sub-range binding within a generated range |
 | `CallSite` | Inlined function call site in original source |
 | `Position` | 0-based line/column pair |
+| `ScopesError` | Errors during scopes decoding |
 
 ## How it works
 

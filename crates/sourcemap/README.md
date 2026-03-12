@@ -42,17 +42,63 @@ assert_eq!(pos.column, 0);
 
 | Method | Description |
 |--------|-------------|
-| `from_json(json) -> Result<SourceMap>` | Parse a source map from a JSON string |
+| `from_json(json) -> Result<SourceMap>` | Parse a source map from a JSON string (regular or indexed) |
+| `from_parts(file, source_root, sources, ...) -> SourceMap` | Build from pre-decoded components and mappings |
+| `from_vlq(mappings_str, sources, names, ...) -> Result<SourceMap>` | Build from pre-parsed components and a VLQ mappings string |
+| `from_vlq_with_range_mappings(mappings_str, ..., range_mappings_str) -> Result<SourceMap>` | Build from VLQ mappings and optional range mappings strings |
+| `from_json_lines(json, start_line, end_line) -> Result<SourceMap>` | Parse and decode only the given generated-line range |
 | `original_position_for(line, col) -> Option<OriginalLocation>` | Look up original position for a generated position |
-| `generated_position_for(source, line, col) -> Option<GeneratedPosition>` | Reverse lookup |
-| `all_mappings() -> &[Mapping]` | Iterate all decoded mappings |
+| `original_position_for_with_bias(line, col, bias) -> Option<OriginalLocation>` | Look up original position with explicit search bias |
+| `generated_position_for(source, line, col) -> Option<GeneratedLocation>` | Reverse lookup: original position to generated position |
+| `generated_position_for_with_bias(source, line, col, bias) -> Option<GeneratedLocation>` | Reverse lookup with explicit search bias |
+| `all_generated_positions_for(source, line, col) -> Vec<GeneratedLocation>` | Find all generated positions for an original position |
+| `map_range(start_line, start_col, end_line, end_col) -> Option<MappedRange>` | Map a generated range to its original range |
+| `all_mappings() -> &[Mapping]` | All decoded mappings |
+| `mappings_for_line(line) -> &[Mapping]` | Slice of mappings for a single generated line |
 | `source(index) -> &str` | Resolve a source index to its filename |
 | `name(index) -> &str` | Resolve a name index to its string |
+| `source_index(name) -> Option<u32>` | Look up a source filename to its index |
 | `line_count() -> usize` | Number of generated lines |
 | `mapping_count() -> usize` | Total number of decoded mappings |
 | `has_range_mappings() -> bool` | Whether any mappings are range mappings |
 | `range_mapping_count() -> usize` | Number of range mappings |
 | `encode_range_mappings() -> Option<String>` | Encode range mappings to VLQ string |
+| `to_json() -> String` | Serialize the source map to JSON |
+| `to_json_with_options(exclude_content) -> String` | Serialize to JSON, optionally excluding `sourcesContent` |
+
+### `LazySourceMap`
+
+| Method | Description |
+|--------|-------------|
+| `from_json(json) -> Result<LazySourceMap>` | Parse JSON eagerly but defer VLQ decoding |
+| `decode_line(line) -> Result<Vec<Mapping>>` | Decode mappings for a single generated line on demand |
+| `original_position_for(line, col) -> Option<OriginalLocation>` | Look up original position (decodes the line lazily) |
+| `line_count() -> usize` | Number of generated lines |
+| `source(index) -> &str` | Resolve a source index to its filename |
+| `name(index) -> &str` | Resolve a name index to its string |
+| `source_index(name) -> Option<u32>` | Look up a source filename to its index |
+| `mappings_for_line(line) -> Vec<Mapping>` | Decoded mappings for a single generated line |
+| `into_sourcemap() -> Result<SourceMap>` | Fully decode and convert to a `SourceMap` |
+
+### Types
+
+| Type | Description |
+|------|-------------|
+| `Mapping` | A single decoded mapping entry (28 bytes) |
+| `OriginalLocation` | Result of a forward lookup (source, line, column, name) |
+| `GeneratedLocation` | Result of a reverse lookup (line, column) |
+| `MappedRange` | Original start/end positions for a generated range |
+| `Bias` | Search bias: `GreatestLowerBound` or `LeastUpperBound` |
+| `MappingsIter<'a>` | Zero-allocation streaming iterator over VLQ-encoded mappings |
+| `SourceMappingUrl` | Parsed sourceMappingURL: `Inline(String)` or `External(String)` |
+| `ParseError` | Errors that can occur during source map parsing |
+
+### Free Functions
+
+| Function | Description |
+|----------|-------------|
+| `parse_source_mapping_url(source) -> Option<SourceMappingUrl>` | Extract and parse a `sourceMappingURL` comment from source code |
+| `validate_deep(sm) -> Vec<String>` | Deep structural validation with bounds and ordering checks |
 
 ### Fields
 
@@ -65,6 +111,7 @@ assert_eq!(pos.column, 0);
 | `source_root` | `Option<String>` |
 | `ignore_list` | `Vec<u32>` |
 | `debug_id` | `Option<String>` |
+| `extensions` | `HashMap<String, serde_json::Value>` |
 
 ## Features
 

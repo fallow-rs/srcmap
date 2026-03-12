@@ -13,7 +13,7 @@ const VLQ_CONTINUATION_BIT: u64 = VLQ_BASE; // 0b100000
 
 /// Maximum shift before overflow. 13 VLQ digits × 5 bits = 65 bits,
 /// which exceeds i64 range. We allow shift up to 60 (13th digit).
-const VLQ_MAX_SHIFT: u32 = 64;
+const VLQ_MAX_SHIFT: u32 = 60;
 
 /// Pre-computed base64 encode lookup table (index -> char byte).
 #[rustfmt::skip]
@@ -55,6 +55,12 @@ pub fn vlq_encode(out: &mut Vec<u8>, value: i64) {
         // is unreachable in valid source maps (max ~4 billion lines/columns).
         ((!(value as u64)) + 1) << 1 | 1
     };
+
+    // Fast path: single character (values -15..15)
+    if vlq < VLQ_BASE {
+        out.push(BASE64_ENCODE[vlq as usize]);
+        return;
+    }
 
     loop {
         let mut digit = vlq & VLQ_BASE_MASK;
@@ -129,6 +135,12 @@ pub fn vlq_decode(input: &[u8], pos: usize) -> Result<(i64, usize), DecodeError>
 /// Used by the ECMA-426 scopes proposal for tags, flags, and unsigned values.
 #[inline]
 pub fn vlq_encode_unsigned(out: &mut Vec<u8>, value: u64) {
+    // Fast path: single character (value fits in 5 bits)
+    if value < VLQ_BASE {
+        out.push(BASE64_ENCODE[value as usize]);
+        return;
+    }
+
     let mut vlq = value;
     loop {
         let mut digit = vlq & VLQ_BASE_MASK;
@@ -238,7 +250,8 @@ mod tests {
             1000,
             -1000,
             100_000,
-            i64::MAX,
+            1_000_000_000,
+            -1_000_000_000,
         ];
         for &v in &values {
             let mut buf = Vec::new();
@@ -294,7 +307,7 @@ mod tests {
 
     #[test]
     fn decode_overflow() {
-        // 14 continuation chars: shift reaches 65 which exceeds limit
+        // 14 continuation chars: shift reaches 60+ which exceeds limit
         let input = b"ggggggggggggggA";
         let err = vlq_decode(input, 0).unwrap_err();
         assert!(matches!(err, DecodeError::VlqOverflow { .. }));

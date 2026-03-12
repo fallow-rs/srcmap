@@ -163,6 +163,26 @@ impl JsSourceMap {
         self.inner.line_count() as u32
     }
 
+    /// Resolve a source index to its filename.
+    #[napi]
+    pub fn source(&self, index: u32) -> Option<String> {
+        if (index as usize) < self.inner.sources.len() {
+            Some(self.inner.source(index).to_string())
+        } else {
+            None
+        }
+    }
+
+    /// Resolve a name index to its string.
+    #[napi]
+    pub fn name(&self, index: u32) -> Option<String> {
+        if (index as usize) < self.inner.names.len() {
+            Some(self.inner.name(index).to_string())
+        } else {
+            None
+        }
+    }
+
     #[napi(getter)]
     pub fn has_range_mappings(&self) -> bool {
         self.inner.has_range_mappings()

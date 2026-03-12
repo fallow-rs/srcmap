@@ -154,4 +154,13 @@ export declare class SourceMap {
 
   /** Number of generated lines covered by mappings. */
   readonly lineCount: number
+
+  /** Whether the source map contains range mappings. */
+  readonly hasRangeMappings: boolean
+
+  /** Number of range mappings in the source map. */
+  readonly rangeMappingCount: number
+
+  /** Get the encoded range mappings string, or null if none. */
+  encodedRangeMappings(): string | null
 }

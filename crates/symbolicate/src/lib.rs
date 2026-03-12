@@ -650,7 +650,7 @@ mod tests {
         assert_eq!(result.frames.len(), 1);
         // Position 99:99 (0-based) is beyond any mapping, frame should not be symbolicated
         // Actually it may snap to closest - let's check either way
-        assert_eq!(result.frames[0].file.len() > 0, true);
+        assert!(!result.frames[0].file.is_empty());
     }
 
     #[test]

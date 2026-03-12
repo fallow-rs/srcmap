@@ -36,7 +36,7 @@
 //! };
 //!
 //! // Encode
-//! let mut names = vec!["global".to_string(), "x".to_string(), "_x".to_string()];
+//! let mut names = vec![];
 //! let encoded = encode_scopes(&info, &mut names);
 //! assert!(!encoded.is_empty());
 //!

@@ -1,4 +1,4 @@
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use criterion::{Criterion, black_box, criterion_group, criterion_main};
 use srcmap_generator::SourceMapGenerator;
 use srcmap_remapping::{remap, remap_streaming};
 use srcmap_sourcemap::{MappingsIter, SourceMap};
@@ -48,6 +48,7 @@ fn bench_remap(c: &mut Criterion) {
                     &outer.sources,
                     &outer.names,
                     &outer.sources_content,
+                    &outer.ignore_list,
                     outer.file.clone(),
                     |_| Some(inner.clone()),
                 ));

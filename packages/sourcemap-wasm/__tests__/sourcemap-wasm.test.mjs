@@ -282,8 +282,8 @@ describe('allMappingsFlat', () => {
     const sm = new SourceMap(SIMPLE_MAP)
     const flat = sm.allMappingsFlat()
     assert.ok(flat instanceof Int32Array)
-    // 2 segments * 6 fields each = 12
-    assert.equal(flat.length, 12)
+    // 2 segments * 7 fields each = 14
+    assert.equal(flat.length, 14)
     // First mapping: genLine=0, genCol=0
     assert.equal(flat[0], 0) // genLine
     assert.equal(flat[1], 0) // genCol
