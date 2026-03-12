@@ -13,7 +13,6 @@
 
 Instead, report vulnerabilities through one of the following channels:
 
-- Email: [security@srcmap.dev](mailto:security@srcmap.dev)
 - GitHub: [Private vulnerability reporting](https://github.com/BartWaardenburg/srcmap/security/advisories/new)
 
 Include as much detail as possible: steps to reproduce, affected versions, and potential impact.
