@@ -36,7 +36,37 @@ fn is_sorted_by_position(mappings: &[Mapping]) -> bool {
 }
 use srcmap_scopes::ScopeInfo;
 
+use std::io;
+
 // ── Public types ───────────────────────────────────────────────────
+
+/// Decomposed source map parts for structured access without JSON serialization.
+///
+/// Returned by [`SourceMapGenerator::into_parts`] and [`StreamingGenerator::into_parts`].
+/// Useful when the caller needs direct access to individual fields (e.g., for NAPI
+/// bindings that pass each field separately) without paying the cost of full JSON
+/// serialization.
+#[derive(Debug, Clone)]
+pub struct SourceMapParts {
+    /// The generated file name, if set.
+    pub file: Option<String>,
+    /// VLQ-encoded mappings string.
+    pub mappings: String,
+    /// List of original source file paths.
+    pub sources: Vec<String>,
+    /// List of identifier names referenced by mappings.
+    pub names: Vec<String>,
+    /// Source content for each source (parallel to `sources`).
+    pub sources_content: Vec<Option<String>>,
+    /// Indices into `sources` that should be ignored by debuggers.
+    pub ignore_list: Vec<u32>,
+    /// Debug ID (UUID) for this source map (ECMA-426).
+    pub debug_id: Option<String>,
+    /// Source root prefix.
+    pub source_root: Option<String>,
+    /// VLQ-encoded range mappings string (ECMA-426 proposal), if any.
+    pub range_mappings: Option<String>,
+}
 
 /// A mapping from a generated position to an original position.
 ///
@@ -824,6 +854,131 @@ impl SourceMapGenerator {
             None, // scopes are not included in decoded map (would need encoding/decoding)
         )
     }
+
+    /// Consume the generator and return decomposed source map parts.
+    ///
+    /// Returns a [`SourceMapParts`] struct with individual fields (file, mappings,
+    /// sources, names, etc.) without performing JSON serialization. Useful for
+    /// NAPI/WASM bindings that need structured access to each field.
+    pub fn into_parts(self) -> SourceMapParts {
+        let mappings = self.encode_mappings();
+        let range_mappings = self.encode_range_mappings();
+
+        SourceMapParts {
+            file: self.file,
+            mappings,
+            sources: self.sources,
+            names: self.names,
+            sources_content: self.sources_content,
+            ignore_list: self.ignore_list,
+            debug_id: self.debug_id,
+            source_root: self.source_root,
+            range_mappings,
+        }
+    }
+
+    /// Serialize the source map as JSON directly into a writer.
+    ///
+    /// Streams JSON output to the writer without building the full JSON string
+    /// in memory. Useful for writing directly to files or network streams.
+    pub fn to_writer(&self, writer: &mut impl io::Write) -> io::Result<()> {
+        // Encode scopes (may introduce names not yet in self.names)
+        let (scopes_str, names_for_json) = if let Some(ref scopes_info) = self.scopes {
+            let mut names = self.names.clone();
+            let s = srcmap_scopes::encode_scopes(scopes_info, &mut names);
+            (Some(s), std::borrow::Cow::Owned(names))
+        } else {
+            (None, std::borrow::Cow::Borrowed(&self.names))
+        };
+
+        writer.write_all(br#"{"version":3"#)?;
+
+        if let Some(ref file) = self.file {
+            writer.write_all(br#","file":"#)?;
+            write_json_quoted(writer, file)?;
+        }
+
+        if let Some(ref root) = self.source_root {
+            writer.write_all(br#","sourceRoot":"#)?;
+            write_json_quoted(writer, root)?;
+        }
+
+        // sources
+        writer.write_all(br#","sources":["#)?;
+        for (i, s) in self.sources.iter().enumerate() {
+            if i > 0 {
+                writer.write_all(b",")?;
+            }
+            write_json_quoted(writer, s)?;
+        }
+        writer.write_all(b"]")?;
+
+        // sourcesContent (only if any content is set)
+        if self.sources_content.iter().any(|c| c.is_some()) {
+            writer.write_all(br#","sourcesContent":["#)?;
+            for (i, c) in self.sources_content.iter().enumerate() {
+                if i > 0 {
+                    writer.write_all(b",")?;
+                }
+                match c {
+                    Some(content) => write_json_quoted(writer, content)?,
+                    None => writer.write_all(b"null")?,
+                }
+            }
+            writer.write_all(b"]")?;
+        }
+
+        // names
+        writer.write_all(br#","names":["#)?;
+        for (i, n) in names_for_json.iter().enumerate() {
+            if i > 0 {
+                writer.write_all(b",")?;
+            }
+            write_json_quoted(writer, n)?;
+        }
+        writer.write_all(b"]")?;
+
+        // mappings
+        writer.write_all(br#","mappings":""#)?;
+        let mut vlq_buf: Vec<u8> = Vec::new();
+        self.encode_mappings_into(&mut vlq_buf);
+        writer.write_all(&vlq_buf)?;
+        writer.write_all(b"\"")?;
+
+        // ignoreList
+        if !self.ignore_list.is_empty() {
+            writer.write_all(br#","ignoreList":["#)?;
+            for (i, &idx) in self.ignore_list.iter().enumerate() {
+                if i > 0 {
+                    writer.write_all(b",")?;
+                }
+                write!(writer, "{idx}")?;
+            }
+            writer.write_all(b"]")?;
+        }
+
+        // rangeMappings
+        if let Some(ref range_mappings) = self.encode_range_mappings() {
+            writer.write_all(br#","rangeMappings":""#)?;
+            writer.write_all(range_mappings.as_bytes())?;
+            writer.write_all(b"\"")?;
+        }
+
+        // debugId
+        if let Some(ref id) = self.debug_id {
+            writer.write_all(br#","debugId":"#)?;
+            write_json_quoted(writer, id)?;
+        }
+
+        // scopes
+        if let Some(ref s) = scopes_str {
+            writer.write_all(br#","scopes":"#)?;
+            write_json_quoted(writer, s)?;
+        }
+
+        writer.write_all(b"}")?;
+        Ok(())
+    }
 }
 
 /// Source map generator that encodes VLQ on-the-fly.
@@ -1427,6 +1582,123 @@ impl StreamingGenerator {
         // SAFETY: VLQ output is always valid ASCII/UTF-8
         unsafe { std::str::from_utf8_unchecked(&self.vlq_out[..end]) }
     }
+
+    /// Consume the streaming generator and return decomposed source map parts.
+    ///
+    /// Returns a [`SourceMapParts`] struct with individual fields (file, mappings,
+    /// sources, names, etc.) without performing JSON serialization. Useful for
+    /// NAPI/WASM bindings that need structured access to each field.
+    pub fn into_parts(self) -> SourceMapParts {
+        let range_mappings = self.encode_range_mappings();
+        // Trim trailing semicolons from VLQ output
+        let end = self
+            .vlq_out
+            .iter()
+            .rposition(|&b| b != b';')
+            .map_or(0, |i| i + 1);
+        // SAFETY: VLQ output is always valid ASCII/UTF-8
+        let mappings = unsafe { String::from_utf8_unchecked(self.vlq_out[..end].to_vec()) };
+
+        SourceMapParts {
+            file: self.file,
+            mappings,
+            sources: self.sources,
+            names: self.names,
+            sources_content: self.sources_content,
+            ignore_list: self.ignore_list,
+            debug_id: self.debug_id,
+            source_root: self.source_root,
+            range_mappings,
+        }
+    }
+
+    /// Serialize the source map as JSON directly into a writer.
+    ///
+    /// Streams JSON output to the writer without building the full JSON string
+    /// in memory. Useful for writing directly to files or network streams.
+    pub fn to_writer(&self, writer: &mut impl io::Write) -> io::Result<()> {
+        let vlq = self.vlq_str();
+
+        writer.write_all(br#"{"version":3"#)?;
+
+        if let Some(ref file) = self.file {
+            writer.write_all(br#","file":"#)?;
+            write_json_quoted(writer, file)?;
+        }
+
+        if let Some(ref root) = self.source_root {
+            writer.write_all(br#","sourceRoot":"#)?;
+            write_json_quoted(writer, root)?;
+        }
+
+        // sources
+        writer.write_all(br#","sources":["#)?;
+        for (i, s) in self.sources.iter().enumerate() {
+            if i > 0 {
+                writer.write_all(b",")?;
+            }
+            write_json_quoted(writer, s)?;
+        }
+        writer.write_all(b"]")?;
+
+        // sourcesContent
+        if self.sources_content.iter().any(|c| c.is_some()) {
+            writer.write_all(br#","sourcesContent":["#)?;
+            for (i, c) in self.sources_content.iter().enumerate() {
+                if i > 0 {
+                    writer.write_all(b",")?;
+                }
+                match c {
+                    Some(content) => write_json_quoted(writer, content)?,
+                    None => writer.write_all(b"null")?,
+                }
+            }
+            writer.write_all(b"]")?;
+        }
+
+        // names
+        writer.write_all(br#","names":["#)?;
+        for (i, n) in self.names.iter().enumerate() {
+            if i > 0 {
+                writer.write_all(b",")?;
+            }
+            write_json_quoted(writer, n)?;
+        }
+        writer.write_all(b"]")?;
+
+        // mappings
+        writer.write_all(br#","mappings":""#)?;
+        writer.write_all(vlq.as_bytes())?;
+        writer.write_all(b"\"")?;
+
+        // ignoreList
+        if !self.ignore_list.is_empty() {
+            writer.write_all(br#","ignoreList":["#)?;
+            for (i, &idx) in self.ignore_list.iter().enumerate() {
+                if i > 0 {
+                    writer.write_all(b",")?;
+                }
+                write!(writer, "{idx}")?;
+            }
+            writer.write_all(b"]")?;
+        }
+
+        // rangeMappings
+        if let Some(ref range_mappings) = self.encode_range_mappings() {
+            writer.write_all(br#","rangeMappings":""#)?;
+            writer.write_all(range_mappings.as_bytes())?;
+            writer.write_all(b"\"")?;
+        }
+
+        // debugId
+        if let Some(ref id) = self.debug_id {
+            writer.write_all(br#","debugId":"#)?;
+            write_json_quoted(writer, id)?;
+        }
+
+        writer.write_all(b"}")?;
+        Ok(())
+    }
 }
 
 /// Encode a slice of mappings for a single line to VLQ bytes.
@@ -1528,6 +1800,13 @@ fn json_quote(s: &str) -> String {
     json_quote_into(&mut out, s);
     // SAFETY: json_quote_into only writes valid UTF-8 (ASCII escapes + original UTF-8 content).
     unsafe { String::from_utf8_unchecked(out) }
+}
+
+/// JSON-quote a string directly into a writer.
+fn write_json_quoted(writer: &mut impl io::Write, s: &str) -> io::Result<()> {
+    let mut buf = Vec::with_capacity(s.len() + 2);
+    json_quote_into(&mut buf, s);
+    writer.write_all(&buf)
 }
 
 // ── Tests ──────────────────────────────────────────────────────────
@@ -2601,5 +2880,170 @@ mod tests {
             assert_eq!(a.name, b.name);
             assert_eq!(a.is_range_mapping, b.is_range_mapping);
         }
+    }
+
+    // ── into_parts tests ────────────────────────────────────
+
+    #[test]
+    fn into_parts_basic() {
+        let mut builder = SourceMapGenerator::new(Some("output.js".to_string()));
+        let src = builder.add_source("input.js");
+        builder.set_source_content(src, "var x = 1;".to_string());
+        let name = builder.add_name("x");
+        builder.add_named_mapping(0, 0, src, 0, 4, name);
+        builder.add_mapping(1, 0, src, 1, 0);
+        builder.set_debug_id("test-id");
+
+        let json = builder.to_json();
+        let sm_json = srcmap_sourcemap::SourceMap::from_json(&json).unwrap();
+
+        // Rebuild with same data for into_parts
+        let mut builder2 = SourceMapGenerator::new(Some("output.js".to_string()));
+        let src2 = builder2.add_source("input.js");
+        builder2.set_source_content(src2, "var x = 1;".to_string());
+        let name2 = builder2.add_name("x");
+        builder2.add_named_mapping(0, 0, src2, 0, 4, name2);
+        builder2.add_mapping(1, 0, src2, 1, 0);
+        builder2.set_debug_id("test-id");
+
+        let parts = builder2.into_parts();
+        assert_eq!(parts.file, Some("output.js".to_string()));
+        assert_eq!(parts.sources, vec!["input.js"]);
+        assert_eq!(parts.names, vec!["x"]);
+        assert_eq!(parts.sources_content, vec![Some("var x = 1;".to_string())]);
+        assert_eq!(parts.debug_id, Some("test-id".to_string()));
+        assert!(!parts.mappings.is_empty());
+
+        // Verify the mappings string produces the same source map
+        let sm_parts = srcmap_sourcemap::SourceMap::from_vlq(
+            &parts.mappings,
+            parts.sources,
+            parts.names,
+            parts.file,
+            parts.source_root,
+            parts.sources_content,
+            parts.ignore_list,
+            parts.debug_id,
+        )
+        .unwrap();
+        assert_eq!(sm_parts.mapping_count(), sm_json.mapping_count());
+    }
+
+    #[test]
+    fn into_parts_empty() {
+        let builder = SourceMapGenerator::new(None);
+        let parts = builder.into_parts();
+        assert_eq!(parts.file, None);
+        assert!(parts.mappings.is_empty());
+        assert!(parts.sources.is_empty());
+        assert!(parts.names.is_empty());
+    }
+
+    #[test]
+    fn into_parts_with_ignore_list() {
+        let mut builder = SourceMapGenerator::new(None);
+        let src = builder.add_source("vendor.js");
+        builder.add_to_ignore_list(src);
+        builder.add_mapping(0, 0, src, 0, 0);
+
+        let parts = builder.into_parts();
+        assert_eq!(parts.ignore_list, vec![0]);
+    }
+
+    #[test]
+    fn into_parts_with_range_mappings() {
+        let mut builder = SourceMapGenerator::new(None);
+        let src = builder.add_source("input.js");
+        builder.add_range_mapping(0, 0, src, 0, 0);
+        builder.add_mapping(0, 5, src, 0, 10);
+
+        let parts = builder.into_parts();
+        assert!(parts.range_mappings.is_some());
+    }
+
+    #[test]
+    fn streaming_into_parts() {
+        let mut sg = StreamingGenerator::new(Some("out.js".to_string()));
+        let src = sg.add_source("input.js");
+        sg.set_source_content(src, "var x = 1;".to_string());
+        let name = sg.add_name("x");
+        sg.add_named_mapping(0, 0, src, 0, 4, name);
+        sg.add_mapping(1, 0, src, 1, 0);
+
+        let parts = sg.into_parts();
+        assert_eq!(parts.file, Some("out.js".to_string()));
+        assert_eq!(parts.sources, vec!["input.js"]);
+        assert_eq!(parts.names, vec!["x"]);
+        assert!(!parts.mappings.is_empty());
+    }
+
+    // ── to_writer tests ────────────────────────────────────
+
+    #[test]
+    fn to_writer_matches_to_json() {
+        let mut builder = SourceMapGenerator::new(Some("output.js".to_string()));
+        let src = builder.add_source("input.js");
+        builder.set_source_content(src, "var x = 1;".to_string());
+        let name = builder.add_name("x");
+        builder.add_named_mapping(0, 0, src, 0, 4, name);
+        builder.add_mapping(1, 0, src, 1, 0);
+
+        let json = builder.to_json();
+        let mut buf = Vec::new();
+        builder.to_writer(&mut buf).unwrap();
+        let writer_output = String::from_utf8(buf).unwrap();
+
+        assert_eq!(json, writer_output);
+    }
+
+    #[test]
+    fn to_writer_empty() {
+        let builder = SourceMapGenerator::new(None);
+        let mut buf = Vec::new();
+        builder.to_writer(&mut buf).unwrap();
+        let output = String::from_utf8(buf).unwrap();
+        assert!(output.contains(r#""version":3"#));
+        assert!(output.contains(r#""mappings":"""#));
+    }
+
+    #[test]
+    fn to_writer_with_all_fields() {
+        let mut builder = SourceMapGenerator::new(Some("bundle.js".to_string()));
+        builder.set_source_root("src/");
+        builder.set_debug_id("test-uuid");
+        let src = builder.add_source("app.ts");
+        builder.set_source_content(src, "const x = 1;".to_string());
+        builder.add_to_ignore_list(src);
+        let name = builder.add_name("x");
+        builder.add_named_mapping(0, 0, src, 0, 6, name);
+
+        let json = builder.to_json();
+        let mut buf = Vec::new();
+        builder.to_writer(&mut buf).unwrap();
+        let writer_output = String::from_utf8(buf).unwrap();
+
+        assert_eq!(json, writer_output);
+
+        // Verify it parses correctly
+        let sm = srcmap_sourcemap::SourceMap::from_json(&writer_output).unwrap();
+        assert_eq!(sm.source(0), "src/app.ts");
+        assert_eq!(sm.name(0), "x");
+    }
+
+    #[test]
+    fn streaming_to_writer_matches_to_json() {
+        let mut sg = StreamingGenerator::new(Some("out.js".to_string()));
+        let src = sg.add_source("input.js");
+        sg.set_source_content(src, "var x = 1;".to_string());
+        let name = sg.add_name("x");
+        sg.add_named_mapping(0, 0, src, 0, 4, name);
+        sg.add_mapping(1, 0, src, 1, 0);
+
+        let json = sg.to_json();
+        let mut buf = Vec::new();
+        sg.to_writer(&mut buf).unwrap();
+        let writer_output = String::from_utf8(buf).unwrap();
+
+        assert_eq!(json, writer_output);
     }
 }
