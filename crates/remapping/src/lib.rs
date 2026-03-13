@@ -57,8 +57,11 @@
 //! ```
 
 use srcmap_generator::{SourceMapGenerator, StreamingGenerator};
-use srcmap_sourcemap::SourceMap;
-use std::collections::HashMap;
+use srcmap_sourcemap::{Mapping, SourceMap};
+use std::collections::HashSet;
+
+const NO_SOURCE: u32 = u32::MAX;
+const NO_NAME: u32 = u32::MAX;
 
 // ── Concatenation ─────────────────────────────────────────────────
 
@@ -83,7 +86,7 @@ impl ConcatBuilder {
     /// `line_offset` is the number of lines to shift all mappings by
     /// (i.e. the line at which this chunk starts in the output).
     pub fn add_map(&mut self, sm: &SourceMap, line_offset: u32) {
-        // Remap sources (add_source deduplicates internally)
+        // Pre-build source index remap table (once per input map, not per mapping)
         let source_indices: Vec<u32> = sm
             .sources
             .iter()
@@ -97,7 +100,7 @@ impl ConcatBuilder {
             })
             .collect();
 
-        // Remap names (add_name deduplicates internally)
+        // Pre-build name index remap table (once per input map)
         let name_indices: Vec<u32> = sm.names.iter().map(|n| self.builder.add_name(n)).collect();
 
         // Copy ignore_list entries
@@ -106,53 +109,47 @@ impl ConcatBuilder {
             self.builder.add_to_ignore_list(global_idx);
         }
 
-        // Add all mappings with line offset
+        // Add all mappings with line offset, using pre-built index tables
         for m in sm.all_mappings() {
             let gen_line = m.generated_line + line_offset;
 
-            if m.source == u32::MAX {
+            if m.source == NO_SOURCE {
                 self.builder
                     .add_generated_mapping(gen_line, m.generated_column);
             } else {
                 let src = source_indices[m.source as usize];
-                if m.is_range_mapping {
-                    if m.name != u32::MAX {
-                        let name = name_indices[m.name as usize];
-                        self.builder.add_named_range_mapping(
-                            gen_line,
-                            m.generated_column,
-                            src,
-                            m.original_line,
-                            m.original_column,
-                            name,
-                        );
-                    } else {
-                        self.builder.add_range_mapping(
-                            gen_line,
-                            m.generated_column,
-                            src,
-                            m.original_line,
-                            m.original_column,
-                        );
-                    }
-                } else if m.name != u32::MAX {
-                    let name = name_indices[m.name as usize];
-                    self.builder.add_named_mapping(
+                let has_name = m.name != NO_NAME;
+                match (has_name, m.is_range_mapping) {
+                    (true, true) => self.builder.add_named_range_mapping(
                         gen_line,
                         m.generated_column,
                         src,
                         m.original_line,
                         m.original_column,
-                        name,
-                    );
-                } else {
-                    self.builder.add_mapping(
+                        name_indices[m.name as usize],
+                    ),
+                    (true, false) => self.builder.add_named_mapping(
                         gen_line,
                         m.generated_column,
                         src,
                         m.original_line,
                         m.original_column,
-                    );
+                        name_indices[m.name as usize],
+                    ),
+                    (false, true) => self.builder.add_range_mapping(
+                        gen_line,
+                        m.generated_column,
+                        src,
+                        m.original_line,
+                        m.original_column,
+                    ),
+                    (false, false) => self.builder.add_mapping(
+                        gen_line,
+                        m.generated_column,
+                        src,
+                        m.original_line,
+                        m.original_column,
+                    ),
                 }
             }
         }
@@ -171,64 +168,236 @@ impl ConcatBuilder {
 
 // ── Composition / Remapping ───────────────────────────────────────
 
-/// Resolved original-source parameters for a single mapping.
-struct MappingParams<'a> {
-    source: Option<&'a str>,
-    source_content: Option<&'a str>,
-    original_line: u32,
-    original_column: u32,
-    name: Option<&'a str>,
+/// Cached per-upstream-map data: index remap tables.
+/// Built once when an upstream map is first loaded, then reused for every
+/// mapping that targets that source — eliminates per-mapping string hashing.
+struct UpstreamCache {
+    /// upstream source idx → builder source idx
+    source_remap: Vec<u32>,
+    /// upstream name idx → builder name idx
+    name_remap: Vec<u32>,
 }
 
-/// Add a mapping to the generator, dispatching to range/non-range variants.
-fn add_mapping_to_builder(
+/// Build index remap tables for an upstream map against a builder.
+fn build_upstream_cache(
+    upstream_sm: &SourceMap,
+    builder: &mut SourceMapGenerator,
+    ignored_sources: &mut HashSet<u32>,
+) -> UpstreamCache {
+    let source_remap: Vec<u32> = upstream_sm
+        .sources
+        .iter()
+        .map(|s| builder.add_source(s))
+        .collect();
+
+    let name_remap: Vec<u32> = upstream_sm
+        .names
+        .iter()
+        .map(|n| builder.add_name(n))
+        .collect();
+
+    // Pre-set sources_content for all upstream sources
+    for (i, builder_idx) in source_remap.iter().enumerate() {
+        if let Some(Some(content)) = upstream_sm.sources_content.get(i) {
+            builder.set_source_content(*builder_idx, content.clone());
+        }
+    }
+
+    // Pre-propagate ignore list entries
+    for &upstream_src in &upstream_sm.ignore_list {
+        let builder_idx = source_remap[upstream_src as usize];
+        if ignored_sources.insert(builder_idx) {
+            builder.add_to_ignore_list(builder_idx);
+        }
+    }
+
+    UpstreamCache {
+        source_remap,
+        name_remap,
+    }
+}
+
+/// Build index remap tables for an upstream map against a streaming builder.
+fn build_upstream_cache_streaming(
+    upstream_sm: &SourceMap,
+    builder: &mut StreamingGenerator,
+    ignored_sources: &mut HashSet<u32>,
+) -> UpstreamCache {
+    let source_remap: Vec<u32> = upstream_sm
+        .sources
+        .iter()
+        .map(|s| builder.add_source(s))
+        .collect();
+
+    let name_remap: Vec<u32> = upstream_sm
+        .names
+        .iter()
+        .map(|n| builder.add_name(n))
+        .collect();
+
+    // Pre-set sources_content for all upstream sources
+    for (i, builder_idx) in source_remap.iter().enumerate() {
+        if let Some(Some(content)) = upstream_sm.sources_content.get(i) {
+            builder.set_source_content(*builder_idx, content.clone());
+        }
+    }
+
+    // Pre-propagate ignore list entries
+    for &upstream_src in &upstream_sm.ignore_list {
+        let builder_idx = source_remap[upstream_src as usize];
+        if ignored_sources.insert(builder_idx) {
+            builder.add_to_ignore_list(builder_idx);
+        }
+    }
+
+    UpstreamCache {
+        source_remap,
+        name_remap,
+    }
+}
+
+/// Look up the original position using the upstream map's line_offsets for O(1)
+/// line access, then binary search within the line slice.
+/// This is semantically equivalent to `upstream_sm.original_position_for()` with
+/// `GreatestLowerBound` bias, but inlined to avoid function call overhead and
+/// to return the raw `Mapping` reference for index-based remapping.
+///
+/// Falls back to range mapping search when the queried line has no mappings or the
+/// column is before the first mapping on the line — matching `original_position_for`.
+#[inline]
+fn lookup_upstream(upstream_sm: &SourceMap, line: u32, column: u32) -> Option<UpstreamLookup> {
+    let line_mappings = upstream_sm.mappings_for_line(line);
+    if line_mappings.is_empty() {
+        return fallback_to_full_lookup(upstream_sm, line, column);
+    }
+
+    let idx = match line_mappings.binary_search_by_key(&column, |m| m.generated_column) {
+        Ok(i) => i,
+        Err(0) => return fallback_to_full_lookup(upstream_sm, line, column),
+        Err(i) => i - 1,
+    };
+
+    let mapping = &line_mappings[idx];
+    if mapping.source == NO_SOURCE {
+        return None;
+    }
+
+    let original_column = if mapping.is_range_mapping && column >= mapping.generated_column {
+        mapping.original_column + (column - mapping.generated_column)
+    } else {
+        mapping.original_column
+    };
+
+    Some(UpstreamLookup {
+        source: mapping.source,
+        original_line: mapping.original_line,
+        original_column,
+        name: mapping.name,
+        is_range_mapping: mapping.is_range_mapping,
+    })
+}
+
+/// Result of looking up a position in an upstream source map.
+/// Carries the resolved source/name indices and original position directly,
+/// so callers don't need to re-inspect the mapping.
+struct UpstreamLookup {
+    source: u32,
+    original_line: u32,
+    original_column: u32,
+    name: u32,
+    is_range_mapping: bool,
+}
+
+/// Fall back to the full `original_position_for` when the inlined lookup can't
+/// resolve (empty line or column before first mapping). This handles range mapping
+/// fallback correctly. Only called on the rare path where the line has no direct
+/// mappings, so the function call overhead is acceptable.
+fn fallback_to_full_lookup(
+    upstream_sm: &SourceMap,
+    line: u32,
+    column: u32,
+) -> Option<UpstreamLookup> {
+    let loc = upstream_sm.original_position_for(line, column)?;
+    Some(UpstreamLookup {
+        source: loc.source,
+        original_line: loc.line,
+        original_column: loc.column,
+        name: loc.name.unwrap_or(NO_NAME),
+        is_range_mapping: false, // doesn't matter for the builder, position is already resolved
+    })
+}
+
+/// Emit a mapping to the builder using pre-built index remap tables.
+/// Uses indices directly, avoiding per-mapping string hashing.
+#[inline]
+#[allow(clippy::too_many_arguments)]
+fn emit_remapped_mapping(
     builder: &mut SourceMapGenerator,
     gen_line: u32,
     gen_col: u32,
-    params: &MappingParams<'_>,
+    builder_src: u32,
+    orig_line: u32,
+    orig_col: u32,
+    builder_name: Option<u32>,
     is_range: bool,
 ) {
-    let source = params.source.expect("source required for source mapping");
-    let src_idx = builder.add_source(source);
-
-    if let Some(content) = params.source_content {
-        builder.set_source_content(src_idx, content.to_string());
+    match (builder_name, is_range) {
+        (Some(n), true) => {
+            builder.add_named_range_mapping(gen_line, gen_col, builder_src, orig_line, orig_col, n);
+        }
+        (Some(n), false) => {
+            builder.add_named_mapping(gen_line, gen_col, builder_src, orig_line, orig_col, n);
+        }
+        (None, true) => {
+            builder.add_range_mapping(gen_line, gen_col, builder_src, orig_line, orig_col);
+        }
+        (None, false) => {
+            builder.add_mapping(gen_line, gen_col, builder_src, orig_line, orig_col);
+        }
     }
+}
 
-    let name_idx = params.name.map(|n| builder.add_name(n));
-
-    match (name_idx, is_range) {
-        (Some(n), true) => builder.add_named_range_mapping(
-            gen_line,
-            gen_col,
-            src_idx,
-            params.original_line,
-            params.original_column,
-            n,
-        ),
-        (Some(n), false) => builder.add_named_mapping(
-            gen_line,
-            gen_col,
-            src_idx,
-            params.original_line,
-            params.original_column,
-            n,
-        ),
-        (None, true) => builder.add_range_mapping(
-            gen_line,
-            gen_col,
-            src_idx,
-            params.original_line,
-            params.original_column,
-        ),
-        (None, false) => builder.add_mapping(
-            gen_line,
-            gen_col,
-            src_idx,
-            params.original_line,
-            params.original_column,
-        ),
+/// Emit a mapping to the streaming builder using pre-built index remap tables.
+#[inline]
+#[allow(clippy::too_many_arguments)]
+fn emit_remapped_mapping_streaming(
+    builder: &mut StreamingGenerator,
+    gen_line: u32,
+    gen_col: u32,
+    builder_src: u32,
+    orig_line: u32,
+    orig_col: u32,
+    builder_name: Option<u32>,
+    is_range: bool,
+) {
+    match (builder_name, is_range) {
+        (Some(n), true) => {
+            builder.add_named_range_mapping(gen_line, gen_col, builder_src, orig_line, orig_col, n);
+        }
+        (Some(n), false) => {
+            builder.add_named_mapping(gen_line, gen_col, builder_src, orig_line, orig_col, n);
+        }
+        (None, true) => {
+            builder.add_range_mapping(gen_line, gen_col, builder_src, orig_line, orig_col);
+        }
+        (None, false) => {
+            builder.add_mapping(gen_line, gen_col, builder_src, orig_line, orig_col);
+        }
     }
+}
+
+/// Per-source entry: either an upstream map + cache, or a passthrough.
+/// Using an enum avoids two separate HashMap lookups per mapping.
+enum SourceEntry {
+    /// Has an upstream map: trace mappings through it.
+    Upstream {
+        map: Box<SourceMap>,
+        cache: UpstreamCache,
+    },
+    /// No upstream map: pass through with builder source index.
+    Passthrough { builder_src: u32 },
+    /// Not yet loaded.
+    Unloaded,
 }
 
 /// Remap a source map by resolving each source through upstream source maps.
@@ -246,188 +415,153 @@ pub fn remap<F>(outer: &SourceMap, loader: F) -> SourceMap
 where
     F: Fn(&str) -> Option<SourceMap>,
 {
-    let mut builder = SourceMapGenerator::new(outer.file.clone());
+    let mapping_count = outer.mapping_count();
+    let source_count = outer.sources.len();
+    let mut builder = SourceMapGenerator::with_capacity(outer.file.clone(), mapping_count);
+    // Mappings are emitted in the same order as outer (already sorted).
+    builder.set_assume_sorted(true);
 
-    // Cache: source name → loaded upstream map (or None)
-    let mut upstream_maps: HashMap<u32, Option<SourceMap>> = HashMap::new();
-    // Track which builder source indices have already been marked as ignored
-    let mut ignored_sources: std::collections::HashSet<u32> = std::collections::HashSet::new();
+    // Flat Vec indexed by outer source index — avoids HashMap per mapping.
+    let mut source_entries: Vec<SourceEntry> =
+        (0..source_count).map(|_| SourceEntry::Unloaded).collect();
+
+    let mut ignored_sources: HashSet<u32> = HashSet::new();
+
+    // Lazy outer name passthrough table (outer name idx → builder name idx)
+    let mut outer_name_remap: Vec<Option<u32>> = vec![None; outer.names.len()];
+
+    // Pre-compute outer ignore set for O(1) lookups
+    let outer_ignore_set: HashSet<u32> = outer.ignore_list.iter().copied().collect();
 
     for m in outer.all_mappings() {
-        if m.source == u32::MAX {
+        if m.source == NO_SOURCE {
             builder.add_generated_mapping(m.generated_line, m.generated_column);
             continue;
         }
 
-        let source_name = outer.source(m.source);
+        let si = m.source as usize;
 
-        // Load upstream map if we haven't already
-        let upstream = upstream_maps
-            .entry(m.source)
-            .or_insert_with(|| loader(source_name));
-
-        match upstream {
-            Some(upstream_sm) => {
-                // Trace through the upstream map
-                match upstream_sm.original_position_for(m.original_line, m.original_column) {
-                    Some(loc) => {
-                        let orig_source = upstream_sm.source(loc.source);
-                        let source_content = upstream_sm
-                            .sources_content
-                            .get(loc.source as usize)
-                            .and_then(|c| c.as_deref());
-
-                        // Resolve name: prefer upstream name if available, else outer name
-                        let name = loc.name.map(|n| upstream_sm.name(n)).or_else(|| {
-                            if m.name != u32::MAX {
-                                Some(outer.name(m.name))
-                            } else {
-                                None
-                            }
-                        });
-
-                        let params = MappingParams {
-                            source: Some(orig_source),
-                            source_content,
-                            original_line: loc.line,
-                            original_column: loc.column,
-                            name,
-                        };
-
-                        add_mapping_to_builder(
-                            &mut builder,
-                            m.generated_line,
-                            m.generated_column,
-                            &params,
-                            m.is_range_mapping,
-                        );
-
-                        // Propagate ignore_list from upstream map
-                        if upstream_sm.ignore_list.contains(&loc.source) {
-                            let src_idx = builder.add_source(orig_source);
-                            if ignored_sources.insert(src_idx) {
-                                builder.add_to_ignore_list(src_idx);
-                            }
-                        }
+        // Load upstream map if not yet cached — Vec index, no hash
+        if matches!(source_entries[si], SourceEntry::Unloaded) {
+            let source_name = outer.source(m.source);
+            match loader(source_name) {
+                Some(upstream_sm) => {
+                    let cache =
+                        build_upstream_cache(&upstream_sm, &mut builder, &mut ignored_sources);
+                    source_entries[si] = SourceEntry::Upstream {
+                        map: Box::new(upstream_sm),
+                        cache,
+                    };
+                }
+                None => {
+                    let idx = builder.add_source(source_name);
+                    if let Some(Some(content)) = outer.sources_content.get(si) {
+                        builder.set_source_content(idx, content.clone());
                     }
-                    None => {
-                        // No mapping in upstream — keep original reference
-                        let name = if m.name != u32::MAX {
-                            Some(outer.name(m.name))
+                    if outer_ignore_set.contains(&m.source) && ignored_sources.insert(idx) {
+                        builder.add_to_ignore_list(idx);
+                    }
+                    source_entries[si] = SourceEntry::Passthrough { builder_src: idx };
+                }
+            }
+        }
+
+        match &source_entries[si] {
+            SourceEntry::Upstream { map, cache } => {
+                match lookup_upstream(map, m.original_line, m.original_column) {
+                    Some(upstream_m) => {
+                        let builder_src = cache.source_remap[upstream_m.source as usize];
+
+                        // Resolve name: prefer upstream name, fall back to outer name
+                        let builder_name = if upstream_m.name != NO_NAME {
+                            Some(cache.name_remap[upstream_m.name as usize])
+                        } else if m.name != NO_NAME {
+                            let name_idx = *outer_name_remap[m.name as usize]
+                                .get_or_insert_with(|| builder.add_name(outer.name(m.name)));
+                            Some(name_idx)
                         } else {
                             None
                         };
 
-                        let params = MappingParams {
-                            source: Some(source_name),
-                            source_content: None,
-                            original_line: m.original_line,
-                            original_column: m.original_column,
-                            name,
-                        };
-
-                        add_mapping_to_builder(
+                        emit_remapped_mapping(
                             &mut builder,
                             m.generated_line,
                             m.generated_column,
-                            &params,
+                            builder_src,
+                            upstream_m.original_line,
+                            upstream_m.original_column,
+                            builder_name,
+                            m.is_range_mapping,
+                        );
+                    }
+                    None => {
+                        // No mapping in upstream — keep original outer reference.
+                        // Register the outer source lazily in the builder.
+                        let builder_src = builder.add_source(outer.source(m.source));
+
+                        let builder_name = if m.name != NO_NAME {
+                            Some(
+                                *outer_name_remap[m.name as usize]
+                                    .get_or_insert_with(|| builder.add_name(outer.name(m.name))),
+                            )
+                        } else {
+                            None
+                        };
+
+                        emit_remapped_mapping(
+                            &mut builder,
+                            m.generated_line,
+                            m.generated_column,
+                            builder_src,
+                            m.original_line,
+                            m.original_column,
+                            builder_name,
                             m.is_range_mapping,
                         );
                     }
                 }
             }
-            None => {
-                // No upstream map — pass through as-is
-                let source_content = outer
-                    .sources_content
-                    .get(m.source as usize)
-                    .and_then(|c| c.as_deref());
+            SourceEntry::Passthrough { builder_src } => {
+                let builder_src = *builder_src;
 
-                let name = if m.name != u32::MAX {
-                    Some(outer.name(m.name))
+                let builder_name = if m.name != NO_NAME {
+                    Some(
+                        *outer_name_remap[m.name as usize]
+                            .get_or_insert_with(|| builder.add_name(outer.name(m.name))),
+                    )
                 } else {
                     None
                 };
 
-                let params = MappingParams {
-                    source: Some(source_name),
-                    source_content,
-                    original_line: m.original_line,
-                    original_column: m.original_column,
-                    name,
-                };
-
-                add_mapping_to_builder(
+                emit_remapped_mapping(
                     &mut builder,
                     m.generated_line,
                     m.generated_column,
-                    &params,
+                    builder_src,
+                    m.original_line,
+                    m.original_column,
+                    builder_name,
                     m.is_range_mapping,
                 );
-
-                // Propagate ignore_list from outer map
-                if outer.ignore_list.contains(&m.source) {
-                    let src_idx = builder.add_source(source_name);
-                    if ignored_sources.insert(src_idx) {
-                        builder.add_to_ignore_list(src_idx);
-                    }
-                }
             }
+            SourceEntry::Unloaded => unreachable!(),
         }
     }
 
     builder.to_decoded_map()
 }
 
-/// Add a mapping to a streaming generator, dispatching to range/non-range variants.
-fn add_mapping_to_streaming(
-    builder: &mut StreamingGenerator,
-    gen_line: u32,
-    gen_col: u32,
-    params: &MappingParams<'_>,
-    is_range: bool,
-) {
-    let source = params.source.expect("source required for source mapping");
-    let src_idx = builder.add_source(source);
-
-    if let Some(content) = params.source_content {
-        builder.set_source_content(src_idx, content.to_string());
-    }
-
-    let name_idx = params.name.map(|n| builder.add_name(n));
-
-    match (name_idx, is_range) {
-        (Some(n), true) => builder.add_named_range_mapping(
-            gen_line,
-            gen_col,
-            src_idx,
-            params.original_line,
-            params.original_column,
-            n,
-        ),
-        (Some(n), false) => builder.add_named_mapping(
-            gen_line,
-            gen_col,
-            src_idx,
-            params.original_line,
-            params.original_column,
-            n,
-        ),
-        (None, true) => builder.add_range_mapping(
-            gen_line,
-            gen_col,
-            src_idx,
-            params.original_line,
-            params.original_column,
-        ),
-        (None, false) => builder.add_mapping(
-            gen_line,
-            gen_col,
-            src_idx,
-            params.original_line,
-            params.original_column,
-        ),
-    }
+/// Per-source entry for streaming variant.
+enum StreamingSourceEntry {
+    /// Has an upstream map: trace mappings through it.
+    Upstream {
+        map: Box<SourceMap>,
+        cache: UpstreamCache,
+    },
+    /// No upstream map: pass through with builder source index.
+    Passthrough { builder_src: u32 },
+    /// Not yet loaded.
+    Unloaded,
 }
 
 /// Streaming variant of [`remap`] that avoids materializing the outer map.
@@ -454,145 +588,153 @@ pub fn remap_streaming<'a, F>(
 where
     F: Fn(&str) -> Option<SourceMap>,
 {
-    let mut builder = StreamingGenerator::new(file);
+    let mut builder = StreamingGenerator::with_capacity(file, 4096);
 
-    // Cache: source index → loaded upstream map (or None)
-    let mut upstream_maps: HashMap<u32, Option<SourceMap>> = HashMap::new();
-    // Track which builder source indices have already been marked as ignored
-    let mut ignored_sources: std::collections::HashSet<u32> = std::collections::HashSet::new();
+    // Flat Vec indexed by outer source index — avoids HashMap per mapping
+    let mut source_entries: Vec<StreamingSourceEntry> = (0..sources.len())
+        .map(|_| StreamingSourceEntry::Unloaded)
+        .collect();
+
+    let mut ignored_sources: HashSet<u32> = HashSet::new();
+
+    // Lazy outer name remap table
+    let mut outer_name_remap: Vec<Option<u32>> = vec![None; names.len()];
+
+    // Pre-compute outer ignore set for O(1) lookups
+    let outer_ignore_set: HashSet<u32> = ignore_list.iter().copied().collect();
 
     for item in mappings_iter {
         let m = match item {
             Ok(m) => m,
-            Err(_) => continue, // skip invalid segments
+            Err(_) => continue,
         };
 
-        if m.source == u32::MAX {
+        if m.source == NO_SOURCE {
             builder.add_generated_mapping(m.generated_line, m.generated_column);
             continue;
         }
 
-        let Some(source_name) = sources.get(m.source as usize) else {
+        let si = m.source as usize;
+        if si >= sources.len() {
             continue;
-        };
+        }
 
-        // Load upstream map if we haven't already
-        let upstream = upstream_maps
-            .entry(m.source)
-            .or_insert_with(|| loader(source_name));
+        // Load upstream map if not yet cached
+        if matches!(source_entries[si], StreamingSourceEntry::Unloaded) {
+            let source_name = &sources[si];
+            match loader(source_name) {
+                Some(upstream_sm) => {
+                    let cache = build_upstream_cache_streaming(
+                        &upstream_sm,
+                        &mut builder,
+                        &mut ignored_sources,
+                    );
+                    source_entries[si] = StreamingSourceEntry::Upstream {
+                        map: Box::new(upstream_sm),
+                        cache,
+                    };
+                }
+                None => {
+                    let idx = builder.add_source(source_name);
+                    if let Some(Some(content)) = sources_content.get(si) {
+                        builder.set_source_content(idx, content.clone());
+                    }
+                    if outer_ignore_set.contains(&m.source) && ignored_sources.insert(idx) {
+                        builder.add_to_ignore_list(idx);
+                    }
+                    source_entries[si] = StreamingSourceEntry::Passthrough { builder_src: idx };
+                }
+            }
+        }
 
-        match upstream {
-            Some(upstream_sm) => {
-                // Trace through the upstream map
-                match upstream_sm.original_position_for(m.original_line, m.original_column) {
-                    Some(loc) => {
-                        let orig_source = upstream_sm.source(loc.source);
-                        let source_content = upstream_sm
-                            .sources_content
-                            .get(loc.source as usize)
-                            .and_then(|c| c.as_deref());
+        match &source_entries[si] {
+            StreamingSourceEntry::Upstream { map, cache } => {
+                match lookup_upstream(map, m.original_line, m.original_column) {
+                    Some(upstream_m) => {
+                        let builder_src = cache.source_remap[upstream_m.source as usize];
 
-                        // Resolve name: prefer upstream name if available, else outer name
-                        let name = loc.name.map(|n| upstream_sm.name(n)).or_else(|| {
-                            if m.name != u32::MAX {
-                                names.get(m.name as usize).map(|s| s.as_str())
-                            } else {
-                                None
-                            }
-                        });
-
-                        let params = MappingParams {
-                            source: Some(orig_source),
-                            source_content,
-                            original_line: loc.line,
-                            original_column: loc.column,
-                            name,
+                        let builder_name = if upstream_m.name != NO_NAME {
+                            Some(cache.name_remap[upstream_m.name as usize])
+                        } else {
+                            resolve_outer_name(&mut outer_name_remap, m.name, names, &mut builder)
                         };
 
-                        add_mapping_to_streaming(
+                        emit_remapped_mapping_streaming(
                             &mut builder,
                             m.generated_line,
                             m.generated_column,
-                            &params,
+                            builder_src,
+                            upstream_m.original_line,
+                            upstream_m.original_column,
+                            builder_name,
                             m.is_range_mapping,
                         );
-
-                        // Propagate ignore_list from upstream map
-                        if upstream_sm.ignore_list.contains(&loc.source) {
-                            let src_idx = builder.add_source(orig_source);
-                            if ignored_sources.insert(src_idx) {
-                                builder.add_to_ignore_list(src_idx);
-                            }
-                        }
                     }
                     None => {
-                        // No mapping in upstream — keep original reference
-                        let name = if m.name != u32::MAX {
-                            names.get(m.name as usize).map(|s| s.as_str())
-                        } else {
-                            None
-                        };
+                        // No mapping in upstream — keep original outer reference
+                        let builder_src = builder.add_source(&sources[si]);
 
-                        let params = MappingParams {
-                            source: Some(source_name),
-                            source_content: None,
-                            original_line: m.original_line,
-                            original_column: m.original_column,
-                            name,
-                        };
+                        let builder_name =
+                            resolve_outer_name(&mut outer_name_remap, m.name, names, &mut builder);
 
-                        add_mapping_to_streaming(
+                        emit_remapped_mapping_streaming(
                             &mut builder,
                             m.generated_line,
                             m.generated_column,
-                            &params,
+                            builder_src,
+                            m.original_line,
+                            m.original_column,
+                            builder_name,
                             m.is_range_mapping,
                         );
                     }
                 }
             }
-            None => {
-                // No upstream map — pass through as-is
-                let source_content = sources_content
-                    .get(m.source as usize)
-                    .and_then(|c| c.as_deref());
+            StreamingSourceEntry::Passthrough { builder_src } => {
+                let builder_src = *builder_src;
 
-                let name = if m.name != u32::MAX {
-                    names.get(m.name as usize).map(|s| s.as_str())
-                } else {
-                    None
-                };
+                let builder_name =
+                    resolve_outer_name(&mut outer_name_remap, m.name, names, &mut builder);
 
-                let params = MappingParams {
-                    source: Some(source_name),
-                    source_content,
-                    original_line: m.original_line,
-                    original_column: m.original_column,
-                    name,
-                };
-
-                add_mapping_to_streaming(
+                emit_remapped_mapping_streaming(
                     &mut builder,
                     m.generated_line,
                     m.generated_column,
-                    &params,
+                    builder_src,
+                    m.original_line,
+                    m.original_column,
+                    builder_name,
                     m.is_range_mapping,
                 );
-
-                // Propagate ignore_list from outer
-                if ignore_list.contains(&m.source) {
-                    let src_idx = builder.add_source(source_name);
-                    if ignored_sources.insert(src_idx) {
-                        builder.add_to_ignore_list(src_idx);
-                    }
-                }
             }
+            StreamingSourceEntry::Unloaded => unreachable!(),
         }
     }
 
     builder
         .to_decoded_map()
         .expect("streaming VLQ should be valid")
+}
+
+/// Resolve an outer name index to a builder name index, caching the result.
+#[inline]
+fn resolve_outer_name(
+    outer_name_remap: &mut [Option<u32>],
+    name_idx: u32,
+    names: &[String],
+    builder: &mut StreamingGenerator,
+) -> Option<u32> {
+    if name_idx == NO_NAME {
+        return None;
+    }
+    let slot = outer_name_remap.get_mut(name_idx as usize)?;
+    if let Some(idx) = *slot {
+        return Some(idx);
+    }
+    let outer_name = names.get(name_idx as usize)?;
+    let idx = builder.add_name(outer_name);
+    *slot = Some(idx);
+    Some(idx)
 }
 
 // ── Tests ─────────────────────────────────────────────────────────
