@@ -17,7 +17,7 @@ jobs:
     name: Publish Rust crates
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - uses: dtolnay/rust-toolchain@stable
 
@@ -95,9 +95,9 @@ jobs:
             target: x86_64-pc-windows-msvc
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
 
@@ -147,14 +147,14 @@ jobs:
           CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER: ${{ matrix.settings.linker || '' }}
 
       - name: Upload codec artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: codec-bindings-${{ matrix.settings.target }}
           path: packages/codec/*.node
           if-no-files-found: error
 
       - name: Upload sourcemap artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: sourcemap-bindings-${{ matrix.settings.target }}
           path: packages/sourcemap/*.node
@@ -164,7 +164,7 @@ jobs:
     name: Build WASM
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -195,28 +195,28 @@ jobs:
         run: rm -f packages/sourcemap-wasm/pkg/.gitignore packages/generator-wasm/pkg/.gitignore packages/remapping-wasm/pkg/.gitignore packages/symbolicate-wasm/pkg/.gitignore
 
       - name: Upload sourcemap-wasm artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: wasm-sourcemap-package
           path: packages/sourcemap-wasm/pkg/
           if-no-files-found: error
 
       - name: Upload generator-wasm artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: wasm-generator-package
           path: packages/generator-wasm/pkg/
           if-no-files-found: error
 
       - name: Upload remapping-wasm artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: wasm-remapping-package
           path: packages/remapping-wasm/pkg/
           if-no-files-found: error
 
       - name: Upload symbolicate-wasm artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: wasm-symbolicate-package
           path: packages/symbolicate-wasm/pkg/
@@ -227,9 +227,9 @@ jobs:
     runs-on: ubuntu-latest
     needs: [build-napi, build-wasm]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
 
@@ -243,39 +243,39 @@ jobs:
         run: npm install -g @napi-rs/cli
 
       - name: Download all codec NAPI artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           path: packages/codec/artifacts
           pattern: codec-bindings-*
           merge-multiple: false
 
       - name: Download all sourcemap NAPI artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           path: packages/sourcemap/artifacts
           pattern: sourcemap-bindings-*
           merge-multiple: false
 
       - name: Download sourcemap-wasm artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           name: wasm-sourcemap-package
           path: packages/sourcemap-wasm/pkg
 
       - name: Download generator-wasm artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           name: wasm-generator-package
           path: packages/generator-wasm/pkg
 
       - name: Download remapping-wasm artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           name: wasm-remapping-package
           path: packages/remapping-wasm/pkg
 
       - name: Download symbolicate-wasm artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           name: wasm-symbolicate-package
           path: packages/symbolicate-wasm/pkg
@@ -331,7 +331,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: [publish-crates, publish-npm]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2

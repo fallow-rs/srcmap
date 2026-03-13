@@ -228,8 +228,118 @@ Environment metadata for source maps. The proposal is minimal at Stage 1 — tra
 
 ---
 
+## Ecosystem Adoption
+
+Based on integration testing across 21 projects. Prioritized by impact and dependency chains.
+
+### Adoption Phase 1: Ship What Already Works
+
+**Commit accumulated bug fixes** found during outreach testing:
+- Path normalization (`normalizePath()`) — matches jridgewell's `resolve-uri` behavior
+- WASM source name resolution through `resolvedSources` in `originalPositionFor`
+- `generatedPositionFor` bias handling (GLB/LUB) and same-line constraint
+- `allGeneratedPositionsFor` LUB semantics and result sorting
+- Reverse index tie-breaking by generated position
+- Decoded mappings stride fix (6→7 for `is_range_mapping`)
+- `SectionedSourceMapInput` type and callable `AnyMap` type signature
+- Dual CJS/ESM exports for `@srcmap/trace-mapping`
+
+**Publish `@srcmap/trace-mapping` v0.3.0**, then open PRs:
+
+| Project | Stars | Downloads/wk | Test Results | Effort |
+|---------|-------|-------------|--------------|--------|
+| v8-to-istanbul | 220 | ~8M (via c8/Jest) | 3/3 files, all snapshots match | `package.json` swap |
+| Jest | 44k | ~30M | 0 regressions (28 pre-existing) | `package.json` swap |
+| Vitest | 14k | ~10M | 600/600 files, 6582 tests | Swap + externalize WASM in 3 Rollup configs |
+
+### Adoption Phase 2: Wrapper Packages
+
+Three wrapper packages unlock 10+ major projects:
+
+**`@srcmap/source-map`** — Mozilla `source-map` v0.6 synchronous API compat
+- Already prototyped and validated (source-map-support: 33/33 tests pass)
+- `SourceMapConsumer`: constructor, `originalPositionFor`, `generatedPositionFor`, `eachMapping`, `sourceContentFor`
+- Unlocks: **Next.js** (130k), **PostCSS** (29k), **Terser** (9k), **source-map-support** (3.3k)
+
+**`@srcmap/remapping`** — `@ampproject/remapping` API compat
+- Default export accepting `(input, loader)` where input is string, object, or array
+- Unlocks: **Vite** (71k), **Angular CLI** (27k), **Babel** (43k, also needs gen-mapping)
+
+**`@srcmap/gen-mapping`** — `@jridgewell/gen-mapping` API compat
+- `GenMapping` constructor, `maybeAddMapping`, `toEncodedMap`, `toDecodedMap`, `setSourceContent`
+- Unlocks: **Babel** (43k)
+
+```
+trace-mapping v0.3 ──→ Jest PR (44k⭐)
+         │              Vitest PR (14k⭐)
+         │              v8-to-istanbul PR (220⭐, 8M dl/wk)
+         │
+         ├─→ @srcmap/source-map ──→ Next.js (130k⭐)
+         │                          Terser (9k⭐)
+         │                          source-map-support (3.3k⭐)
+         │                          PostCSS (29k⭐, needs applySourceMap too)
+         │
+         ├─→ @srcmap/remapping ───→ Vite (71k⭐)
+         │                          Angular CLI (27k⭐)
+         │                          Babel (43k⭐, needs gen-mapping too)
+         │
+         └─→ @srcmap/gen-mapping ─→ Babel (43k⭐)
+```
+
+Total ecosystem reach with Phase 1+2: **~434k GitHub stars** across 10 projects.
+
+### Adoption Phase 3: Rust Performance Gaps
+
+These block adoption in Rust-native tools:
+
+| Gap | Severity | Impact | Details |
+|-----|----------|--------|---------|
+| VLQ encoding 1.8x slower | High | OXC, SWC, Lightning CSS | Profile + optimize `encode_vlq`, consider SIMD/lookup-table |
+| Serialization 2.25x slower | Medium | Rspack | Pre-allocate output buffer, avoid intermediate allocations |
+| Composition 8x slower | High | Rolldown | Missing lookup table API for O(1) line/column access |
+| No structured SourceMap output | Medium | OXC | Export `SourceMap` struct with typed fields |
+
+### Adoption Phase 4: Extended APIs
+
+| API | Effort | Unlocks |
+|-----|--------|---------|
+| `ConcatSourceMapBuilder` (Rust) | Medium | OXC (13k) |
+| `from_data_url()` / `to_data_url()` (Rust) | Small | Lightning CSS (7k) |
+| `fromSourceMap()` / `applySourceMap()` (JS) | Medium | PostCSS (29k) |
+| WASM browser target (`--target web`) | Medium | Vitest browser, all browser tools |
+
+### Adoption Phase 5: Long-Term Strategic
+
+| Target | Approach | Stars |
+|--------|----------|-------|
+| Sentry CLI | Contribute improvements upstream to `rust-sourcemap`, or position for symbolicator | 2k |
+| Node.js runtime | Publish benchmarks → contribute algorithm improvements → WASM vendoring proposal | 110k |
+| Webpack | Add streaming API matching `StreamChunksOfCombinedSourceMap` pattern | 65k |
+| Metro | Low priority — needs multiple wrappers for custom source map extensions | 5.2k |
+
+### Adoption Priority Matrix
+
+| Priority | Item | Effort | Impact |
+|----------|------|--------|--------|
+| **P0** | Commit bug fixes + publish trace-mapping v0.3 | S | — |
+| **P0** | PRs to Jest, Vitest, v8-to-istanbul | S | 58k⭐, 48M dl/wk |
+| **P1** | `@srcmap/source-map` wrapper | M | 171k⭐ |
+| **P1** | `@srcmap/remapping` wrapper | M | 141k⭐ |
+| **P1** | WASM browser target | M | All browser tools |
+| **P2** | `@srcmap/gen-mapping` wrapper | M | 43k⭐ |
+| **P2** | VLQ encoding optimization | M | OXC+SWC+LightningCSS |
+| **P2** | Data URL utilities | S | Lightning CSS (7k⭐) |
+| **P3** | Serialization performance | M | Rspack (12k⭐) |
+| **P3** | Composition performance + lookup table | L | Rolldown (20k⭐) |
+| **P3** | Structured SourceMap type + ConcatBuilder | M | OXC (13k⭐) |
+| **P3** | `fromSourceMap`/`applySourceMap` | M | PostCSS (29k⭐) |
+| **P4** | Node.js benchmarks, Webpack streaming, Metro, Sentry | L | Long-term |
+
+Effort: **S** = days, **M** = 1-2 weeks, **L** = 2+ weeks
+
+---
+
 ## Non-goals
 
-- Full compatibility with the `mozilla/source-map` API surface
 - Source map v1/v2 format support
 - Tight coupling to any specific bundler or compiler

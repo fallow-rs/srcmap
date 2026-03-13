@@ -17,6 +17,8 @@ srcmap-generator      Incremental source map builder
 srcmap-remapping      Concatenation + composition through transform chains
 srcmap-scopes         ECMA-426 scopes & variables (first Rust implementation of the draft proposal)
 srcmap-symbolicate    Stack trace symbolication
+srcmap-hermes         Hermes/React Native source map extensions
+srcmap-ram-bundle     React Native RAM bundle parser
 srcmap-codec          VLQ encode/decode primitives
 srcmap-cli            CLI with structured JSON output
 ```
@@ -44,6 +46,8 @@ srcmap-remapping = "0.2"    # if you compose/concatenate source maps
 | Indexed source maps | **yes** | yes | no | no |
 | ECMA-426 scopes | **yes** | no | no | no |
 | Stack trace symbolication | **yes** | yes | no | no |
+| Hermes/React Native | **yes** | yes | no | no |
+| RAM bundle parsing | **yes** | no | no | no |
 
 [sourcemap]: https://crates.io/crates/sourcemap
 [oxc_sourcemap]: https://crates.io/crates/oxc_sourcemap
