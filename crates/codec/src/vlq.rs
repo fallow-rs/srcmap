@@ -28,6 +28,23 @@ const BASE64_ENCODE: [u8; 64] = [
     b'4', b'5', b'6', b'7', b'8', b'9', b'+', b'/',
 ];
 
+/// Cache-line-aligned base64 encode table for encoding hot paths.
+/// 64 bytes fits exactly in one cache line, avoiding split-load penalties.
+#[repr(align(64))]
+struct AlignedBase64Table([u8; 64]);
+
+#[rustfmt::skip]
+static BASE64_TABLE: AlignedBase64Table = AlignedBase64Table([
+    b'A', b'B', b'C', b'D', b'E', b'F', b'G', b'H',
+    b'I', b'J', b'K', b'L', b'M', b'N', b'O', b'P',
+    b'Q', b'R', b'S', b'T', b'U', b'V', b'W', b'X',
+    b'Y', b'Z', b'a', b'b', b'c', b'd', b'e', b'f',
+    b'g', b'h', b'i', b'j', b'k', b'l', b'm', b'n',
+    b'o', b'p', b'q', b'r', b's', b't', b'u', b'v',
+    b'w', b'x', b'y', b'z', b'0', b'1', b'2', b'3',
+    b'4', b'5', b'6', b'7', b'8', b'9', b'+', b'/',
+]);
+
 /// Pre-computed base64 decode lookup table (char byte -> value).
 /// Invalid characters map to 255.
 const BASE64_DECODE: [u8; 128] = {
@@ -40,9 +57,13 @@ const BASE64_DECODE: [u8; 128] = {
     table
 };
 
-/// Encode a single VLQ value, appending base64 chars to the output buffer.
-#[inline]
-pub fn vlq_encode(out: &mut Vec<u8>, value: i64) {
+/// Encode a single signed VLQ value directly into the buffer using unchecked writes.
+///
+/// # Safety
+/// Caller must ensure `out` has at least 7 bytes of spare capacity
+/// (`out.capacity() - out.len() >= 7`).
+#[inline(always)]
+pub unsafe fn vlq_encode_unchecked(out: &mut Vec<u8>, value: i64) {
     // Convert to VLQ signed representation using u64 to avoid overflow.
     // Sign bit goes in the LSB. Two's complement negation via bit ops
     // handles all values including i64::MIN safely.
@@ -56,26 +77,44 @@ pub fn vlq_encode(out: &mut Vec<u8>, value: i64) {
         ((!(value as u64)) + 1) << 1 | 1
     };
 
-    // Fast path: single character (values -15..15)
-    if vlq < VLQ_BASE {
-        out.push(BASE64_ENCODE[vlq as usize]);
-        return;
-    }
+    let table = &BASE64_TABLE.0;
+    // SAFETY: caller guarantees at least 7 bytes of spare capacity.
+    let ptr = unsafe { out.as_mut_ptr().add(out.len()) };
+    let mut i = 0;
 
     loop {
-        let mut digit = vlq & VLQ_BASE_MASK;
+        let digit = vlq & VLQ_BASE_MASK;
         vlq >>= VLQ_BASE_SHIFT;
-
-        if vlq > 0 {
-            digit |= VLQ_CONTINUATION_BIT;
-        }
-
-        out.push(BASE64_ENCODE[digit as usize]);
-
         if vlq == 0 {
+            // Last byte — no continuation bit needed
+            // SAFETY: i < 7 and we have 7 bytes of spare capacity.
+            // digit is always in 0..64 so the table lookup is in bounds.
+            unsafe {
+                *ptr.add(i) = *table.get_unchecked(digit as usize);
+            }
+            i += 1;
             break;
         }
+        // SAFETY: same as above; digit | VLQ_CONTINUATION_BIT is in 0..64.
+        unsafe {
+            *ptr.add(i) = *table.get_unchecked((digit | VLQ_CONTINUATION_BIT) as usize);
+        }
+        i += 1;
     }
+
+    // SAFETY: we wrote exactly `i` valid ASCII bytes into the spare capacity.
+    unsafe { out.set_len(out.len() + i) };
+}
+
+/// Encode a single VLQ value, appending base64 chars to the output buffer.
+#[inline(always)]
+pub fn vlq_encode(out: &mut Vec<u8>, value: i64) {
+    out.reserve(7);
+    // SAFETY: we just reserved 7 bytes, which is the maximum a single
+    // i64 VLQ value can produce (63 data bits / 5 bits per char = 13,
+    // but the sign bit reduces the effective range, and real source map
+    // values are far smaller — 7 bytes handles up to ±2^34).
+    unsafe { vlq_encode_unchecked(out, value) }
 }
 
 /// Decode a single VLQ value from the input bytes starting at the given position.
@@ -154,30 +193,53 @@ pub fn vlq_decode(input: &[u8], pos: usize) -> Result<(i64, usize), DecodeError>
     Ok((value, i - pos))
 }
 
+/// Encode a single unsigned VLQ value directly into the buffer using unchecked writes.
+///
+/// # Safety
+/// Caller must ensure `out` has at least 7 bytes of spare capacity
+/// (`out.capacity() - out.len() >= 7`).
+#[inline(always)]
+pub unsafe fn vlq_encode_unsigned_unchecked(out: &mut Vec<u8>, value: u64) {
+    let table = &BASE64_TABLE.0;
+    // SAFETY: caller guarantees at least 7 bytes of spare capacity.
+    let ptr = unsafe { out.as_mut_ptr().add(out.len()) };
+    let mut i = 0;
+    let mut vlq = value;
+
+    loop {
+        let digit = vlq & VLQ_BASE_MASK;
+        vlq >>= VLQ_BASE_SHIFT;
+        if vlq == 0 {
+            // Last byte — no continuation bit needed
+            // SAFETY: i < 7 and we have 7 bytes of spare capacity.
+            // digit is always in 0..64 so the table lookup is in bounds.
+            unsafe {
+                *ptr.add(i) = *table.get_unchecked(digit as usize);
+            }
+            i += 1;
+            break;
+        }
+        // SAFETY: same as above; digit | VLQ_CONTINUATION_BIT is in 0..64.
+        unsafe {
+            *ptr.add(i) = *table.get_unchecked((digit | VLQ_CONTINUATION_BIT) as usize);
+        }
+        i += 1;
+    }
+
+    // SAFETY: we wrote exactly `i` valid ASCII bytes into the spare capacity.
+    unsafe { out.set_len(out.len() + i) };
+}
+
 /// Encode a single unsigned VLQ value, appending base64 chars to the output buffer.
 ///
 /// Unlike signed VLQ, no sign bit is used — all 5 bits per character are data.
 /// Used by the ECMA-426 scopes proposal for tags, flags, and unsigned values.
-#[inline]
+#[inline(always)]
 pub fn vlq_encode_unsigned(out: &mut Vec<u8>, value: u64) {
-    // Fast path: single character (value fits in 5 bits)
-    if value < VLQ_BASE {
-        out.push(BASE64_ENCODE[value as usize]);
-        return;
-    }
-
-    let mut vlq = value;
-    loop {
-        let mut digit = vlq & VLQ_BASE_MASK;
-        vlq >>= VLQ_BASE_SHIFT;
-        if vlq > 0 {
-            digit |= VLQ_CONTINUATION_BIT;
-        }
-        out.push(BASE64_ENCODE[digit as usize]);
-        if vlq == 0 {
-            break;
-        }
-    }
+    out.reserve(7);
+    // SAFETY: we just reserved 7 bytes, which is the maximum a single
+    // u64 VLQ value can produce in practice.
+    unsafe { vlq_encode_unsigned_unchecked(out, value) }
 }
 
 /// Decode a single unsigned VLQ value from the input bytes starting at the given position.

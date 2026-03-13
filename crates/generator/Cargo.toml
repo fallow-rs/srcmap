@@ -21,6 +21,7 @@ srcmap-codec = { workspace = true }
 srcmap-sourcemap = { workspace = true }
 srcmap-scopes = { workspace = true }
 rayon = { workspace = true, optional = true }
+rustc-hash = { workspace = true }
 
 [dev-dependencies]
 serde = { workspace = true }

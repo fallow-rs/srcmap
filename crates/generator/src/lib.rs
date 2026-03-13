@@ -24,9 +24,8 @@
 //! }
 //! ```
 
-use std::collections::HashMap;
-
-use srcmap_codec::{vlq_encode, vlq_encode_unsigned};
+use rustc_hash::FxHashMap;
+use srcmap_codec::{vlq_encode, vlq_encode_unchecked, vlq_encode_unsigned};
 use srcmap_scopes::ScopeInfo;
 
 // ── Public types ───────────────────────────────────────────────────
@@ -79,10 +78,11 @@ pub struct SourceMapGenerator {
     ignore_list: Vec<u32>,
     debug_id: Option<String>,
     scopes: Option<ScopeInfo>,
+    assume_sorted: bool,
 
     // Dedup maps for O(1) lookup
-    source_map: HashMap<String, u32>,
-    name_map: HashMap<String, u32>,
+    source_map: FxHashMap<String, u32>,
+    name_map: FxHashMap<String, u32>,
 }
 
 impl SourceMapGenerator {
@@ -98,8 +98,9 @@ impl SourceMapGenerator {
             ignore_list: Vec::new(),
             debug_id: None,
             scopes: None,
-            source_map: HashMap::new(),
-            name_map: HashMap::new(),
+            assume_sorted: false,
+            source_map: FxHashMap::default(),
+            name_map: FxHashMap::default(),
         }
     }
 
@@ -116,6 +117,17 @@ impl SourceMapGenerator {
     /// Set scope and variable information (ECMA-426 scopes proposal).
     pub fn set_scopes(&mut self, scopes: ScopeInfo) {
         self.scopes = Some(scopes);
+    }
+
+    /// Assume mappings are already sorted by `(generated_line, generated_column)`.
+    ///
+    /// When set to `true`, [`encode_mappings`](Self::encode_mappings) and
+    /// [`to_decoded_map`](Self::to_decoded_map) skip the sort step, avoiding
+    /// both the `O(n log n)` sort and the `Vec<&Mapping>` allocation.
+    /// Most bundlers add mappings in order, so this is a safe optimization
+    /// in the common case.
+    pub fn set_assume_sorted(&mut self, sorted: bool) {
+        self.assume_sorted = sorted;
     }
 
     /// Register a source file and return its index.
@@ -293,6 +305,10 @@ impl SourceMapGenerator {
             return String::new();
         }
 
+        if self.assume_sorted {
+            return Self::encode_sequential_impl(&self.mappings);
+        }
+
         // Sort mappings by (generated_line, generated_column)
         let mut sorted: Vec<&Mapping> = self.mappings.iter().collect();
         sorted.sort_unstable_by(|a, b| {
@@ -310,8 +326,9 @@ impl SourceMapGenerator {
     }
 
     #[inline]
-    fn encode_sequential_impl(sorted: &[&Mapping]) -> String {
-        let mut out: Vec<u8> = Vec::with_capacity(sorted.len() * 6);
+    fn encode_sequential_impl<T: std::borrow::Borrow<Mapping>>(sorted: &[T]) -> String {
+        // Pre-allocate enough for all mappings: up to 5 VLQ values × 7 bytes + separators
+        let mut out: Vec<u8> = Vec::with_capacity(sorted.len() * 36);
 
         let mut prev_gen_col: i64 = 0;
         let mut prev_source: i64 = 0;
@@ -321,7 +338,8 @@ impl SourceMapGenerator {
         let mut prev_gen_line: u32 = 0;
         let mut first_in_line = true;
 
-        for m in sorted {
+        for item in sorted {
+            let m = item.borrow();
             while prev_gen_line < m.generated_line {
                 out.push(b';');
                 prev_gen_line += 1;
@@ -334,22 +352,26 @@ impl SourceMapGenerator {
             }
             first_in_line = false;
 
-            vlq_encode(&mut out, m.generated_column as i64 - prev_gen_col);
-            prev_gen_col = m.generated_column as i64;
+            // SAFETY: buffer pre-allocated with 36 bytes per mapping (5×7 + 1 separator).
+            // Each vlq_encode_unchecked writes at most 7 bytes.
+            unsafe {
+                vlq_encode_unchecked(&mut out, m.generated_column as i64 - prev_gen_col);
+                prev_gen_col = m.generated_column as i64;
 
-            if let Some(source) = m.source {
-                vlq_encode(&mut out, source as i64 - prev_source);
-                prev_source = source as i64;
+                if let Some(source) = m.source {
+                    vlq_encode_unchecked(&mut out, source as i64 - prev_source);
+                    prev_source = source as i64;
 
-                vlq_encode(&mut out, m.original_line as i64 - prev_orig_line);
-                prev_orig_line = m.original_line as i64;
+                    vlq_encode_unchecked(&mut out, m.original_line as i64 - prev_orig_line);
+                    prev_orig_line = m.original_line as i64;
 
-                vlq_encode(&mut out, m.original_column as i64 - prev_orig_col);
-                prev_orig_col = m.original_column as i64;
+                    vlq_encode_unchecked(&mut out, m.original_column as i64 - prev_orig_col);
+                    prev_orig_col = m.original_column as i64;
 
-                if let Some(name) = m.name {
-                    vlq_encode(&mut out, name as i64 - prev_name);
-                    prev_name = name as i64;
+                    if let Some(name) = m.name {
+                        vlq_encode_unchecked(&mut out, name as i64 - prev_name);
+                        prev_name = name as i64;
+                    }
                 }
             }
         }
@@ -437,16 +459,21 @@ impl SourceMapGenerator {
             return None;
         }
 
-        let mut sorted: Vec<&Mapping> = self.mappings.iter().collect();
-        sorted.sort_unstable_by(|a, b| {
-            a.generated_line
-                .cmp(&b.generated_line)
-                .then(a.generated_column.cmp(&b.generated_column))
-        });
+        let ordered: Vec<&Mapping> = if self.assume_sorted {
+            self.mappings.iter().collect()
+        } else {
+            let mut sorted: Vec<&Mapping> = self.mappings.iter().collect();
+            sorted.sort_unstable_by(|a, b| {
+                a.generated_line
+                    .cmp(&b.generated_line)
+                    .then(a.generated_column.cmp(&b.generated_column))
+            });
+            sorted
+        };
 
-        let max_line = sorted.last().map_or(0, |m| m.generated_line);
+        let max_line = ordered.last().map_or(0, |m| m.generated_line);
         let mut out: Vec<u8> = Vec::new();
-        let mut sorted_idx = 0;
+        let mut ordered_idx = 0;
 
         for line in 0..=max_line {
             if line > 0 {
@@ -456,8 +483,8 @@ impl SourceMapGenerator {
             let mut first_on_line = true;
             let mut line_local_idx: u64 = 0;
 
-            while sorted_idx < sorted.len() && sorted[sorted_idx].generated_line == line {
-                if sorted[sorted_idx].is_range_mapping {
+            while ordered_idx < ordered.len() && ordered[ordered_idx].generated_line == line {
+                if ordered[ordered_idx].is_range_mapping {
                     if !first_on_line {
                         out.push(b',');
                     }
@@ -467,7 +494,7 @@ impl SourceMapGenerator {
                     prev_offset = line_local_idx;
                 }
                 line_local_idx += 1;
-                sorted_idx += 1;
+                ordered_idx += 1;
             }
         }
 
@@ -487,7 +514,7 @@ impl SourceMapGenerator {
 
     /// Generate the source map as a JSON string.
     pub fn to_json(&self) -> String {
-        use std::fmt::Write;
+        use std::io::Write;
 
         let mappings = self.encode_mappings();
 
@@ -500,32 +527,42 @@ impl SourceMapGenerator {
             (None, std::borrow::Cow::Borrowed(&self.names))
         };
 
-        let mut json = String::with_capacity(256 + mappings.len());
-        json.push_str(r#"{"version":3"#);
+        // Better capacity estimate to avoid reallocs
+        let sources_size: usize = self.sources.iter().map(|s| s.len() + 4).sum();
+        let names_size: usize = names_for_json.iter().map(|n| n.len() + 4).sum();
+        let content_size: usize = self
+            .sources_content
+            .iter()
+            .map(|c| c.as_ref().map_or(5, |s| s.len() + 4))
+            .sum();
+        let capacity = 100 + sources_size + names_size + mappings.len() + content_size;
+
+        let mut json: Vec<u8> = Vec::with_capacity(capacity);
+        json.extend_from_slice(br#"{"version":3"#);
 
         if let Some(ref file) = self.file {
-            json.push_str(r#","file":"#);
+            json.extend_from_slice(br#","file":"#);
             json_quote_into(&mut json, file);
         }
 
         if let Some(ref root) = self.source_root {
-            json.push_str(r#","sourceRoot":"#);
+            json.extend_from_slice(br#","sourceRoot":"#);
             json_quote_into(&mut json, root);
         }
 
         // sources
-        json.push_str(r#","sources":["#);
+        json.extend_from_slice(br#","sources":["#);
         for (i, s) in self.sources.iter().enumerate() {
             if i > 0 {
-                json.push(',');
+                json.push(b',');
             }
             json_quote_into(&mut json, s);
         }
-        json.push(']');
+        json.push(b']');
 
         // sourcesContent (only if any content is set)
         if self.sources_content.iter().any(|c| c.is_some()) {
-            json.push_str(r#","sourcesContent":["#);
+            json.extend_from_slice(br#","sourcesContent":["#);
 
             #[cfg(feature = "parallel")]
             {
@@ -548,18 +585,18 @@ impl SourceMapGenerator {
                         .collect();
                     for (i, q) in quoted.iter().enumerate() {
                         if i > 0 {
-                            json.push(',');
+                            json.push(b',');
                         }
-                        json.push_str(q);
+                        json.extend_from_slice(q.as_bytes());
                     }
                 } else {
                     for (i, c) in self.sources_content.iter().enumerate() {
                         if i > 0 {
-                            json.push(',');
+                            json.push(b',');
                         }
                         match c {
                             Some(content) => json_quote_into(&mut json, content),
-                            None => json.push_str("null"),
+                            None => json.extend_from_slice(b"null"),
                         }
                     }
                 }
@@ -568,65 +605,68 @@ impl SourceMapGenerator {
             #[cfg(not(feature = "parallel"))]
             for (i, c) in self.sources_content.iter().enumerate() {
                 if i > 0 {
-                    json.push(',');
+                    json.push(b',');
                 }
                 match c {
                     Some(content) => json_quote_into(&mut json, content),
-                    None => json.push_str("null"),
+                    None => json.extend_from_slice(b"null"),
                 }
             }
 
-            json.push(']');
+            json.push(b']');
         }
 
         // names
-        json.push_str(r#","names":["#);
+        json.extend_from_slice(br#","names":["#);
         for (i, n) in names_for_json.iter().enumerate() {
             if i > 0 {
-                json.push(',');
+                json.push(b',');
             }
             json_quote_into(&mut json, n);
         }
-        json.push(']');
+        json.push(b']');
 
         // mappings — VLQ string is pure base64/,/; so no escaping needed
-        json.push_str(r#","mappings":""#);
-        json.push_str(&mappings);
-        json.push('"');
+        json.extend_from_slice(br#","mappings":""#);
+        json.extend_from_slice(mappings.as_bytes());
+        json.push(b'"');
 
         // ignoreList
         if !self.ignore_list.is_empty() {
-            json.push_str(r#","ignoreList":["#);
+            json.extend_from_slice(br#","ignoreList":["#);
             for (i, &idx) in self.ignore_list.iter().enumerate() {
                 if i > 0 {
-                    json.push(',');
+                    json.push(b',');
                 }
                 let _ = write!(json, "{idx}");
             }
-            json.push(']');
+            json.push(b']');
         }
 
         // rangeMappings (only if any range mappings exist)
         if let Some(ref range_mappings) = self.encode_range_mappings() {
-            json.push_str(r#","rangeMappings":""#);
-            json.push_str(range_mappings);
-            json.push('"');
+            json.extend_from_slice(br#","rangeMappings":""#);
+            json.extend_from_slice(range_mappings.as_bytes());
+            json.push(b'"');
         }
 
         // debugId
         if let Some(ref id) = self.debug_id {
-            json.push_str(r#","debugId":"#);
+            json.extend_from_slice(br#","debugId":"#);
             json_quote_into(&mut json, id);
         }
 
         // scopes (ECMA-426 scopes proposal)
         if let Some(ref s) = scopes_str {
-            json.push_str(r#","scopes":"#);
+            json.extend_from_slice(br#","scopes":"#);
             json_quote_into(&mut json, s);
         }
 
-        json.push('}');
-        json
+        json.push(b'}');
+
+        // SAFETY: all content written is valid UTF-8 — ASCII JSON syntax, base64 VLQ,
+        // and original UTF-8 strings passed through json_quote_into.
+        unsafe { String::from_utf8_unchecked(json) }
     }
 
     /// Get the number of mappings.
@@ -639,27 +679,41 @@ impl SourceMapGenerator {
     /// This avoids the encode-then-decode round-trip (VLQ encode to JSON string,
     /// then re-parse) that would otherwise be needed in composition pipelines.
     pub fn to_decoded_map(&self) -> srcmap_sourcemap::SourceMap {
-        // Sort mappings by (generated_line, generated_column) — same as encode_mappings
-        let mut sorted: Vec<&Mapping> = self.mappings.iter().collect();
-        sorted.sort_unstable_by(|a, b| {
-            a.generated_line
-                .cmp(&b.generated_line)
-                .then(a.generated_column.cmp(&b.generated_column))
-        });
-
-        // Convert generator Mapping → sourcemap Mapping
-        let sm_mappings: Vec<srcmap_sourcemap::Mapping> = sorted
-            .iter()
-            .map(|m| srcmap_sourcemap::Mapping {
-                generated_line: m.generated_line,
-                generated_column: m.generated_column,
-                source: m.source.unwrap_or(u32::MAX),
-                original_line: m.original_line,
-                original_column: m.original_column,
-                name: m.name.unwrap_or(u32::MAX),
-                is_range_mapping: m.is_range_mapping,
-            })
-            .collect();
+        let sm_mappings: Vec<srcmap_sourcemap::Mapping> = if self.assume_sorted {
+            // Skip sort — iterate directly over the mappings vec
+            self.mappings
+                .iter()
+                .map(|m| srcmap_sourcemap::Mapping {
+                    generated_line: m.generated_line,
+                    generated_column: m.generated_column,
+                    source: m.source.unwrap_or(u32::MAX),
+                    original_line: m.original_line,
+                    original_column: m.original_column,
+                    name: m.name.unwrap_or(u32::MAX),
+                    is_range_mapping: m.is_range_mapping,
+                })
+                .collect()
+        } else {
+            // Sort mappings by (generated_line, generated_column) — same as encode_mappings
+            let mut sorted: Vec<&Mapping> = self.mappings.iter().collect();
+            sorted.sort_unstable_by(|a, b| {
+                a.generated_line
+                    .cmp(&b.generated_line)
+                    .then(a.generated_column.cmp(&b.generated_column))
+            });
+            sorted
+                .iter()
+                .map(|m| srcmap_sourcemap::Mapping {
+                    generated_line: m.generated_line,
+                    generated_column: m.generated_column,
+                    source: m.source.unwrap_or(u32::MAX),
+                    original_line: m.original_line,
+                    original_column: m.original_column,
+                    name: m.name.unwrap_or(u32::MAX),
+                    is_range_mapping: m.is_range_mapping,
+                })
+                .collect()
+        };
 
         // Build sources_content: convert Vec<Option<String>> → Vec<Option<String>>
         let sources_content: Vec<Option<String>> = self.sources_content.clone();
@@ -722,8 +776,8 @@ pub struct StreamingGenerator {
     debug_id: Option<String>,
 
     // Dedup maps
-    source_map: HashMap<String, u32>,
-    name_map: HashMap<String, u32>,
+    source_map: FxHashMap<String, u32>,
+    name_map: FxHashMap<String, u32>,
 
     // Streaming VLQ state
     vlq_out: Vec<u8>,
@@ -752,8 +806,8 @@ impl StreamingGenerator {
             names: Vec::new(),
             ignore_list: Vec::new(),
             debug_id: None,
-            source_map: HashMap::new(),
-            name_map: HashMap::new(),
+            source_map: FxHashMap::default(),
+            name_map: FxHashMap::default(),
             vlq_out: Vec::with_capacity(1024),
             prev_gen_line: 0,
             prev_gen_col: 0,
@@ -1048,84 +1102,97 @@ impl StreamingGenerator {
 
     /// Generate the source map as a JSON string.
     pub fn to_json(&self) -> String {
-        use std::fmt::Write;
+        use std::io::Write;
 
         let vlq = self.vlq_string();
 
-        let mut json = String::with_capacity(256 + vlq.len());
-        json.push_str(r#"{"version":3"#);
+        // Better capacity estimate to avoid reallocs
+        let sources_size: usize = self.sources.iter().map(|s| s.len() + 4).sum();
+        let names_size: usize = self.names.iter().map(|n| n.len() + 4).sum();
+        let content_size: usize = self
+            .sources_content
+            .iter()
+            .map(|c| c.as_ref().map_or(5, |s| s.len() + 4))
+            .sum();
+        let capacity = 100 + sources_size + names_size + vlq.len() + content_size;
+
+        let mut json: Vec<u8> = Vec::with_capacity(capacity);
+        json.extend_from_slice(br#"{"version":3"#);
 
         if let Some(ref file) = self.file {
-            json.push_str(r#","file":"#);
+            json.extend_from_slice(br#","file":"#);
             json_quote_into(&mut json, file);
         }
 
         if let Some(ref root) = self.source_root {
-            json.push_str(r#","sourceRoot":"#);
+            json.extend_from_slice(br#","sourceRoot":"#);
             json_quote_into(&mut json, root);
         }
 
-        json.push_str(r#","sources":["#);
+        json.extend_from_slice(br#","sources":["#);
         for (i, s) in self.sources.iter().enumerate() {
             if i > 0 {
-                json.push(',');
+                json.push(b',');
             }
             json_quote_into(&mut json, s);
         }
-        json.push(']');
+        json.push(b']');
 
         if self.sources_content.iter().any(|c| c.is_some()) {
-            json.push_str(r#","sourcesContent":["#);
+            json.extend_from_slice(br#","sourcesContent":["#);
             for (i, c) in self.sources_content.iter().enumerate() {
                 if i > 0 {
-                    json.push(',');
+                    json.push(b',');
                 }
                 match c {
                     Some(content) => json_quote_into(&mut json, content),
-                    None => json.push_str("null"),
+                    None => json.extend_from_slice(b"null"),
                 }
             }
-            json.push(']');
+            json.push(b']');
         }
 
-        json.push_str(r#","names":["#);
+        json.extend_from_slice(br#","names":["#);
         for (i, n) in self.names.iter().enumerate() {
             if i > 0 {
-                json.push(',');
+                json.push(b',');
             }
             json_quote_into(&mut json, n);
         }
-        json.push(']');
+        json.push(b']');
 
         // VLQ string is pure base64/,/; — no escaping needed
-        json.push_str(r#","mappings":""#);
-        json.push_str(&vlq);
-        json.push('"');
+        json.extend_from_slice(br#","mappings":""#);
+        json.extend_from_slice(vlq.as_bytes());
+        json.push(b'"');
 
         if !self.ignore_list.is_empty() {
-            json.push_str(r#","ignoreList":["#);
+            json.extend_from_slice(br#","ignoreList":["#);
             for (i, &idx) in self.ignore_list.iter().enumerate() {
                 if i > 0 {
-                    json.push(',');
+                    json.push(b',');
                 }
                 let _ = write!(json, "{idx}");
             }
-            json.push(']');
+            json.push(b']');
         }
 
         if let Some(ref range_mappings) = self.encode_range_mappings() {
-            json.push_str(r#","rangeMappings":""#);
-            json.push_str(range_mappings);
-            json.push('"');
+            json.extend_from_slice(br#","rangeMappings":""#);
+            json.extend_from_slice(range_mappings.as_bytes());
+            json.push(b'"');
         }
 
         if let Some(ref id) = self.debug_id {
-            json.push_str(r#","debugId":"#);
+            json.extend_from_slice(br#","debugId":"#);
             json_quote_into(&mut json, id);
         }
 
-        json.push('}');
-        json
+        json.push(b'}');
+
+        // SAFETY: all content written is valid UTF-8 — ASCII JSON syntax, base64 VLQ,
+        // and original UTF-8 strings passed through json_quote_into.
+        unsafe { String::from_utf8_unchecked(json) }
     }
 
     /// Directly construct a `SourceMap` from the streaming generator's state.
@@ -1269,50 +1336,51 @@ fn encode_mapping_slice(
     buf
 }
 
-/// JSON-quote a string directly into the output (avoids intermediate allocation).
-fn json_quote_into(out: &mut String, s: &str) {
+/// JSON-quote a string directly into a byte buffer (avoids UTF-8 validation overhead).
+fn json_quote_into(out: &mut Vec<u8>, s: &str) {
     let bytes = s.as_bytes();
-    out.push('"');
+    out.push(b'"');
 
     let mut start = 0;
     for (i, &b) in bytes.iter().enumerate() {
-        let escape = match b {
-            b'"' => "\\\"",
-            b'\\' => "\\\\",
-            b'\n' => "\\n",
-            b'\r' => "\\r",
-            b'\t' => "\\t",
+        let escape: &[u8] = match b {
+            b'"' => b"\\\"",
+            b'\\' => b"\\\\",
+            b'\n' => b"\\n",
+            b'\r' => b"\\r",
+            b'\t' => b"\\t",
             0x00..=0x1f => {
-                if start < i {
-                    out.push_str(&s[start..i]);
-                }
-                use std::fmt::Write;
-                let _ = write!(out, "\\u{:04x}", b);
+                out.extend_from_slice(&bytes[start..i]);
+                let hex = b"0123456789abcdef";
+                out.extend_from_slice(&[
+                    b'\\',
+                    b'u',
+                    b'0',
+                    b'0',
+                    hex[(b >> 4) as usize],
+                    hex[(b & 0xf) as usize],
+                ]);
                 start = i + 1;
                 continue;
             }
             _ => continue,
         };
-        if start < i {
-            out.push_str(&s[start..i]);
-        }
-        out.push_str(escape);
+        out.extend_from_slice(&bytes[start..i]);
+        out.extend_from_slice(escape);
         start = i + 1;
     }
 
-    if start < bytes.len() {
-        out.push_str(&s[start..]);
-    }
-
-    out.push('"');
+    out.extend_from_slice(&bytes[start..]);
+    out.push(b'"');
 }
 
 /// JSON-quote a string, returning a new String (used in parallel contexts).
 #[cfg(feature = "parallel")]
 fn json_quote(s: &str) -> String {
-    let mut out = String::with_capacity(s.len() + 2);
+    let mut out = Vec::with_capacity(s.len() + 2);
     json_quote_into(&mut out, s);
-    out
+    // SAFETY: json_quote_into only writes valid UTF-8 (ASCII escapes + original UTF-8 content).
+    unsafe { String::from_utf8_unchecked(out) }
 }
 
 // ── Tests ──────────────────────────────────────────────────────────

@@ -1,5 +1,5 @@
 use crate::SourceMapMappings;
-use crate::vlq::vlq_encode;
+use crate::vlq::vlq_encode_unchecked;
 
 /// Encode decoded source map mappings back into a VLQ-encoded string.
 ///
@@ -12,9 +12,10 @@ pub fn encode(mappings: &SourceMapMappings) -> String {
         return String::new();
     }
 
-    // Estimate capacity: ~4 bytes per segment on average
+    // Estimate capacity: up to 7 bytes per VLQ value, ~5 fields per segment,
+    // plus separators. Over-estimating avoids reallocations.
     let segment_count: usize = mappings.iter().map(|line| line.len()).sum();
-    let mut buf: Vec<u8> = Vec::with_capacity(segment_count * 4 + mappings.len());
+    let mut buf: Vec<u8> = Vec::with_capacity(segment_count * 7 * 5 + mappings.len());
 
     // Cumulative state
     let mut prev_source: i64 = 0;
@@ -41,27 +42,32 @@ pub fn encode(mappings: &SourceMapMappings) -> String {
             }
             wrote_segment = true;
 
-            // Field 1: generated column (delta from previous in this line)
-            vlq_encode(&mut buf, segment[0] - prev_generated_column);
-            prev_generated_column = segment[0];
+            // SAFETY: buffer was pre-allocated with segment_count * 35 + mappings.len() bytes.
+            // Each segment writes at most 5 VLQ values × 7 bytes = 35 bytes plus 1 separator.
+            // Total writes per segment ≤ 36 bytes, and we allocated 36 bytes per segment.
+            unsafe {
+                // Field 1: generated column (delta from previous in this line)
+                vlq_encode_unchecked(&mut buf, segment[0] - prev_generated_column);
+                prev_generated_column = segment[0];
 
-            if segment.len() >= 4 {
-                // Field 2: source index (cumulative delta)
-                vlq_encode(&mut buf, segment[1] - prev_source);
-                prev_source = segment[1];
+                if segment.len() >= 4 {
+                    // Field 2: source index (cumulative delta)
+                    vlq_encode_unchecked(&mut buf, segment[1] - prev_source);
+                    prev_source = segment[1];
 
-                // Field 3: original line (cumulative delta)
-                vlq_encode(&mut buf, segment[2] - prev_original_line);
-                prev_original_line = segment[2];
+                    // Field 3: original line (cumulative delta)
+                    vlq_encode_unchecked(&mut buf, segment[2] - prev_original_line);
+                    prev_original_line = segment[2];
 
-                // Field 4: original column (cumulative delta)
-                vlq_encode(&mut buf, segment[3] - prev_original_column);
-                prev_original_column = segment[3];
+                    // Field 4: original column (cumulative delta)
+                    vlq_encode_unchecked(&mut buf, segment[3] - prev_original_column);
+                    prev_original_column = segment[3];
 
-                if segment.len() >= 5 {
-                    // Field 5: name index (cumulative delta)
-                    vlq_encode(&mut buf, segment[4] - prev_name);
-                    prev_name = segment[4];
+                    if segment.len() >= 5 {
+                        // Field 5: name index (cumulative delta)
+                        vlq_encode_unchecked(&mut buf, segment[4] - prev_name);
+                        prev_name = segment[4];
+                    }
                 }
             }
         }
@@ -85,7 +91,7 @@ fn encode_line_to_bytes(
     init_original_column: i64,
     init_name: i64,
 ) -> Vec<u8> {
-    let mut buf = Vec::with_capacity(segments.len() * 6);
+    let mut buf = Vec::with_capacity(segments.len() * 7 * 5);
     let mut prev_generated_column: i64 = 0;
     let mut prev_source = init_source;
     let mut prev_original_line = init_original_line;
@@ -103,22 +109,25 @@ fn encode_line_to_bytes(
         }
         wrote_segment = true;
 
-        vlq_encode(&mut buf, segment[0] - prev_generated_column);
-        prev_generated_column = segment[0];
+        // SAFETY: buffer pre-allocated with enough capacity for all segments.
+        unsafe {
+            vlq_encode_unchecked(&mut buf, segment[0] - prev_generated_column);
+            prev_generated_column = segment[0];
 
-        if segment.len() >= 4 {
-            vlq_encode(&mut buf, segment[1] - prev_source);
-            prev_source = segment[1];
+            if segment.len() >= 4 {
+                vlq_encode_unchecked(&mut buf, segment[1] - prev_source);
+                prev_source = segment[1];
 
-            vlq_encode(&mut buf, segment[2] - prev_original_line);
-            prev_original_line = segment[2];
+                vlq_encode_unchecked(&mut buf, segment[2] - prev_original_line);
+                prev_original_line = segment[2];
 
-            vlq_encode(&mut buf, segment[3] - prev_original_column);
-            prev_original_column = segment[3];
+                vlq_encode_unchecked(&mut buf, segment[3] - prev_original_column);
+                prev_original_column = segment[3];
 
-            if segment.len() >= 5 {
-                vlq_encode(&mut buf, segment[4] - prev_name);
-                prev_name = segment[4];
+                if segment.len() >= 5 {
+                    vlq_encode_unchecked(&mut buf, segment[4] - prev_name);
+                    prev_name = segment[4];
+                }
             }
         }
     }

@@ -53,6 +53,24 @@ fn bench_generate(c: &mut Criterion) {
         b.iter(|| black_box(builder.to_json()))
     });
 
+    group.bench_function("1000 mappings (assume_sorted)", |b| {
+        let mut builder = build_generator(100, 10, false);
+        builder.set_assume_sorted(true);
+        b.iter(|| black_box(builder.to_json()))
+    });
+
+    group.bench_function("10000 mappings (assume_sorted)", |b| {
+        let mut builder = build_generator(500, 20, false);
+        builder.set_assume_sorted(true);
+        b.iter(|| black_box(builder.to_json()))
+    });
+
+    group.bench_function("100000 mappings (assume_sorted)", |b| {
+        let mut builder = build_generator(5000, 20, false);
+        builder.set_assume_sorted(true);
+        b.iter(|| black_box(builder.to_json()))
+    });
+
     group.finish();
 }
 
