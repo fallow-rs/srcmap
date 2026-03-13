@@ -189,6 +189,11 @@ const traceSegment = (map, line, column) => {
 }
 
 const originalPositionFor = (map, needle) => {
+  // Auto-wrap duck-typed objects (e.g. Vite's DecodedMap) into a TraceMap
+  if (!(map instanceof TraceMap) && !map._wasm) {
+    map = new TraceMap(map)
+  }
+
   let { line, column, bias } = needle
   line--
   if (line < 0) throw new Error(LINE_GTR_ZERO)
@@ -236,6 +241,9 @@ const originalPositionFor = (map, needle) => {
 }
 
 const generatedPositionFor = (map, needle) => {
+  if (!(map instanceof TraceMap) && !map._wasm) {
+    map = new TraceMap(map)
+  }
   const { source, line, column, bias } = needle
   if (line < 1) throw new Error(LINE_GTR_ZERO)
   if (column < 0) throw new Error(COL_GTR_EQ_ZERO)
@@ -257,6 +265,9 @@ const generatedPositionFor = (map, needle) => {
 }
 
 const allGeneratedPositionsFor = (map, needle) => {
+  if (!(map instanceof TraceMap) && !map._wasm) {
+    map = new TraceMap(map)
+  }
   const { source, line, column } = needle
   if (line < 1) throw new Error(LINE_GTR_ZERO)
   if (column < 0) throw new Error(COL_GTR_EQ_ZERO)
@@ -272,6 +283,9 @@ const allGeneratedPositionsFor = (map, needle) => {
 }
 
 const eachMapping = (map, cb) => {
+  if (!(map instanceof TraceMap) && !map._wasm) {
+    map = new TraceMap(map)
+  }
   const decoded = decodedMappings(map)
   const { names, resolvedSources } = map
 
