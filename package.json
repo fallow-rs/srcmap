@@ -2,10 +2,10 @@
   "private": true,
   "scripts": {
     "test": "npm run test:rust && npm run test:js",
-    "test:js": "node --test packages/codec/__tests__/codec.test.mjs packages/sourcemap/__tests__/sourcemap.test.mjs packages/sourcemap-wasm/__tests__/sourcemap-wasm.test.mjs packages/generator-wasm/__tests__/generator-wasm.test.mjs packages/remapping-wasm/__tests__/remapping-wasm.test.mjs packages/trace-mapping/__tests__/trace-mapping.test.mjs",
+    "test:js": "node --test packages/codec/__tests__/codec.test.mjs packages/sourcemap/__tests__/sourcemap.test.mjs packages/sourcemap-wasm/__tests__/sourcemap-wasm.test.mjs packages/generator-wasm/__tests__/generator-wasm.test.mjs packages/remapping-wasm/__tests__/remapping-wasm.test.mjs packages/trace-mapping/__tests__/trace-mapping.test.mjs packages/source-map/__tests__/source-map.test.mjs packages/gen-mapping/__tests__/gen-mapping.test.mjs packages/remapping/__tests__/remapping.test.mjs",
     "test:rust": "cargo test",
     "coverage": "npm run coverage:rust && npm run coverage:js",
-    "coverage:js": "mkdir -p coverage && node --test --experimental-test-coverage --test-reporter=lcov --test-reporter-destination=coverage/js-lcov.info --test-reporter=spec --test-reporter-destination=stdout packages/codec/__tests__/codec.test.mjs packages/sourcemap/__tests__/sourcemap.test.mjs packages/sourcemap-wasm/__tests__/sourcemap-wasm.test.mjs packages/generator-wasm/__tests__/generator-wasm.test.mjs packages/remapping-wasm/__tests__/remapping-wasm.test.mjs packages/trace-mapping/__tests__/trace-mapping.test.mjs",
+    "coverage:js": "mkdir -p coverage && node --test --experimental-test-coverage --test-reporter=lcov --test-reporter-destination=coverage/js-lcov.info --test-reporter=spec --test-reporter-destination=stdout packages/codec/__tests__/codec.test.mjs packages/sourcemap/__tests__/sourcemap.test.mjs packages/sourcemap-wasm/__tests__/sourcemap-wasm.test.mjs packages/generator-wasm/__tests__/generator-wasm.test.mjs packages/remapping-wasm/__tests__/remapping-wasm.test.mjs packages/trace-mapping/__tests__/trace-mapping.test.mjs packages/source-map/__tests__/source-map.test.mjs packages/gen-mapping/__tests__/gen-mapping.test.mjs packages/remapping/__tests__/remapping.test.mjs",
     "coverage:rust": "cargo llvm-cov --lcov --output-path coverage/rust-lcov.info",
     "coverage:html": "npm run coverage:rust:html && npm run coverage:js",
     "coverage:rust:html": "cargo llvm-cov --html"
