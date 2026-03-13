@@ -814,11 +814,12 @@ impl SourceMap {
             (m.source, m.original_line, m.original_column) < (source_idx, line, column)
         });
 
+        // jridgewell's generatedPositionFor searches within a single original
+        // line only, so both GLB and LUB must be constrained to the same line.
         match bias {
             Bias::GreatestLowerBound => {
                 // partition_point gives us the first element >= target.
-                // For GLB, we want the element at or before.
-                // If exact match at idx, use it. Otherwise use idx-1.
+                // For GLB, we want the element at or before on the SAME line.
                 if idx < reverse_index.len() {
                     let mapping = &self.mappings[reverse_index[idx] as usize];
                     if mapping.source == source_idx
@@ -836,7 +837,7 @@ impl SourceMap {
                     return None;
                 }
                 let mapping = &self.mappings[reverse_index[idx - 1] as usize];
-                if mapping.source != source_idx {
+                if mapping.source != source_idx || mapping.original_line != line {
                     return None;
                 }
                 Some(GeneratedLocation {
@@ -849,8 +850,31 @@ impl SourceMap {
                     return None;
                 }
                 let mapping = &self.mappings[reverse_index[idx] as usize];
-                if mapping.source != source_idx {
+                if mapping.source != source_idx || mapping.original_line != line {
                     return None;
+                }
+                // On exact match, scan forward to find the last mapping with the
+                // same (source, origLine, origCol). This matches jridgewell's
+                // upperBound behavior: when multiple generated positions map to
+                // the same original position, return the last one.
+                // On non-exact match, return the first element > target as-is.
+                if mapping.original_column == column {
+                    let mut last_idx = idx;
+                    while last_idx + 1 < reverse_index.len() {
+                        let next = &self.mappings[reverse_index[last_idx + 1] as usize];
+                        if next.source != source_idx
+                            || next.original_line != line
+                            || next.original_column != column
+                        {
+                            break;
+                        }
+                        last_idx += 1;
+                    }
+                    let last_mapping = &self.mappings[reverse_index[last_idx] as usize];
+                    return Some(GeneratedLocation {
+                        line: last_mapping.generated_line,
+                        column: last_mapping.generated_column,
+                    });
                 }
                 Some(GeneratedLocation {
                     line: mapping.generated_line,
@@ -2912,6 +2936,8 @@ fn build_reverse_index(mappings: &[Mapping]) -> Vec<u32> {
             .cmp(&mb.source)
             .then(ma.original_line.cmp(&mb.original_line))
             .then(ma.original_column.cmp(&mb.original_column))
+            .then(ma.generated_line.cmp(&mb.generated_line))
+            .then(ma.generated_column.cmp(&mb.generated_column))
     });
 
     indices
