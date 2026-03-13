@@ -350,6 +350,36 @@ impl SourceMap {
         self.inner.line_count() as u32
     }
 
+    /// Serialize the source map to a JSON string.
+    #[wasm_bindgen(js_name = "toJSON")]
+    pub fn to_json(&self) -> String {
+        self.inner.to_json()
+    }
+
+    /// Serialize the source map to a `data:` URL (base64-encoded JSON).
+    #[wasm_bindgen(js_name = "toDataUrl")]
+    pub fn to_data_url(&self) -> String {
+        self.inner.to_data_url()
+    }
+
+    /// Set or clear the `file` property.
+    #[wasm_bindgen(setter, js_name = "file")]
+    pub fn set_file(&mut self, file: Option<String>) {
+        self.inner.set_file(file);
+    }
+
+    /// Set or clear the `debugId` property.
+    #[wasm_bindgen(setter, js_name = "debugId")]
+    pub fn set_debug_id(&mut self, debug_id: Option<String>) {
+        self.inner.set_debug_id(debug_id);
+    }
+
+    /// Set or clear the `sourceRoot` property.
+    #[wasm_bindgen(setter, js_name = "sourceRoot")]
+    pub fn set_source_root(&mut self, source_root: Option<String>) {
+        self.inner.set_source_root(source_root);
+    }
+
     #[wasm_bindgen(js_name = "encodedMappings")]
     pub fn encoded_mappings(&self) -> String {
         self.inner.encode_mappings()

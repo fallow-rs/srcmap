@@ -551,6 +551,71 @@ where
     builder.to_decoded_map()
 }
 
+/// Compose a chain of pre-parsed source maps into a single source map.
+///
+/// Takes a slice of source maps in chain order: the first map is the outermost
+/// (final transform), and the last is the innermost (closest to original sources).
+/// Each consecutive pair is composed, threading mappings from generated → original.
+///
+/// This is more ergonomic than [`remap`] for cases where all maps are already
+/// parsed (e.g. Rolldown), since no loader closure is needed.
+///
+/// Returns the composed source map, or `None` if the slice is empty.
+///
+/// # Examples
+///
+/// ```
+/// use srcmap_remapping::remap_chain;
+/// use srcmap_sourcemap::SourceMap;
+///
+/// let step1 = r#"{"version":3,"file":"inter.js","sources":["original.js"],"names":[],"mappings":"AAAA;AACA"}"#;
+/// let step2 = r#"{"version":3,"file":"output.js","sources":["inter.js"],"names":[],"mappings":"AAAA;AACA"}"#;
+///
+/// let maps: Vec<SourceMap> = vec![
+///     SourceMap::from_json(step2).unwrap(),
+///     SourceMap::from_json(step1).unwrap(),
+/// ];
+/// let refs: Vec<&SourceMap> = maps.iter().collect();
+/// let result = remap_chain(&refs);
+/// assert!(result.is_some());
+/// let result = result.unwrap();
+/// assert_eq!(result.sources, vec!["original.js"]);
+/// ```
+pub fn remap_chain(maps: &[&SourceMap]) -> Option<SourceMap> {
+    if maps.is_empty() {
+        return None;
+    }
+    if maps.len() == 1 {
+        return Some(maps[0].clone());
+    }
+
+    // Compose from the end: start with the second-to-last as outer,
+    // last as inner, then work backwards.
+    // maps[0] is outermost, maps[len-1] is innermost.
+    // We compose pairwise: result = remap(maps[0], maps[1]), then
+    // result = remap(result, maps[2]), etc. But actually the chain is:
+    // maps[0] (outermost) sources reference maps[1], which sources reference maps[2], etc.
+    // So we compose maps[0] with maps[1], then the result with maps[2], etc.
+    // But remap expects a loader that returns maps for each source.
+    // For a simple chain, each map has sources that map to the next map in the chain.
+
+    // Start with the last two and work forward
+    let mut current = compose_pair(maps[maps.len() - 2], maps[maps.len() - 1]);
+
+    // Compose with remaining maps from right to left
+    for i in (0..maps.len() - 2).rev() {
+        current = compose_pair(maps[i], &current);
+    }
+
+    Some(current)
+}
+
+/// Compose two source maps: outer maps generated → intermediate, inner maps intermediate → original.
+/// All sources in outer are resolved through inner.
+fn compose_pair(outer: &SourceMap, inner: &SourceMap) -> SourceMap {
+    remap(outer, |_source| Some(inner.clone()))
+}
+
 /// Per-source entry for streaming variant.
 enum StreamingSourceEntry {
     /// Has an upstream map: trace mappings through it.
@@ -1520,5 +1585,73 @@ mod tests {
         let loc = result.original_position_for(0, 0).unwrap();
         assert_eq!(result.source(loc.source), "compiled.js");
         assert!(loc.name.is_none());
+    }
+
+    // ── remap_chain tests ────────────────────────────────────────
+
+    #[test]
+    fn remap_chain_empty() {
+        assert!(remap_chain(&[]).is_none());
+    }
+
+    #[test]
+    fn remap_chain_single() {
+        let sm = SourceMap::from_json(
+            r#"{"version":3,"sources":["a.js"],"names":[],"mappings":"AAAA"}"#,
+        )
+        .unwrap();
+        let result = remap_chain(&[&sm]).unwrap();
+        assert_eq!(result.sources, vec!["a.js"]);
+        assert_eq!(result.mapping_count(), 1);
+    }
+
+    #[test]
+    fn remap_chain_two_maps() {
+        // step1: original.js → intermediate.js
+        let step1 = SourceMap::from_json(
+            r#"{"version":3,"file":"intermediate.js","sources":["original.js"],"names":[],"mappings":"AACA;AACA"}"#,
+        )
+        .unwrap();
+        // step2: intermediate.js → output.js
+        let step2 = SourceMap::from_json(
+            r#"{"version":3,"file":"output.js","sources":["intermediate.js"],"names":[],"mappings":"AAAA;AACA"}"#,
+        )
+        .unwrap();
+
+        // Chain: outer (step2) → inner (step1)
+        let result = remap_chain(&[&step2, &step1]).unwrap();
+        assert_eq!(result.sources, vec!["original.js"]);
+
+        // output line 0 → intermediate line 0 → original line 1
+        let loc = result.original_position_for(0, 0).unwrap();
+        assert_eq!(result.source(loc.source), "original.js");
+        assert_eq!(loc.line, 1);
+    }
+
+    #[test]
+    fn remap_chain_three_maps() {
+        // a.js → b.js: line 0 → line 1
+        let a_to_b = SourceMap::from_json(
+            r#"{"version":3,"file":"b.js","sources":["a.js"],"names":[],"mappings":"AACA"}"#,
+        )
+        .unwrap();
+        // b.js → c.js: line 0 → line 0
+        let b_to_c = SourceMap::from_json(
+            r#"{"version":3,"file":"c.js","sources":["b.js"],"names":[],"mappings":"AAAA"}"#,
+        )
+        .unwrap();
+        // c.js → d.js: line 0 → line 0
+        let c_to_d = SourceMap::from_json(
+            r#"{"version":3,"file":"d.js","sources":["c.js"],"names":[],"mappings":"AAAA"}"#,
+        )
+        .unwrap();
+
+        // Chain: d.js → c.js → b.js → a.js
+        let result = remap_chain(&[&c_to_d, &b_to_c, &a_to_b]).unwrap();
+        assert_eq!(result.sources, vec!["a.js"]);
+
+        let loc = result.original_position_for(0, 0).unwrap();
+        assert_eq!(result.source(loc.source), "a.js");
+        assert_eq!(loc.line, 1);
     }
 }
