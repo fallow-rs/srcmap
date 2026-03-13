@@ -25,7 +25,15 @@
 //! ```
 
 use rustc_hash::FxHashMap;
-use srcmap_codec::{vlq_encode, vlq_encode_unchecked, vlq_encode_unsigned};
+use srcmap_codec::{vlq_encode_unchecked, vlq_encode_unsigned};
+
+/// Check whether mappings are already sorted by (generated_line, generated_column).
+#[inline]
+fn is_sorted_by_position(mappings: &[Mapping]) -> bool {
+    mappings.windows(2).all(|w| {
+        (w[0].generated_line, w[0].generated_column) <= (w[1].generated_line, w[1].generated_column)
+    })
+}
 use srcmap_scopes::ScopeInfo;
 
 // ── Public types ───────────────────────────────────────────────────
@@ -95,6 +103,27 @@ impl SourceMapGenerator {
             sources_content: Vec::new(),
             names: Vec::new(),
             mappings: Vec::new(),
+            ignore_list: Vec::new(),
+            debug_id: None,
+            scopes: None,
+            assume_sorted: false,
+            source_map: FxHashMap::default(),
+            name_map: FxHashMap::default(),
+        }
+    }
+
+    /// Create a new source map generator with pre-allocated capacity.
+    ///
+    /// Pre-allocates the internal mappings vector, avoiding re-allocations
+    /// when the number of mappings is known upfront.
+    pub fn with_capacity(file: Option<String>, mapping_capacity: usize) -> Self {
+        Self {
+            file,
+            source_root: None,
+            sources: Vec::new(),
+            sources_content: Vec::new(),
+            names: Vec::new(),
+            mappings: Vec::with_capacity(mapping_capacity),
             ignore_list: Vec::new(),
             debug_id: None,
             scopes: None,
@@ -299,13 +328,60 @@ impl SourceMapGenerator {
         true
     }
 
+    /// Encode all mappings directly into the provided byte buffer.
+    /// Avoids intermediate String allocation when writing to an existing buffer.
+    fn encode_mappings_into(&self, out: &mut Vec<u8>) {
+        if self.mappings.is_empty() {
+            return;
+        }
+
+        // Fast path: skip sort when mappings are already in order (common case
+        // for bundlers that emit mappings sequentially).
+        if self.assume_sorted || is_sorted_by_position(&self.mappings) {
+            #[cfg(feature = "parallel")]
+            if self.mappings.len() >= 4096 {
+                let refs: Vec<&Mapping> = self.mappings.iter().collect();
+                let encoded = Self::encode_parallel_impl(&refs);
+                out.extend_from_slice(encoded.as_bytes());
+                return;
+            }
+            Self::encode_sequential_into(&self.mappings, out);
+            return;
+        }
+
+        // Sort mappings by (generated_line, generated_column)
+        let mut sorted: Vec<&Mapping> = self.mappings.iter().collect();
+        sorted.sort_unstable_by(|a, b| {
+            a.generated_line
+                .cmp(&b.generated_line)
+                .then(a.generated_column.cmp(&b.generated_column))
+        });
+
+        #[cfg(feature = "parallel")]
+        if sorted.len() >= 4096 {
+            let encoded = Self::encode_parallel_impl(&sorted);
+            out.extend_from_slice(encoded.as_bytes());
+            return;
+        }
+
+        Self::encode_sequential_into(&sorted, out);
+    }
+
     /// Encode all mappings to a VLQ-encoded string.
+    #[allow(dead_code)] // Used in tests and parallel path
     fn encode_mappings(&self) -> String {
         if self.mappings.is_empty() {
             return String::new();
         }
 
-        if self.assume_sorted {
+        // Fast path: skip sort when mappings are already in order (common case
+        // for bundlers that emit mappings sequentially).
+        if self.assume_sorted || is_sorted_by_position(&self.mappings) {
+            #[cfg(feature = "parallel")]
+            if self.mappings.len() >= 4096 {
+                let refs: Vec<&Mapping> = self.mappings.iter().collect();
+                return Self::encode_parallel_impl(&refs);
+            }
             return Self::encode_sequential_impl(&self.mappings);
         }
 
@@ -325,10 +401,17 @@ impl SourceMapGenerator {
         Self::encode_sequential_impl(&sorted)
     }
 
+    /// Encode mappings directly into an existing byte buffer.
+    ///
+    /// Writes VLQ-encoded mappings into `out`. Pre-allocates capacity internally
+    /// based on mapping count and max generated line.
     #[inline]
-    fn encode_sequential_impl<T: std::borrow::Borrow<Mapping>>(sorted: &[T]) -> String {
-        // Pre-allocate enough for all mappings: up to 5 VLQ values × 7 bytes + separators
-        let mut out: Vec<u8> = Vec::with_capacity(sorted.len() * 36);
+    fn encode_sequential_into<T: std::borrow::Borrow<Mapping>>(sorted: &[T], out: &mut Vec<u8>) {
+        // Ensure enough capacity: 36 bytes per mapping + semicolons for line gaps
+        let max_line = sorted
+            .last()
+            .map_or(0, |m| m.borrow().generated_line as usize);
+        out.reserve(sorted.len() * 36 + max_line + 1);
 
         let mut prev_gen_col: i64 = 0;
         let mut prev_source: i64 = 0;
@@ -352,29 +435,41 @@ impl SourceMapGenerator {
             }
             first_in_line = false;
 
-            // SAFETY: buffer pre-allocated with 36 bytes per mapping (5×7 + 1 separator).
-            // Each vlq_encode_unchecked writes at most 7 bytes.
+            // SAFETY: buffer pre-allocated with 36 bytes per mapping + max_line
+            // semicolons. Each mapping writes at most 5 × 7 = 35 VLQ bytes
+            // plus 1 separator, and each line gap writes 1 semicolon.
+            // Total capacity = sorted.len() * 36 + max_line + 1 ≥ all writes.
             unsafe {
-                vlq_encode_unchecked(&mut out, m.generated_column as i64 - prev_gen_col);
+                vlq_encode_unchecked(out, m.generated_column as i64 - prev_gen_col);
                 prev_gen_col = m.generated_column as i64;
 
                 if let Some(source) = m.source {
-                    vlq_encode_unchecked(&mut out, source as i64 - prev_source);
+                    vlq_encode_unchecked(out, source as i64 - prev_source);
                     prev_source = source as i64;
 
-                    vlq_encode_unchecked(&mut out, m.original_line as i64 - prev_orig_line);
+                    vlq_encode_unchecked(out, m.original_line as i64 - prev_orig_line);
                     prev_orig_line = m.original_line as i64;
 
-                    vlq_encode_unchecked(&mut out, m.original_column as i64 - prev_orig_col);
+                    vlq_encode_unchecked(out, m.original_column as i64 - prev_orig_col);
                     prev_orig_col = m.original_column as i64;
 
                     if let Some(name) = m.name {
-                        vlq_encode_unchecked(&mut out, name as i64 - prev_name);
+                        vlq_encode_unchecked(out, name as i64 - prev_name);
                         prev_name = name as i64;
                     }
                 }
             }
         }
+    }
+
+    #[inline]
+    #[allow(dead_code)] // Used in tests and parallel path
+    fn encode_sequential_impl<T: std::borrow::Borrow<Mapping>>(sorted: &[T]) -> String {
+        let max_line = sorted
+            .last()
+            .map_or(0, |m| m.borrow().generated_line as usize);
+        let mut out: Vec<u8> = Vec::with_capacity(sorted.len() * 36 + max_line + 1);
+        Self::encode_sequential_into(sorted, &mut out);
 
         // SAFETY: vlq_encode only pushes bytes from BASE64_ENCODE (all ASCII),
         // and we only add b';' and b',' — all valid UTF-8.
@@ -459,7 +554,8 @@ impl SourceMapGenerator {
             return None;
         }
 
-        let ordered: Vec<&Mapping> = if self.assume_sorted {
+        let ordered: Vec<&Mapping> = if self.assume_sorted || is_sorted_by_position(&self.mappings)
+        {
             self.mappings.iter().collect()
         } else {
             let mut sorted: Vec<&Mapping> = self.mappings.iter().collect();
@@ -516,8 +612,6 @@ impl SourceMapGenerator {
     pub fn to_json(&self) -> String {
         use std::io::Write;
 
-        let mappings = self.encode_mappings();
-
         // Encode scopes (may introduce names not yet in self.names)
         let (scopes_str, names_for_json) = if let Some(ref scopes_info) = self.scopes {
             let mut names = self.names.clone();
@@ -527,7 +621,7 @@ impl SourceMapGenerator {
             (None, std::borrow::Cow::Borrowed(&self.names))
         };
 
-        // Better capacity estimate to avoid reallocs
+        // Estimate capacity for JSON output
         let sources_size: usize = self.sources.iter().map(|s| s.len() + 4).sum();
         let names_size: usize = names_for_json.iter().map(|n| n.len() + 4).sum();
         let content_size: usize = self
@@ -535,7 +629,9 @@ impl SourceMapGenerator {
             .iter()
             .map(|c| c.as_ref().map_or(5, |s| s.len() + 4))
             .sum();
-        let capacity = 100 + sources_size + names_size + mappings.len() + content_size;
+        // Estimate mapping size: ~6 bytes per mapping on average
+        let mappings_estimate = self.mappings.len() * 6;
+        let capacity = 100 + sources_size + names_size + mappings_estimate + content_size;
 
         let mut json: Vec<u8> = Vec::with_capacity(capacity);
         json.extend_from_slice(br#"{"version":3"#);
@@ -626,9 +722,10 @@ impl SourceMapGenerator {
         }
         json.push(b']');
 
-        // mappings — VLQ string is pure base64/,/; so no escaping needed
+        // mappings — VLQ string is pure base64/,/; so no escaping needed.
+        // Write directly into the json buffer to avoid intermediate String allocation.
         json.extend_from_slice(br#","mappings":""#);
-        json.extend_from_slice(mappings.as_bytes());
+        self.encode_mappings_into(&mut json);
         json.push(b'"');
 
         // ignoreList
@@ -679,41 +776,30 @@ impl SourceMapGenerator {
     /// This avoids the encode-then-decode round-trip (VLQ encode to JSON string,
     /// then re-parse) that would otherwise be needed in composition pipelines.
     pub fn to_decoded_map(&self) -> srcmap_sourcemap::SourceMap {
-        let sm_mappings: Vec<srcmap_sourcemap::Mapping> = if self.assume_sorted {
-            // Skip sort — iterate directly over the mappings vec
-            self.mappings
-                .iter()
-                .map(|m| srcmap_sourcemap::Mapping {
-                    generated_line: m.generated_line,
-                    generated_column: m.generated_column,
-                    source: m.source.unwrap_or(u32::MAX),
-                    original_line: m.original_line,
-                    original_column: m.original_column,
-                    name: m.name.unwrap_or(u32::MAX),
-                    is_range_mapping: m.is_range_mapping,
-                })
-                .collect()
-        } else {
-            // Sort mappings by (generated_line, generated_column) — same as encode_mappings
-            let mut sorted: Vec<&Mapping> = self.mappings.iter().collect();
-            sorted.sort_unstable_by(|a, b| {
-                a.generated_line
-                    .cmp(&b.generated_line)
-                    .then(a.generated_column.cmp(&b.generated_column))
-            });
-            sorted
-                .iter()
-                .map(|m| srcmap_sourcemap::Mapping {
-                    generated_line: m.generated_line,
-                    generated_column: m.generated_column,
-                    source: m.source.unwrap_or(u32::MAX),
-                    original_line: m.original_line,
-                    original_column: m.original_column,
-                    name: m.name.unwrap_or(u32::MAX),
-                    is_range_mapping: m.is_range_mapping,
-                })
-                .collect()
+        let convert_mapping = |m: &Mapping| srcmap_sourcemap::Mapping {
+            generated_line: m.generated_line,
+            generated_column: m.generated_column,
+            source: m.source.unwrap_or(u32::MAX),
+            original_line: m.original_line,
+            original_column: m.original_column,
+            name: m.name.unwrap_or(u32::MAX),
+            is_range_mapping: m.is_range_mapping,
         };
+
+        let sm_mappings: Vec<srcmap_sourcemap::Mapping> =
+            if self.assume_sorted || is_sorted_by_position(&self.mappings) {
+                // Skip sort — iterate directly over the mappings vec
+                self.mappings.iter().map(convert_mapping).collect()
+            } else {
+                // Sort mappings by (generated_line, generated_column) — same as encode_mappings
+                let mut sorted: Vec<&Mapping> = self.mappings.iter().collect();
+                sorted.sort_unstable_by(|a, b| {
+                    a.generated_line
+                        .cmp(&b.generated_line)
+                        .then(a.generated_column.cmp(&b.generated_column))
+                });
+                sorted.iter().map(|m| convert_mapping(m)).collect()
+            };
 
         // Build sources_content: convert Vec<Option<String>> → Vec<Option<String>>
         let sources_content: Vec<Option<String>> = self.sources_content.clone();
@@ -822,6 +908,32 @@ impl StreamingGenerator {
         }
     }
 
+    /// Create a new streaming source map generator with pre-allocated VLQ capacity.
+    pub fn with_capacity(file: Option<String>, vlq_capacity: usize) -> Self {
+        Self {
+            file,
+            source_root: None,
+            sources: Vec::new(),
+            sources_content: Vec::new(),
+            names: Vec::new(),
+            ignore_list: Vec::new(),
+            debug_id: None,
+            source_map: FxHashMap::default(),
+            name_map: FxHashMap::default(),
+            vlq_out: Vec::with_capacity(vlq_capacity),
+            prev_gen_line: 0,
+            prev_gen_col: 0,
+            prev_source: 0,
+            prev_orig_line: 0,
+            prev_orig_col: 0,
+            prev_name: 0,
+            first_in_line: true,
+            mapping_count: 0,
+            line_local_index: 0,
+            range_entries: Vec::new(),
+        }
+    }
+
     /// Set the source root prefix.
     pub fn set_source_root(&mut self, root: impl Into<String>) {
         self.source_root = Some(root.into());
@@ -878,15 +990,21 @@ impl StreamingGenerator {
     pub fn add_generated_mapping(&mut self, generated_line: u32, generated_column: u32) {
         self.advance_to_line(generated_line);
 
+        // Reserve enough for separator (1) + 1 VLQ value (7) = 8 bytes
+        self.vlq_out.reserve(8);
+
         if !self.first_in_line {
             self.vlq_out.push(b',');
         }
         self.first_in_line = false;
 
-        vlq_encode(
-            &mut self.vlq_out,
-            generated_column as i64 - self.prev_gen_col,
-        );
+        // SAFETY: we just reserved 8 bytes, vlq_encode_unchecked needs at most 7.
+        unsafe {
+            vlq_encode_unchecked(
+                &mut self.vlq_out,
+                generated_column as i64 - self.prev_gen_col,
+            );
+        }
         self.prev_gen_col = generated_column as i64;
         self.line_local_index += 1;
         self.mapping_count += 1;
@@ -906,31 +1024,37 @@ impl StreamingGenerator {
     ) {
         self.advance_to_line(generated_line);
 
+        // Reserve enough for separator (1) + 4 VLQ values (4 × 7 = 28) = 29 bytes
+        self.vlq_out.reserve(29);
+
         if !self.first_in_line {
             self.vlq_out.push(b',');
         }
         self.first_in_line = false;
 
-        vlq_encode(
-            &mut self.vlq_out,
-            generated_column as i64 - self.prev_gen_col,
-        );
-        self.prev_gen_col = generated_column as i64;
+        // SAFETY: we reserved 29 bytes; 4 vlq_encode_unchecked calls use at most 28.
+        unsafe {
+            vlq_encode_unchecked(
+                &mut self.vlq_out,
+                generated_column as i64 - self.prev_gen_col,
+            );
+            self.prev_gen_col = generated_column as i64;
 
-        vlq_encode(&mut self.vlq_out, source as i64 - self.prev_source);
-        self.prev_source = source as i64;
+            vlq_encode_unchecked(&mut self.vlq_out, source as i64 - self.prev_source);
+            self.prev_source = source as i64;
 
-        vlq_encode(
-            &mut self.vlq_out,
-            original_line as i64 - self.prev_orig_line,
-        );
-        self.prev_orig_line = original_line as i64;
+            vlq_encode_unchecked(
+                &mut self.vlq_out,
+                original_line as i64 - self.prev_orig_line,
+            );
+            self.prev_orig_line = original_line as i64;
 
-        vlq_encode(
-            &mut self.vlq_out,
-            original_column as i64 - self.prev_orig_col,
-        );
-        self.prev_orig_col = original_column as i64;
+            vlq_encode_unchecked(
+                &mut self.vlq_out,
+                original_column as i64 - self.prev_orig_col,
+            );
+            self.prev_orig_col = original_column as i64;
+        }
 
         self.line_local_index += 1;
         self.mapping_count += 1;
@@ -953,31 +1077,37 @@ impl StreamingGenerator {
         self.range_entries
             .push((self.prev_gen_line, self.line_local_index));
 
+        // Reserve enough for separator (1) + 4 VLQ values (4 × 7 = 28) = 29 bytes
+        self.vlq_out.reserve(29);
+
         if !self.first_in_line {
             self.vlq_out.push(b',');
         }
         self.first_in_line = false;
 
-        vlq_encode(
-            &mut self.vlq_out,
-            generated_column as i64 - self.prev_gen_col,
-        );
-        self.prev_gen_col = generated_column as i64;
+        // SAFETY: we reserved 29 bytes; 4 vlq_encode_unchecked calls use at most 28.
+        unsafe {
+            vlq_encode_unchecked(
+                &mut self.vlq_out,
+                generated_column as i64 - self.prev_gen_col,
+            );
+            self.prev_gen_col = generated_column as i64;
 
-        vlq_encode(&mut self.vlq_out, source as i64 - self.prev_source);
-        self.prev_source = source as i64;
+            vlq_encode_unchecked(&mut self.vlq_out, source as i64 - self.prev_source);
+            self.prev_source = source as i64;
 
-        vlq_encode(
-            &mut self.vlq_out,
-            original_line as i64 - self.prev_orig_line,
-        );
-        self.prev_orig_line = original_line as i64;
+            vlq_encode_unchecked(
+                &mut self.vlq_out,
+                original_line as i64 - self.prev_orig_line,
+            );
+            self.prev_orig_line = original_line as i64;
 
-        vlq_encode(
-            &mut self.vlq_out,
-            original_column as i64 - self.prev_orig_col,
-        );
-        self.prev_orig_col = original_column as i64;
+            vlq_encode_unchecked(
+                &mut self.vlq_out,
+                original_column as i64 - self.prev_orig_col,
+            );
+            self.prev_orig_col = original_column as i64;
+        }
 
         self.line_local_index += 1;
         self.mapping_count += 1;
@@ -998,34 +1128,40 @@ impl StreamingGenerator {
     ) {
         self.advance_to_line(generated_line);
 
+        // Reserve enough for separator (1) + 5 VLQ values (5 × 7 = 35) = 36 bytes
+        self.vlq_out.reserve(36);
+
         if !self.first_in_line {
             self.vlq_out.push(b',');
         }
         self.first_in_line = false;
 
-        vlq_encode(
-            &mut self.vlq_out,
-            generated_column as i64 - self.prev_gen_col,
-        );
-        self.prev_gen_col = generated_column as i64;
+        // SAFETY: we reserved 36 bytes; 5 vlq_encode_unchecked calls use at most 35.
+        unsafe {
+            vlq_encode_unchecked(
+                &mut self.vlq_out,
+                generated_column as i64 - self.prev_gen_col,
+            );
+            self.prev_gen_col = generated_column as i64;
 
-        vlq_encode(&mut self.vlq_out, source as i64 - self.prev_source);
-        self.prev_source = source as i64;
+            vlq_encode_unchecked(&mut self.vlq_out, source as i64 - self.prev_source);
+            self.prev_source = source as i64;
 
-        vlq_encode(
-            &mut self.vlq_out,
-            original_line as i64 - self.prev_orig_line,
-        );
-        self.prev_orig_line = original_line as i64;
+            vlq_encode_unchecked(
+                &mut self.vlq_out,
+                original_line as i64 - self.prev_orig_line,
+            );
+            self.prev_orig_line = original_line as i64;
 
-        vlq_encode(
-            &mut self.vlq_out,
-            original_column as i64 - self.prev_orig_col,
-        );
-        self.prev_orig_col = original_column as i64;
+            vlq_encode_unchecked(
+                &mut self.vlq_out,
+                original_column as i64 - self.prev_orig_col,
+            );
+            self.prev_orig_col = original_column as i64;
 
-        vlq_encode(&mut self.vlq_out, name as i64 - self.prev_name);
-        self.prev_name = name as i64;
+            vlq_encode_unchecked(&mut self.vlq_out, name as i64 - self.prev_name);
+            self.prev_name = name as i64;
+        }
 
         self.line_local_index += 1;
         self.mapping_count += 1;
@@ -1050,34 +1186,40 @@ impl StreamingGenerator {
         self.range_entries
             .push((self.prev_gen_line, self.line_local_index));
 
+        // Reserve enough for separator (1) + 5 VLQ values (5 × 7 = 35) = 36 bytes
+        self.vlq_out.reserve(36);
+
         if !self.first_in_line {
             self.vlq_out.push(b',');
         }
         self.first_in_line = false;
 
-        vlq_encode(
-            &mut self.vlq_out,
-            generated_column as i64 - self.prev_gen_col,
-        );
-        self.prev_gen_col = generated_column as i64;
+        // SAFETY: we reserved 36 bytes; 5 vlq_encode_unchecked calls use at most 35.
+        unsafe {
+            vlq_encode_unchecked(
+                &mut self.vlq_out,
+                generated_column as i64 - self.prev_gen_col,
+            );
+            self.prev_gen_col = generated_column as i64;
 
-        vlq_encode(&mut self.vlq_out, source as i64 - self.prev_source);
-        self.prev_source = source as i64;
+            vlq_encode_unchecked(&mut self.vlq_out, source as i64 - self.prev_source);
+            self.prev_source = source as i64;
 
-        vlq_encode(
-            &mut self.vlq_out,
-            original_line as i64 - self.prev_orig_line,
-        );
-        self.prev_orig_line = original_line as i64;
+            vlq_encode_unchecked(
+                &mut self.vlq_out,
+                original_line as i64 - self.prev_orig_line,
+            );
+            self.prev_orig_line = original_line as i64;
 
-        vlq_encode(
-            &mut self.vlq_out,
-            original_column as i64 - self.prev_orig_col,
-        );
-        self.prev_orig_col = original_column as i64;
+            vlq_encode_unchecked(
+                &mut self.vlq_out,
+                original_column as i64 - self.prev_orig_col,
+            );
+            self.prev_orig_col = original_column as i64;
 
-        vlq_encode(&mut self.vlq_out, name as i64 - self.prev_name);
-        self.prev_name = name as i64;
+            vlq_encode_unchecked(&mut self.vlq_out, name as i64 - self.prev_name);
+            self.prev_name = name as i64;
+        }
 
         self.line_local_index += 1;
         self.mapping_count += 1;
@@ -1104,7 +1246,7 @@ impl StreamingGenerator {
     pub fn to_json(&self) -> String {
         use std::io::Write;
 
-        let vlq = self.vlq_string();
+        let vlq = self.vlq_str();
 
         // Better capacity estimate to avoid reallocs
         let sources_size: usize = self.sources.iter().map(|s| s.len() + 4).sum();
@@ -1209,7 +1351,7 @@ impl StreamingGenerator {
     pub fn to_decoded_map(
         &self,
     ) -> Result<srcmap_sourcemap::SourceMap, srcmap_sourcemap::ParseError> {
-        let vlq = self.vlq_string();
+        let vlq = self.vlq_str();
         let range_mappings = self.encode_range_mappings();
 
         let sources: Vec<String> = match &self.source_root {
@@ -1220,7 +1362,7 @@ impl StreamingGenerator {
         };
 
         srcmap_sourcemap::SourceMap::from_vlq_with_range_mappings(
-            &vlq,
+            vlq,
             sources,
             self.names.clone(),
             self.file.clone(),
@@ -1275,15 +1417,15 @@ impl StreamingGenerator {
         Some(unsafe { String::from_utf8_unchecked(out) })
     }
 
-    /// Get the VLQ mappings as a string, trimming trailing semicolons.
-    fn vlq_string(&self) -> String {
+    /// Get the VLQ mappings as a str slice, trimming trailing semicolons.
+    fn vlq_str(&self) -> &str {
         let end = self
             .vlq_out
             .iter()
             .rposition(|&b| b != b';')
             .map_or(0, |i| i + 1);
         // SAFETY: VLQ output is always valid ASCII/UTF-8
-        unsafe { String::from_utf8_unchecked(self.vlq_out[..end].to_vec()) }
+        unsafe { std::str::from_utf8_unchecked(&self.vlq_out[..end]) }
     }
 }
 
@@ -1299,7 +1441,8 @@ fn encode_mapping_slice(
     init_orig_col: i64,
     init_name: i64,
 ) -> Vec<u8> {
-    let mut buf = Vec::with_capacity(mappings.len() * 6);
+    // Pre-allocate: 36 bytes per mapping (5 VLQ × 7 + 1 separator)
+    let mut buf = Vec::with_capacity(mappings.len() * 36);
     let mut prev_gen_col: i64 = 0;
     let mut prev_source = init_source;
     let mut prev_orig_line = init_orig_line;
@@ -1313,22 +1456,26 @@ fn encode_mapping_slice(
         }
         first = false;
 
-        vlq_encode(&mut buf, m.generated_column as i64 - prev_gen_col);
-        prev_gen_col = m.generated_column as i64;
+        // SAFETY: buffer pre-allocated with 36 bytes per mapping.
+        // Each iteration writes at most 5 × 7 = 35 VLQ bytes + 1 separator.
+        unsafe {
+            vlq_encode_unchecked(&mut buf, m.generated_column as i64 - prev_gen_col);
+            prev_gen_col = m.generated_column as i64;
 
-        if let Some(source) = m.source {
-            vlq_encode(&mut buf, source as i64 - prev_source);
-            prev_source = source as i64;
+            if let Some(source) = m.source {
+                vlq_encode_unchecked(&mut buf, source as i64 - prev_source);
+                prev_source = source as i64;
 
-            vlq_encode(&mut buf, m.original_line as i64 - prev_orig_line);
-            prev_orig_line = m.original_line as i64;
+                vlq_encode_unchecked(&mut buf, m.original_line as i64 - prev_orig_line);
+                prev_orig_line = m.original_line as i64;
 
-            vlq_encode(&mut buf, m.original_column as i64 - prev_orig_col);
-            prev_orig_col = m.original_column as i64;
+                vlq_encode_unchecked(&mut buf, m.original_column as i64 - prev_orig_col);
+                prev_orig_col = m.original_column as i64;
 
-            if let Some(name) = m.name {
-                vlq_encode(&mut buf, name as i64 - prev_name);
-                prev_name = name as i64;
+                if let Some(name) = m.name {
+                    vlq_encode_unchecked(&mut buf, name as i64 - prev_name);
+                    prev_name = name as i64;
+                }
             }
         }
     }
