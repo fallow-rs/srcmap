@@ -185,51 +185,99 @@ jobs:
       - name: Install wasm-pack
         run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
 
-      - name: Build sourcemap-wasm
-        run: wasm-pack build --target nodejs --release
+      - name: Build sourcemap-wasm (nodejs)
+        run: wasm-pack build --target nodejs --out-dir pkg --release
         working-directory: packages/sourcemap-wasm
 
-      - name: Build generator-wasm
-        run: wasm-pack build --target nodejs --release
+      - name: Build sourcemap-wasm (web)
+        run: wasm-pack build --target web --out-dir web --release
+        working-directory: packages/sourcemap-wasm
+
+      - name: Build generator-wasm (nodejs)
+        run: wasm-pack build --target nodejs --out-dir pkg --release
         working-directory: packages/generator-wasm
 
-      - name: Build remapping-wasm
-        run: wasm-pack build --target nodejs --release
+      - name: Build generator-wasm (web)
+        run: wasm-pack build --target web --out-dir web --release
+        working-directory: packages/generator-wasm
+
+      - name: Build remapping-wasm (nodejs)
+        run: wasm-pack build --target nodejs --out-dir pkg --release
         working-directory: packages/remapping-wasm
 
-      - name: Build symbolicate-wasm
-        run: wasm-pack build --target nodejs --release
+      - name: Build remapping-wasm (web)
+        run: wasm-pack build --target web --out-dir web --release
+        working-directory: packages/remapping-wasm
+
+      - name: Build symbolicate-wasm (nodejs)
+        run: wasm-pack build --target nodejs --out-dir pkg --release
+        working-directory: packages/symbolicate-wasm
+
+      - name: Build symbolicate-wasm (web)
+        run: wasm-pack build --target web --out-dir web --release
         working-directory: packages/symbolicate-wasm
 
       - name: Remove wasm-pack .gitignore files
-        run: rm -f packages/sourcemap-wasm/pkg/.gitignore packages/generator-wasm/pkg/.gitignore packages/remapping-wasm/pkg/.gitignore packages/symbolicate-wasm/pkg/.gitignore
+        run: |
+          rm -f packages/sourcemap-wasm/pkg/.gitignore packages/sourcemap-wasm/web/.gitignore
+          rm -f packages/generator-wasm/pkg/.gitignore packages/generator-wasm/web/.gitignore
+          rm -f packages/remapping-wasm/pkg/.gitignore packages/remapping-wasm/web/.gitignore
+          rm -f packages/symbolicate-wasm/pkg/.gitignore packages/symbolicate-wasm/web/.gitignore
 
-      - name: Upload sourcemap-wasm artifact
+      - name: Upload sourcemap-wasm pkg artifact
         uses: actions/upload-artifact@v5
         with:
           name: wasm-sourcemap-package
           path: packages/sourcemap-wasm/pkg/
           if-no-files-found: error
 
-      - name: Upload generator-wasm artifact
+      - name: Upload sourcemap-wasm web artifact
+        uses: actions/upload-artifact@v5
+        with:
+          name: wasm-sourcemap-web
+          path: packages/sourcemap-wasm/web/
+          if-no-files-found: error
+
+      - name: Upload generator-wasm pkg artifact
         uses: actions/upload-artifact@v5
         with:
           name: wasm-generator-package
           path: packages/generator-wasm/pkg/
           if-no-files-found: error
 
-      - name: Upload remapping-wasm artifact
+      - name: Upload generator-wasm web artifact
+        uses: actions/upload-artifact@v5
+        with:
+          name: wasm-generator-web
+          path: packages/generator-wasm/web/
+          if-no-files-found: error
+
+      - name: Upload remapping-wasm pkg artifact
         uses: actions/upload-artifact@v5
         with:
           name: wasm-remapping-package
           path: packages/remapping-wasm/pkg/
           if-no-files-found: error
 
-      - name: Upload symbolicate-wasm artifact
+      - name: Upload remapping-wasm web artifact
+        uses: actions/upload-artifact@v5
+        with:
+          name: wasm-remapping-web
+          path: packages/remapping-wasm/web/
+          if-no-files-found: error
+
+      - name: Upload symbolicate-wasm pkg artifact
         uses: actions/upload-artifact@v5
         with:
           name: wasm-symbolicate-package
           path: packages/symbolicate-wasm/pkg/
+          if-no-files-found: error
+
+      - name: Upload symbolicate-wasm web artifact
+        uses: actions/upload-artifact@v5
+        with:
+          name: wasm-symbolicate-web
+          path: packages/symbolicate-wasm/web/
           if-no-files-found: error
 
   publish-npm:
@@ -266,29 +314,53 @@ jobs:
           pattern: sourcemap-bindings-*
           merge-multiple: false
 
-      - name: Download sourcemap-wasm artifact
+      - name: Download sourcemap-wasm pkg artifact
         uses: actions/download-artifact@v5
         with:
           name: wasm-sourcemap-package
           path: packages/sourcemap-wasm/pkg
 
-      - name: Download generator-wasm artifact
+      - name: Download sourcemap-wasm web artifact
+        uses: actions/download-artifact@v5
+        with:
+          name: wasm-sourcemap-web
+          path: packages/sourcemap-wasm/web
+
+      - name: Download generator-wasm pkg artifact
         uses: actions/download-artifact@v5
         with:
           name: wasm-generator-package
           path: packages/generator-wasm/pkg
 
-      - name: Download remapping-wasm artifact
+      - name: Download generator-wasm web artifact
+        uses: actions/download-artifact@v5
+        with:
+          name: wasm-generator-web
+          path: packages/generator-wasm/web
+
+      - name: Download remapping-wasm pkg artifact
         uses: actions/download-artifact@v5
         with:
           name: wasm-remapping-package
           path: packages/remapping-wasm/pkg
 
-      - name: Download symbolicate-wasm artifact
+      - name: Download remapping-wasm web artifact
+        uses: actions/download-artifact@v5
+        with:
+          name: wasm-remapping-web
+          path: packages/remapping-wasm/web
+
+      - name: Download symbolicate-wasm pkg artifact
         uses: actions/download-artifact@v5
         with:
           name: wasm-symbolicate-package
           path: packages/symbolicate-wasm/pkg
+
+      - name: Download symbolicate-wasm web artifact
+        uses: actions/download-artifact@v5
+        with:
+          name: wasm-symbolicate-web
+          path: packages/symbolicate-wasm/web
 
       - name: Move codec artifacts
         run: napi artifacts -d artifacts
