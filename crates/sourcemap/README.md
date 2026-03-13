@@ -43,10 +43,12 @@ assert_eq!(pos.column, 0);
 | Method | Description |
 |--------|-------------|
 | `from_json(json) -> Result<SourceMap>` | Parse a source map from a JSON string (regular or indexed) |
+| `from_json_no_content(json) -> Result<SourceMap>` | Parse JSON without allocating `sourcesContent` strings |
 | `from_parts(file, source_root, sources, ...) -> SourceMap` | Build from pre-decoded components and mappings |
 | `from_vlq(mappings_str, sources, names, ...) -> Result<SourceMap>` | Build from pre-parsed components and a VLQ mappings string |
 | `from_vlq_with_range_mappings(mappings_str, ..., range_mappings_str) -> Result<SourceMap>` | Build from VLQ mappings and optional range mappings strings |
 | `from_json_lines(json, start_line, end_line) -> Result<SourceMap>` | Parse and decode only the given generated-line range |
+| `builder() -> SourceMapBuilder` | Create a builder for constructing a `SourceMap` step by step |
 | `original_position_for(line, col) -> Option<OriginalLocation>` | Look up original position for a generated position |
 | `original_position_for_with_bias(line, col, bias) -> Option<OriginalLocation>` | Look up original position with explicit search bias |
 | `generated_position_for(source, line, col) -> Option<GeneratedLocation>` | Reverse lookup: original position to generated position |
@@ -56,12 +58,15 @@ assert_eq!(pos.column, 0);
 | `all_mappings() -> &[Mapping]` | All decoded mappings |
 | `mappings_for_line(line) -> &[Mapping]` | Slice of mappings for a single generated line |
 | `source(index) -> &str` | Resolve a source index to its filename |
+| `get_source(index) -> Option<&str>` | Resolve a source index to its filename, or `None` if out of bounds |
 | `name(index) -> &str` | Resolve a name index to its string |
+| `get_name(index) -> Option<&str>` | Resolve a name index to its string, or `None` if out of bounds |
 | `source_index(name) -> Option<u32>` | Look up a source filename to its index |
 | `line_count() -> usize` | Number of generated lines |
 | `mapping_count() -> usize` | Total number of decoded mappings |
 | `has_range_mappings() -> bool` | Whether any mappings are range mappings |
 | `range_mapping_count() -> usize` | Number of range mappings |
+| `encode_mappings() -> String` | Encode all mappings to a VLQ mappings string |
 | `encode_range_mappings() -> Option<String>` | Encode range mappings to VLQ string |
 | `to_json() -> String` | Serialize the source map to JSON |
 | `to_json_with_options(exclude_content) -> String` | Serialize to JSON, optionally excluding `sourcesContent` |
@@ -71,11 +76,16 @@ assert_eq!(pos.column, 0);
 | Method | Description |
 |--------|-------------|
 | `from_json(json) -> Result<LazySourceMap>` | Parse JSON eagerly but defer VLQ decoding |
+| `from_json_no_content(json) -> Result<LazySourceMap>` | Parse JSON without allocating `sourcesContent` strings |
+| `from_json_fast(json) -> Result<LazySourceMap>` | Fast-scan mode: skips `sourcesContent`, only byte-scans for semicolons |
+| `from_vlq(mappings, sources, names, ...) -> Result<LazySourceMap>` | Build from pre-parsed components and a VLQ mappings string |
 | `decode_line(line) -> Result<Vec<Mapping>>` | Decode mappings for a single generated line on demand |
 | `original_position_for(line, col) -> Option<OriginalLocation>` | Look up original position (decodes the line lazily) |
 | `line_count() -> usize` | Number of generated lines |
 | `source(index) -> &str` | Resolve a source index to its filename |
+| `get_source(index) -> Option<&str>` | Resolve a source index to its filename, or `None` if out of bounds |
 | `name(index) -> &str` | Resolve a name index to its string |
+| `get_name(index) -> Option<&str>` | Resolve a name index to its string, or `None` if out of bounds |
 | `source_index(name) -> Option<u32>` | Look up a source filename to its index |
 | `mappings_for_line(line) -> Vec<Mapping>` | Decoded mappings for a single generated line |
 | `into_sourcemap() -> Result<SourceMap>` | Fully decode and convert to a `SourceMap` |

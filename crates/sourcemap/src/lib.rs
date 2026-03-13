@@ -23,7 +23,7 @@
 //! assert_eq!(pos.column, 0);
 //! ```
 
-use std::cell::{OnceCell, RefCell};
+use std::cell::{Cell, OnceCell, RefCell};
 use std::collections::HashMap;
 use std::fmt;
 
@@ -190,7 +190,7 @@ impl From<srcmap_scopes::ScopesError> for ParseError {
 // ── Helpers ────────────────────────────────────────────────────────
 
 /// Resolve source filenames by applying `source_root` prefix and replacing `None` with empty string.
-fn resolve_sources(raw_sources: &[Option<String>], source_root: &str) -> Vec<String> {
+pub fn resolve_sources(raw_sources: &[Option<String>], source_root: &str) -> Vec<String> {
     raw_sources
         .iter()
         .map(|s| match s {
@@ -263,6 +263,40 @@ struct RawOffset {
     column: u32,
 }
 
+/// Lightweight version that skips sourcesContent allocation.
+/// Used by WASM bindings where sourcesContent is kept JS-side.
+///
+/// Note: Indexed/sectioned source maps are detected via the `sections` field
+/// and must be rejected by callers (LazySourceMap does not support them).
+#[derive(Deserialize)]
+pub struct RawSourceMapLite<'a> {
+    pub version: u32,
+    #[serde(default)]
+    pub file: Option<String>,
+    #[serde(default, rename = "sourceRoot")]
+    pub source_root: Option<String>,
+    #[serde(default)]
+    pub sources: Vec<Option<String>>,
+    #[serde(default)]
+    pub names: Vec<String>,
+    #[serde(default, borrow)]
+    pub mappings: &'a str,
+    #[serde(default, rename = "ignoreList")]
+    pub ignore_list: Option<Vec<u32>>,
+    #[serde(default, rename = "x_google_ignoreList")]
+    pub x_google_ignore_list: Option<Vec<u32>>,
+    #[serde(default, rename = "debugId", alias = "debug_id")]
+    pub debug_id: Option<String>,
+    #[serde(default, borrow)]
+    pub scopes: Option<&'a str>,
+    #[serde(default, borrow, rename = "rangeMappings")]
+    pub range_mappings: Option<&'a str>,
+    /// Indexed source maps use `sections` instead of `mappings`.
+    /// Presence is checked to reject indexed maps in lazy parse paths.
+    #[serde(default)]
+    pub sections: Option<Vec<serde_json::Value>>,
+}
+
 // ── SourceMap ──────────────────────────────────────────────────────
 
 /// A fully-parsed source map with O(log n) position lookups.
@@ -325,6 +359,62 @@ impl SourceMap {
     /// Supports both regular and indexed (sectioned) source maps.
     pub fn from_json(json: &str) -> Result<Self, ParseError> {
         Self::from_json_inner(json, true)
+    }
+
+    /// Parse a source map from JSON, skipping sourcesContent allocation.
+    /// Useful for WASM bindings where sourcesContent is kept on the JS side.
+    /// The resulting SourceMap has an empty `sources_content` vec.
+    pub fn from_json_no_content(json: &str) -> Result<Self, ParseError> {
+        let raw: RawSourceMapLite<'_> = serde_json::from_str(json)?;
+
+        if raw.version != 3 {
+            return Err(ParseError::InvalidVersion(raw.version));
+        }
+
+        let source_root = raw.source_root.as_deref().unwrap_or("");
+        let sources = resolve_sources(&raw.sources, source_root);
+        let source_map = build_source_map(&sources);
+        let (mut mappings, line_offsets) = decode_mappings(raw.mappings)?;
+
+        if let Some(range_mappings_str) = raw.range_mappings
+            && !range_mappings_str.is_empty()
+        {
+            decode_range_mappings(range_mappings_str, &mut mappings, &line_offsets)?;
+        }
+
+        let num_sources = sources.len();
+        let scopes = match raw.scopes {
+            Some(scopes_str) if !scopes_str.is_empty() => Some(srcmap_scopes::decode_scopes(
+                scopes_str,
+                &raw.names,
+                num_sources,
+            )?),
+            _ => None,
+        };
+
+        let ignore_list = match raw.ignore_list {
+            Some(list) => list,
+            None => raw.x_google_ignore_list.unwrap_or_default(),
+        };
+
+        let has_range_mappings = mappings.iter().any(|m| m.is_range_mapping);
+
+        Ok(Self {
+            file: raw.file,
+            source_root: raw.source_root,
+            sources,
+            sources_content: Vec::new(),
+            names: raw.names,
+            ignore_list,
+            extensions: HashMap::new(),
+            debug_id: raw.debug_id,
+            scopes,
+            mappings,
+            line_offsets,
+            reverse_index: OnceCell::new(),
+            source_map,
+            has_range_mappings,
+        })
     }
 
     /// Internal parser with control over whether indexed maps (sections) are allowed.
@@ -651,6 +741,10 @@ impl SourceMap {
         })
     }
 
+    /// Fall back to range mappings when no exact mapping is found for the position.
+    ///
+    /// Uses `saturating_sub` for column delta to prevent underflow when the
+    /// query column is before the range mapping's generated column.
     fn range_mapping_fallback(&self, line: u32, column: u32) -> Option<OriginalLocation> {
         let line_idx = line as usize;
         let search_end = if line_idx + 1 < self.line_offsets.len() {
@@ -667,7 +761,7 @@ impl SourceMap {
         }
         let line_delta = line - last_mapping.generated_line;
         let column_delta = if line_delta == 0 {
-            column - last_mapping.generated_column
+            column.saturating_sub(last_mapping.generated_column)
         } else {
             0
         };
@@ -1390,6 +1484,9 @@ struct LineInfo {
 /// JSON metadata (sources, names, etc.) is parsed eagerly, but VLQ mappings
 /// are decoded on a per-line basis on demand.
 ///
+/// Not thread-safe (`!Sync`). Uses `RefCell`/`Cell` for internal caching.
+/// Intended for single-threaded use (WASM) or with external synchronization.
+///
 /// # Examples
 ///
 /// ```
@@ -1418,6 +1515,7 @@ pub struct LazySourceMap {
     raw_mappings: String,
 
     /// Pre-scanned line info for O(1) line access.
+    /// In fast-scan mode, VlqState is zeroed and decoded progressively.
     line_info: Vec<LineInfo>,
 
     /// Cache of decoded lines: line index -> `Vec<Mapping>`.
@@ -1425,6 +1523,15 @@ pub struct LazySourceMap {
 
     /// Source filename -> index for O(1) lookup by name.
     source_map: HashMap<String, u32>,
+
+    /// Whether line_info was built with fast-scan (no VLQ state tracking).
+    /// If true, decode_line must decode sequentially from the start.
+    fast_scan: bool,
+
+    /// Highest line fully decoded so far (for progressive decode in fast-scan mode).
+    /// VLQ state at the end of this line is stored in `decode_state`.
+    decode_watermark: Cell<u32>,
+    decode_state: Cell<VlqState>,
 }
 
 impl LazySourceMap {
@@ -1486,7 +1593,247 @@ impl LazySourceMap {
             line_info,
             decoded_lines: RefCell::new(HashMap::new()),
             source_map,
+            fast_scan: false,
+            decode_watermark: Cell::new(0),
+            decode_state: Cell::new(VlqState { source_index: 0, original_line: 0, original_column: 0, name_index: 0 }),
         })
+    }
+
+    /// Parse a source map from JSON, skipping sourcesContent allocation
+    /// and deferring VLQ mappings decoding.
+    ///
+    /// Useful for WASM bindings where sourcesContent is kept on the JS side.
+    ///
+    /// Returns `ParseError::NestedIndexMap` if the JSON contains `sections`
+    /// (indexed source maps are not supported by `LazySourceMap`).
+    pub fn from_json_no_content(json: &str) -> Result<Self, ParseError> {
+        let raw: RawSourceMapLite<'_> = serde_json::from_str(json)?;
+
+        if raw.version != 3 {
+            return Err(ParseError::InvalidVersion(raw.version));
+        }
+
+        // LazySourceMap does not support indexed/sectioned source maps.
+        // Use SourceMap::from_json() for indexed maps.
+        if raw.sections.is_some() {
+            return Err(ParseError::NestedIndexMap);
+        }
+
+        let source_root = raw.source_root.as_deref().unwrap_or("");
+        let sources = resolve_sources(&raw.sources, source_root);
+        let source_map = build_source_map(&sources);
+
+        let raw_mappings = raw.mappings.to_string();
+        let line_info = prescan_mappings(&raw_mappings)?;
+
+        let num_sources = sources.len();
+        let scopes = match raw.scopes {
+            Some(scopes_str) if !scopes_str.is_empty() => Some(srcmap_scopes::decode_scopes(
+                scopes_str,
+                &raw.names,
+                num_sources,
+            )?),
+            _ => None,
+        };
+
+        let ignore_list = match raw.ignore_list {
+            Some(list) => list,
+            None => raw.x_google_ignore_list.unwrap_or_default(),
+        };
+
+        Ok(Self {
+            file: raw.file,
+            source_root: raw.source_root,
+            sources,
+            sources_content: Vec::new(),
+            names: raw.names,
+            ignore_list,
+            extensions: HashMap::new(),
+            debug_id: raw.debug_id,
+            scopes,
+            raw_mappings,
+            line_info,
+            decoded_lines: RefCell::new(HashMap::new()),
+            source_map,
+            fast_scan: false,
+            decode_watermark: Cell::new(0),
+            decode_state: Cell::new(VlqState { source_index: 0, original_line: 0, original_column: 0, name_index: 0 }),
+        })
+    }
+
+    /// Build a lazy source map from pre-parsed components.
+    ///
+    /// The raw VLQ mappings string is prescanned but not decoded.
+    /// sourcesContent is NOT included. Does not support indexed source maps.
+    pub fn from_vlq(
+        mappings: &str,
+        sources: Vec<String>,
+        names: Vec<String>,
+        file: Option<String>,
+        source_root: Option<String>,
+        ignore_list: Vec<u32>,
+        debug_id: Option<String>,
+    ) -> Result<Self, ParseError> {
+        let source_map = build_source_map(&sources);
+        let raw_mappings = mappings.to_string();
+        let line_info = prescan_mappings(&raw_mappings)?;
+
+        Ok(Self {
+            file,
+            source_root,
+            sources,
+            sources_content: Vec::new(),
+            names,
+            ignore_list,
+            extensions: HashMap::new(),
+            debug_id,
+            scopes: None,
+            raw_mappings,
+            line_info,
+            decoded_lines: RefCell::new(HashMap::new()),
+            source_map,
+            fast_scan: false,
+            decode_watermark: Cell::new(0),
+            decode_state: Cell::new(VlqState { source_index: 0, original_line: 0, original_column: 0, name_index: 0 }),
+        })
+    }
+
+    /// Parse a source map from JSON using fast-scan mode.
+    ///
+    /// Only scans for semicolons at construction (no VLQ decode at all).
+    /// VLQ state is computed progressively on demand. This gives the fastest
+    /// possible parse time at the cost of first-lookup needing sequential decode.
+    /// sourcesContent is skipped.
+    ///
+    /// Returns `ParseError::NestedIndexMap` if the JSON contains `sections`
+    /// (indexed source maps are not supported by `LazySourceMap`).
+    pub fn from_json_fast(json: &str) -> Result<Self, ParseError> {
+        let raw: RawSourceMapLite<'_> = serde_json::from_str(json)?;
+
+        if raw.version != 3 {
+            return Err(ParseError::InvalidVersion(raw.version));
+        }
+
+        // LazySourceMap does not support indexed/sectioned source maps.
+        // Use SourceMap::from_json() for indexed maps.
+        if raw.sections.is_some() {
+            return Err(ParseError::NestedIndexMap);
+        }
+
+        let source_root = raw.source_root.as_deref().unwrap_or("");
+        let sources = resolve_sources(&raw.sources, source_root);
+        let source_map = build_source_map(&sources);
+        let raw_mappings = raw.mappings.to_string();
+
+        // Fast scan: just find semicolons, no VLQ decode
+        let line_info = fast_scan_lines(&raw_mappings);
+
+        let ignore_list = match raw.ignore_list {
+            Some(list) => list,
+            None => raw.x_google_ignore_list.unwrap_or_default(),
+        };
+
+        Ok(Self {
+            file: raw.file,
+            source_root: raw.source_root,
+            sources,
+            sources_content: Vec::new(),
+            names: raw.names,
+            ignore_list,
+            extensions: HashMap::new(),
+            debug_id: raw.debug_id,
+            scopes: None,
+            raw_mappings,
+            line_info,
+            decoded_lines: RefCell::new(HashMap::new()),
+            source_map,
+            fast_scan: true,
+            decode_watermark: Cell::new(0),
+            decode_state: Cell::new(VlqState { source_index: 0, original_line: 0, original_column: 0, name_index: 0 }),
+        })
+    }
+
+    /// Decode a single line's VLQ segment into mappings, given the initial VLQ state.
+    /// Returns the decoded mappings and the final VLQ state after this line.
+    ///
+    /// Uses absolute byte positions into `raw_mappings` (matching `walk_vlq_state`
+    /// and `prescan_mappings` patterns).
+    fn decode_line_with_state(
+        &self,
+        line: u32,
+        mut state: VlqState,
+    ) -> Result<(Vec<Mapping>, VlqState), DecodeError> {
+        let line_idx = line as usize;
+        if line_idx >= self.line_info.len() {
+            return Ok((Vec::new(), state));
+        }
+
+        let info = &self.line_info[line_idx];
+        let bytes = self.raw_mappings.as_bytes();
+        let end = info.byte_end;
+
+        let mut mappings = Vec::new();
+        let mut source_index = state.source_index;
+        let mut original_line = state.original_line;
+        let mut original_column = state.original_column;
+        let mut name_index = state.name_index;
+        let mut generated_column: i64 = 0;
+        let mut pos = info.byte_offset;
+
+        while pos < end {
+            let byte = bytes[pos];
+            if byte == b',' {
+                pos += 1;
+                continue;
+            }
+
+            generated_column += vlq_fast(bytes, &mut pos)?;
+
+            if pos < end && bytes[pos] != b',' && bytes[pos] != b';' {
+                source_index += vlq_fast(bytes, &mut pos)?;
+                if pos >= end || bytes[pos] == b',' || bytes[pos] == b';' {
+                    return Err(DecodeError::InvalidSegmentLength { fields: 2, offset: pos });
+                }
+                original_line += vlq_fast(bytes, &mut pos)?;
+                if pos >= end || bytes[pos] == b',' || bytes[pos] == b';' {
+                    return Err(DecodeError::InvalidSegmentLength { fields: 3, offset: pos });
+                }
+                original_column += vlq_fast(bytes, &mut pos)?;
+
+                let name = if pos < end && bytes[pos] != b',' && bytes[pos] != b';' {
+                    name_index += vlq_fast(bytes, &mut pos)?;
+                    name_index as u32
+                } else {
+                    NO_NAME
+                };
+
+                mappings.push(Mapping {
+                    generated_line: line,
+                    generated_column: generated_column as u32,
+                    source: source_index as u32,
+                    original_line: original_line as u32,
+                    original_column: original_column as u32,
+                    name,
+                    is_range_mapping: false,
+                });
+            } else {
+                mappings.push(Mapping {
+                    generated_line: line,
+                    generated_column: generated_column as u32,
+                    source: NO_SOURCE,
+                    original_line: 0,
+                    original_column: 0,
+                    name: NO_NAME,
+                    is_range_mapping: false,
+                });
+            }
+        }
+
+        state.source_index = source_index;
+        state.original_line = original_line;
+        state.original_column = original_column;
+        state.name_index = name_index;
+        Ok((mappings, state))
     }
 
     /// Decode a single line's mappings on demand.
@@ -1504,106 +1851,46 @@ impl LazySourceMap {
             return Ok(Vec::new());
         }
 
-        let info = &self.line_info[line_idx];
-        let bytes = self.raw_mappings.as_bytes();
-        let slice = &bytes[info.byte_offset..info.byte_end];
-
-        let mut mappings = Vec::new();
-        let mut source_index = info.state.source_index;
-        let mut original_line = info.state.original_line;
-        let mut original_column = info.state.original_column;
-        let mut name_index = info.state.name_index;
-        let mut generated_column: i64 = 0;
-        let mut pos: usize = 0;
-        let len = slice.len();
-
-        // We need to adjust `pos` for vlq_fast which works on the full byte slice.
-        // Instead, create a local helper working on the slice directly.
-        let base_offset = info.byte_offset;
-
-        while pos < len {
-            let byte = slice[pos];
-
-            if byte == b',' {
-                pos += 1;
-                continue;
-            }
-
-            // Use vlq_fast on the full byte buffer with adjusted position
-            let mut abs_pos = base_offset + pos;
-
-            // Field 1: generated column
-            generated_column += vlq_fast(bytes, &mut abs_pos)?;
-
-            if abs_pos < base_offset + len && bytes[abs_pos] != b',' && bytes[abs_pos] != b';' {
-                // Field 2: source index
-                source_index += vlq_fast(bytes, &mut abs_pos)?;
-
-                // Reject 2-field segments (only 1, 4, or 5 are valid per ECMA-426)
-                if abs_pos >= base_offset + len || bytes[abs_pos] == b',' || bytes[abs_pos] == b';'
-                {
-                    return Err(DecodeError::InvalidSegmentLength {
-                        fields: 2,
-                        offset: abs_pos,
-                    });
-                }
-
-                // Field 3: original line
-                original_line += vlq_fast(bytes, &mut abs_pos)?;
-
-                // Reject 3-field segments (only 1, 4, or 5 are valid per ECMA-426)
-                if abs_pos >= base_offset + len || bytes[abs_pos] == b',' || bytes[abs_pos] == b';'
-                {
-                    return Err(DecodeError::InvalidSegmentLength {
-                        fields: 3,
-                        offset: abs_pos,
-                    });
-                }
-
-                // Field 4: original column
-                original_column += vlq_fast(bytes, &mut abs_pos)?;
-
-                // Field 5: name (optional)
-                let name = if abs_pos < base_offset + len
-                    && bytes[abs_pos] != b','
-                    && bytes[abs_pos] != b';'
-                {
-                    name_index += vlq_fast(bytes, &mut abs_pos)?;
-                    name_index as u32
-                } else {
-                    NO_NAME
-                };
-
-                mappings.push(Mapping {
-                    generated_line: line,
-                    generated_column: generated_column as u32,
-                    source: source_index as u32,
-                    original_line: original_line as u32,
-                    original_column: original_column as u32,
-                    name,
-                    is_range_mapping: false,
-                });
+        if self.fast_scan {
+            // In fast-scan mode, VLQ state is not pre-computed.
+            // Decode sequentially from the watermark (or line 0 for backward seeks).
+            // For both forward and backward walks, use cached lines where available
+            // and only walk VLQ bytes to compute state for already-decoded lines.
+            let watermark = self.decode_watermark.get();
+            let start = if line >= watermark { watermark } else { 0 };
+            let mut state = if line >= watermark {
+                self.decode_state.get()
             } else {
-                // 1-field segment
-                mappings.push(Mapping {
-                    generated_line: line,
-                    generated_column: generated_column as u32,
-                    source: NO_SOURCE,
-                    original_line: 0,
-                    original_column: 0,
-                    name: NO_NAME,
-                    is_range_mapping: false,
-                });
+                VlqState { source_index: 0, original_line: 0, original_column: 0, name_index: 0 }
+            };
+
+            for l in start..=line {
+                let info = &self.line_info[l as usize];
+                if self.decoded_lines.borrow().contains_key(&l) {
+                    // Already cached — just walk VLQ bytes to compute end-state
+                    let bytes = self.raw_mappings.as_bytes();
+                    state = walk_vlq_state(bytes, info.byte_offset, info.byte_end, state)?;
+                } else {
+                    let (mappings, new_state) = self.decode_line_with_state(l, state)?;
+                    state = new_state;
+                    self.decoded_lines.borrow_mut().insert(l, mappings);
+                }
             }
 
-            pos = abs_pos - base_offset;
+            // Update watermark (only advance, never regress)
+            if line + 1 > self.decode_watermark.get() {
+                self.decode_watermark.set(line + 1);
+                self.decode_state.set(state);
+            }
+
+            let cached = self.decoded_lines.borrow().get(&line).cloned();
+            return Ok(cached.unwrap_or_default());
         }
 
-        // Cache the result
-        self.decoded_lines
-            .borrow_mut()
-            .insert(line, mappings.clone());
-
+        // Normal mode: line_info has pre-computed VLQ state
+        let state = self.line_info[line_idx].state;
+        let (mappings, _) = self.decode_line_with_state(line, state)?;
+        self.decoded_lines.borrow_mut().insert(line, mappings.clone());
         Ok(mappings)
     }
 
@@ -1819,6 +2106,84 @@ fn prescan_mappings(input: &str) -> Result<Vec<LineInfo>, DecodeError> {
     Ok(line_info)
 }
 
+/// Walk VLQ bytes for a line to compute end state, without producing Mapping structs.
+fn walk_vlq_state(
+    bytes: &[u8],
+    start: usize,
+    end: usize,
+    mut state: VlqState,
+) -> Result<VlqState, DecodeError> {
+    let mut pos = start;
+    while pos < end {
+        let byte = bytes[pos];
+        if byte == b',' {
+            pos += 1;
+            continue;
+        }
+
+        // Field 1: generated column (skip, resets per line)
+        vlq_fast(bytes, &mut pos)?;
+
+        if pos < end && bytes[pos] != b',' && bytes[pos] != b';' {
+            state.source_index += vlq_fast(bytes, &mut pos)?;
+            if pos >= end || bytes[pos] == b',' || bytes[pos] == b';' {
+                return Err(DecodeError::InvalidSegmentLength { fields: 2, offset: pos });
+            }
+            state.original_line += vlq_fast(bytes, &mut pos)?;
+            if pos >= end || bytes[pos] == b',' || bytes[pos] == b';' {
+                return Err(DecodeError::InvalidSegmentLength { fields: 3, offset: pos });
+            }
+            state.original_column += vlq_fast(bytes, &mut pos)?;
+            if pos < end && bytes[pos] != b',' && bytes[pos] != b';' {
+                state.name_index += vlq_fast(bytes, &mut pos)?;
+            }
+        }
+    }
+    Ok(state)
+}
+
+/// Fast scan: single-pass scan to find semicolons and record line byte offsets.
+/// No VLQ decoding at all. VlqState is zeroed — must be computed progressively.
+fn fast_scan_lines(input: &str) -> Vec<LineInfo> {
+    if input.is_empty() {
+        return Vec::new();
+    }
+
+    let bytes = input.as_bytes();
+    let len = bytes.len();
+    let zero_state = VlqState {
+        source_index: 0,
+        original_line: 0,
+        original_column: 0,
+        name_index: 0,
+    };
+
+    // Single pass: grow dynamically instead of double-scanning for semicolon count
+    let mut line_info = Vec::new();
+    let mut pos = 0;
+    loop {
+        let line_start = pos;
+
+        // Scan to next semicolon or end of string
+        while pos < len && bytes[pos] != b';' {
+            pos += 1;
+        }
+
+        line_info.push(LineInfo {
+            byte_offset: line_start,
+            byte_end: pos,
+            state: zero_state, // Will be computed progressively on demand
+        });
+
+        if pos >= len {
+            break;
+        }
+        pos += 1; // skip ';'
+    }
+
+    line_info
+}
+
 /// Result of parsing a sourceMappingURL reference.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SourceMappingUrl {
@@ -1995,7 +2360,8 @@ fn json_quote_into(out: &mut String, s: &str) {
             b'\n' => "\\n",
             b'\r' => "\\r",
             b'\t' => "\\t",
-            0x00..=0x1f => {
+            // Remaining control chars (excluding \n, \r, \t handled above)
+            0x00..=0x08 | 0x0b | 0x0c | 0x0e..=0x1f => {
                 if start < i {
                     out.push_str(&s[start..i]);
                 }
@@ -2084,7 +2450,7 @@ fn vlq_fast(bytes: &[u8], pos: &mut usize) -> Result<i64, DecodeError> {
         }
         i += 1;
 
-        if shift >= 64 {
+        if shift >= 60 {
             return Err(DecodeError::VlqOverflow { offset: p });
         }
 
@@ -2145,7 +2511,7 @@ fn vlq_unsigned_fast(bytes: &[u8], pos: &mut usize) -> Result<u64, DecodeError> 
             return Err(DecodeError::InvalidBase64 { byte: b, offset: i });
         }
         i += 1;
-        if shift >= 64 {
+        if shift >= 60 {
             return Err(DecodeError::VlqOverflow { offset: p });
         }
         result |= ((d & 0x1F) as u64) << shift;
@@ -2173,6 +2539,12 @@ fn decode_range_mappings(
         } else {
             break;
         };
+        // Bound range marking to this line's mappings only
+        let line_end = if generated_line + 2 < line_offsets.len() {
+            line_offsets[generated_line + 1] as usize
+        } else {
+            mappings.len()
+        };
         let mut mapping_index: u64 = 0;
         while pos < len {
             let byte = bytes[pos];
@@ -2187,7 +2559,7 @@ fn decode_range_mappings(
             let offset = vlq_unsigned_fast(bytes, &mut pos)?;
             mapping_index += offset;
             let abs_idx = line_start + mapping_index as usize;
-            if abs_idx < mappings.len() {
+            if abs_idx < line_end {
                 mappings[abs_idx].is_range_mapping = true;
             }
         }
@@ -2326,6 +2698,15 @@ fn decode_mappings_range(
     start_line: u32,
     end_line: u32,
 ) -> Result<(Vec<Mapping>, Vec<u32>), DecodeError> {
+    // Cap end_line against actual line count to prevent OOM on pathological input.
+    // Count semicolons to determine actual line count.
+    let actual_lines = if input.is_empty() {
+        0u32
+    } else {
+        input.as_bytes().iter().filter(|&&b| b == b';').count() as u32 + 1
+    };
+    let end_line = end_line.min(actual_lines);
+
     if input.is_empty() || start_line >= end_line {
         return Ok((Vec::new(), vec![0; end_line as usize + 1]));
     }
@@ -2625,7 +3006,7 @@ impl Iterator for MappingsIter<'_> {
             }
 
             if self.pos < self.len && self.bytes[self.pos] != b',' && self.bytes[self.pos] != b';' {
-                // Fields 2-4: source, original line, original column
+                // Field 2: source index
                 match vlq_fast(self.bytes, &mut self.pos) {
                     Ok(delta) => self.source_index += delta,
                     Err(e) => {
@@ -2633,6 +3014,12 @@ impl Iterator for MappingsIter<'_> {
                         return Some(Err(e));
                     }
                 }
+                // Reject 2-field segments (only 1, 4, or 5 are valid per ECMA-426)
+                if self.pos >= self.len || self.bytes[self.pos] == b',' || self.bytes[self.pos] == b';' {
+                    self.done = true;
+                    return Some(Err(DecodeError::InvalidSegmentLength { fields: 2, offset: self.pos }));
+                }
+                // Field 3: original line
                 match vlq_fast(self.bytes, &mut self.pos) {
                     Ok(delta) => self.original_line += delta,
                     Err(e) => {
@@ -2640,6 +3027,12 @@ impl Iterator for MappingsIter<'_> {
                         return Some(Err(e));
                     }
                 }
+                // Reject 3-field segments (only 1, 4, or 5 are valid per ECMA-426)
+                if self.pos >= self.len || self.bytes[self.pos] == b',' || self.bytes[self.pos] == b';' {
+                    self.done = true;
+                    return Some(Err(DecodeError::InvalidSegmentLength { fields: 3, offset: self.pos }));
+                }
+                // Field 4: original column
                 match vlq_fast(self.bytes, &mut self.pos) {
                     Ok(delta) => self.original_column += delta,
                     Err(e) => {
@@ -6371,6 +6764,196 @@ mod tests {
                 (None, None) => {}
                 _ => panic!("lookup mismatch"),
             }
+        }
+    }
+
+    // ── Tests for review fixes ────────────────────────────────────
+
+    #[test]
+    fn range_mapping_fallback_column_underflow() {
+        // Range mapping at col 5, query line 0 col 2 — column < generated_column
+        // This should NOT panic (saturating_sub prevents u32 underflow)
+        let json = r#"{"version":3,"sources":["input.js"],"names":[],"mappings":"KAAK","rangeMappings":"A"}"#;
+        let sm = SourceMap::from_json(json).unwrap();
+        // Query col 2, but the range mapping starts at col 5
+        // GLB should snap to col 5 mapping, and the range delta should saturate to 0
+        let loc = sm.original_position_for(0, 2);
+        // No mapping at col < 5 on this line, so None is expected
+        assert!(loc.is_none());
+    }
+
+    #[test]
+    fn range_mapping_fallback_cross_line_column_zero() {
+        // Range mapping on line 0, col 10, orig(0,10). Query line 1, col 0.
+        // line_delta = 1, column_delta = 0 (else branch).
+        // Result: orig_line = 0 + 1 = 1, orig_column = 10 + 0 = 10.
+        let json = r#"{"version":3,"sources":["input.js"],"names":[],"mappings":"UAAU","rangeMappings":"A"}"#;
+        let sm = SourceMap::from_json(json).unwrap();
+        let loc = sm.original_position_for(1, 0).unwrap();
+        assert_eq!(loc.line, 1);
+        assert_eq!(loc.column, 10);
+    }
+
+    #[test]
+    fn vlq_overflow_at_shift_60() {
+        // Build a VLQ that uses exactly shift=60 (13 continuation chars + 1 terminator)
+        // This should be rejected by vlq_fast (shift >= 60)
+        // 13 continuation chars: each is base64 with continuation bit set (e.g. 'g' = 0x20 | 0x00)
+        // followed by a terminator (e.g. 'A' = 0x00)
+        let overflow_vlq = "ggggggggggggggA"; // 14 continuation + terminator
+        let json = format!(
+            r#"{{"version":3,"sources":["a.js"],"names":[],"mappings":"{}"}}"#,
+            overflow_vlq
+        );
+        let result = SourceMap::from_json(&json);
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), ParseError::Vlq(_)));
+    }
+
+    #[test]
+    fn lazy_sourcemap_rejects_indexed_maps() {
+        let json = r#"{"version":3,"sections":[{"offset":{"line":0,"column":0},"map":{"version":3,"sources":["a.js"],"names":[],"mappings":"AAAA"}}]}"#;
+        let result = LazySourceMap::from_json_fast(json);
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), ParseError::NestedIndexMap));
+
+        let result = LazySourceMap::from_json_no_content(json);
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), ParseError::NestedIndexMap));
+    }
+
+    #[test]
+    fn lazy_sourcemap_regular_map_still_works() {
+        let json = r#"{"version":3,"sources":["a.js"],"names":[],"mappings":"AAAA;AACA"}"#;
+        let sm = LazySourceMap::from_json_fast(json).unwrap();
+        let loc = sm.original_position_for(0, 0).unwrap();
+        assert_eq!(sm.source(loc.source), "a.js");
+        assert_eq!(loc.line, 0);
+    }
+
+    #[test]
+    fn lazy_sourcemap_get_source_name_bounds() {
+        let json = r#"{"version":3,"sources":["a.js"],"names":["foo"],"mappings":"AAAAA"}"#;
+        let sm = LazySourceMap::from_json_fast(json).unwrap();
+        assert_eq!(sm.get_source(0), Some("a.js"));
+        assert_eq!(sm.get_source(1), None);
+        assert_eq!(sm.get_source(u32::MAX), None);
+        assert_eq!(sm.get_name(0), Some("foo"));
+        assert_eq!(sm.get_name(1), None);
+        assert_eq!(sm.get_name(u32::MAX), None);
+    }
+
+    #[test]
+    fn lazy_sourcemap_backward_seek() {
+        // Test that backward seek works correctly in fast-scan mode
+        let json = r#"{"version":3,"sources":["a.js"],"names":[],"mappings":"AAAA;AACA;AACA;AACA;AACA"}"#;
+        let sm = LazySourceMap::from_json_fast(json).unwrap();
+
+        // Forward: decode lines 0, 1, 2, 3
+        let loc3 = sm.original_position_for(3, 0).unwrap();
+        assert_eq!(loc3.line, 3);
+
+        // Backward: seek line 1 (below watermark of 4)
+        let loc1 = sm.original_position_for(1, 0).unwrap();
+        assert_eq!(loc1.line, 1);
+
+        // Forward again: line 4
+        let loc4 = sm.original_position_for(4, 0).unwrap();
+        assert_eq!(loc4.line, 4);
+
+        // Backward again to line 0
+        let loc0 = sm.original_position_for(0, 0).unwrap();
+        assert_eq!(loc0.line, 0);
+    }
+
+    #[test]
+    fn lazy_sourcemap_fast_scan_vs_prescan_consistency() {
+        // Verify fast_scan and prescan produce identical lookup results
+        let json = r#"{"version":3,"sources":["a.js","b.js"],"names":["x","y"],"mappings":"AAAAA,KACAC;ACAAD,KACAC"}"#;
+        let fast = LazySourceMap::from_json_fast(json).unwrap();
+        let prescan = LazySourceMap::from_json_no_content(json).unwrap();
+
+        for line in 0..2 {
+            for col in [0, 5, 10] {
+                let a = fast.original_position_for(line, col);
+                let b = prescan.original_position_for(line, col);
+                match (&a, &b) {
+                    (Some(a), Some(b)) => {
+                        assert_eq!(a.source, b.source, "line={line}, col={col}");
+                        assert_eq!(a.line, b.line, "line={line}, col={col}");
+                        assert_eq!(a.column, b.column, "line={line}, col={col}");
+                        assert_eq!(a.name, b.name, "line={line}, col={col}");
+                    }
+                    (None, None) => {}
+                    _ => panic!("mismatch at line={line}, col={col}: {a:?} vs {b:?}"),
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn mappings_iter_rejects_two_field_segment() {
+        // "AA" is 2 fields (generated column + source index, missing original line/column)
+        let result: Result<Vec<_>, _> = MappingsIter::new("AA").collect();
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            DecodeError::InvalidSegmentLength { fields: 2, .. }
+        ));
+    }
+
+    #[test]
+    fn mappings_iter_rejects_three_field_segment() {
+        // "AAA" is 3 fields (generated column + source index + original line, missing original column)
+        let result: Result<Vec<_>, _> = MappingsIter::new("AAA").collect();
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            DecodeError::InvalidSegmentLength { fields: 3, .. }
+        ));
+    }
+
+    #[test]
+    fn decode_mappings_range_caps_end_line() {
+        // Pathological end_line should not OOM — capped against actual line count
+        let mappings = "AAAA;AACA";
+        let (result, offsets) = decode_mappings_range(mappings, 0, 1_000_000).unwrap();
+        // Should produce mappings for the 2 actual lines, not allocate 1M entries
+        assert_eq!(result.len(), 2);
+        assert!(offsets.len() <= 3); // 2 lines + sentinel
+    }
+
+    #[test]
+    fn decode_range_mappings_cross_line_bound_check() {
+        // Range mapping index that exceeds the current line's mappings
+        // should NOT mark a mapping on the next line
+        let json = r#"{"version":3,"sources":["a.js"],"names":[],"mappings":"AAAA;AAAA","rangeMappings":"E"}"#;
+        let sm = SourceMap::from_json(json).unwrap();
+        // Line 0 has 1 mapping (idx 0). rangeMappings="E" encodes index 2, which is out of bounds
+        // for line 0. Line 1's mapping (idx 1) should NOT be marked as range mapping.
+        assert!(!sm.all_mappings()[1].is_range_mapping);
+    }
+
+    #[test]
+    fn fast_scan_lines_empty() {
+        let result = fast_scan_lines("");
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn fast_scan_lines_no_semicolons() {
+        let result = fast_scan_lines("AAAA,CAAC");
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].byte_offset, 0);
+        assert_eq!(result[0].byte_end, 9);
+    }
+
+    #[test]
+    fn fast_scan_lines_only_semicolons() {
+        let result = fast_scan_lines(";;;");
+        assert_eq!(result.len(), 4);
+        for info in &result {
+            assert_eq!(info.byte_offset, info.byte_end); // empty lines
         }
     }
 }

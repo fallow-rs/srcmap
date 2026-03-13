@@ -17,6 +17,7 @@ srcmap-codec = { workspace = true }
 srcmap-scopes = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+rustc-hash = { workspace = true }
 
 [dev-dependencies]
 criterion = { workspace = true }

@@ -876,6 +876,7 @@ name = "srcmap-sourcemap"
 version = "0.2.1"
 dependencies = [
  "criterion",
+ "rustc-hash",
  "serde",
  "serde_json",
  "srcmap-codec",
