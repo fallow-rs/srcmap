@@ -733,3 +733,127 @@ describe('API compatibility', () => {
     map.free()
   })
 })
+
+// ── Review fixes ─────────────────────────────────────────────────
+
+describe('review fixes', () => {
+  const REVIEW_MAP = JSON.stringify({
+    version: 3,
+    file: 'output.js',
+    sources: ['input.js'],
+    names: [],
+    mappings: 'AAAA',
+  })
+
+  it('copy-constructor does not share WASM pointer', () => {
+    const original = new TraceMap(REVIEW_MAP)
+    const copy = new TraceMap(original)
+
+    // Free the original — the copy must remain functional
+    original.free()
+
+    const pos = originalPositionFor(copy, { line: 1, column: 0 })
+    assert.equal(pos.source, 'input.js')
+    assert.equal(pos.line, 1)
+    assert.equal(pos.column, 0)
+    copy.free()
+  })
+
+  it('resolver handles data: URIs', () => {
+    const dataMap = JSON.stringify({
+      version: 3,
+      file: 'output.js',
+      sources: ['data:application/json;base64,abc'],
+      names: [],
+      mappings: 'AAAA',
+    })
+    const map = new TraceMap(dataMap)
+    assert.equal(map.resolvedSources[0], 'data:application/json;base64,abc')
+    map.free()
+  })
+
+  it('resolver handles webpack:// URIs', () => {
+    const webpackMap = JSON.stringify({
+      version: 3,
+      file: 'output.js',
+      sources: ['webpack:///src/index.js'],
+      names: [],
+      mappings: 'AAAA',
+    })
+    const map = new TraceMap(webpackMap)
+    assert.equal(map.resolvedSources[0], 'webpack:///src/index.js')
+    map.free()
+  })
+
+  it('generatedPositionFor with LEAST_UPPER_BOUND bias', () => {
+    // Map with two segments: col 0 → line 1 col 0, col 10 → line 1 col 9
+    const biasMap = JSON.stringify({
+      version: 3,
+      file: 'output.js',
+      sources: ['input.js'],
+      names: [],
+      mappings: 'AAAA,UAAS',
+    })
+    const map = new TraceMap(biasMap)
+    const pos = generatedPositionFor(map, {
+      source: 'input.js',
+      line: 1,
+      column: 5,
+      bias: LEAST_UPPER_BOUND,
+    })
+    // With LUB, should find the segment at or after original column 5
+    assert.ok(pos.line != null)
+    assert.ok(pos.column != null)
+    assert.equal(pos.line, 1)
+    map.free()
+  })
+
+  it('generatedPositionFor with default bias (GLB)', () => {
+    const biasMap = JSON.stringify({
+      version: 3,
+      file: 'output.js',
+      sources: ['input.js'],
+      names: [],
+      mappings: 'AAAA,UAAS',
+    })
+    const map = new TraceMap(biasMap)
+    // Default bias is GREATEST_LOWER_BOUND
+    const pos = generatedPositionFor(map, {
+      source: 'input.js',
+      line: 1,
+      column: 0,
+    })
+    assert.equal(pos.line, 1)
+    assert.equal(pos.column, 0)
+    map.free()
+  })
+
+  it('sourcesContent absent vs empty', () => {
+    // Map WITHOUT sourcesContent field at all
+    const noContentMap = JSON.stringify({
+      version: 3,
+      file: 'output.js',
+      sources: ['input.js'],
+      names: [],
+      mappings: 'AAAA',
+    })
+    const map = new TraceMap(noContentMap)
+    const content = sourceContentFor(map, 'input.js')
+    assert.equal(content, null)
+    map.free()
+  })
+
+  it('cached WASM sources lookup', () => {
+    const map = new TraceMap(REVIEW_MAP)
+    // Perform a lookup — the source should be resolved via _wasmSourceMap cache
+    const pos = originalPositionFor(map, { line: 1, column: 0 })
+    assert.equal(pos.source, 'input.js')
+    assert.equal(pos.line, 1)
+    assert.equal(pos.column, 0)
+
+    // Verify the cache exists and maps correctly
+    assert.ok(map._wasmSourceMap instanceof Map)
+    assert.ok(map._wasmSourceMap.size > 0)
+    map.free()
+  })
+})

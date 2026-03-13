@@ -5,6 +5,9 @@ import { fileURLToPath } from 'node:url';
 import { TraceMap, originalPositionFor } from '@jridgewell/trace-mapping';
 import { SourceMapConsumer } from 'source-map-js';
 import { SourceMap, resultPtr, wasmMemory } from '../packages/sourcemap-wasm/pkg/srcmap_sourcemap_wasm.js';
+import { createRequire } from 'node:module';
+const require = createRequire(import.meta.url);
+const { SourceMap: FastSourceMap } = require('../packages/sourcemap-wasm/pkg/fast.js');
 import { SourceMap as NapiSourceMap } from '../packages/sourcemap/index.js';
 
 // Set up zero-allocation buffer for originalPositionBuf.
@@ -148,6 +151,7 @@ for (const { name, json, size } of maps) {
     .add('trace-mapping', () => new TraceMap(json))
     .add('source-map-js', () => new SourceMapConsumer(json))
     .add('srcmap WASM', () => new SourceMap(json))
+    .add('srcmap WASM (fast)', () => new FastSourceMap(json))
     .add('srcmap NAPI', () => new NapiSourceMap(json));
 
   await bench.run();

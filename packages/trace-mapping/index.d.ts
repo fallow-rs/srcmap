@@ -59,6 +59,7 @@ export interface SectionedSourceMap {
   sections: Section[]
 }
 
+export type SectionedSourceMapInput = SourceMapInput | SectionedSourceMap
 export type SourceMapInput = EncodedSourceMap | DecodedSourceMap | string
 
 // ── Needle types ─────────────────────────────────────────────────
@@ -119,7 +120,7 @@ export declare const GREATEST_LOWER_BOUND: 1
 // ── TraceMap ─────────────────────────────────────────────────────
 
 export declare class TraceMap {
-  constructor(map: SourceMapInput, mapUrl?: string | null)
+  constructor(map: SectionedSourceMapInput, mapUrl?: string | null)
 
   version: SourceMapV3['version']
   file: SourceMapV3['file']

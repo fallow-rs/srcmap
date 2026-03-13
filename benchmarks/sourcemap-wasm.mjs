@@ -1,6 +1,9 @@
 import { Bench } from 'tinybench';
 import { TraceMap, originalPositionFor } from '@jridgewell/trace-mapping';
 import { SourceMap, resultPtr, wasmMemory } from '../packages/sourcemap-wasm/pkg/srcmap_sourcemap_wasm.js';
+import { createRequire } from 'node:module';
+const require = createRequire(import.meta.url);
+const { SourceMap: FastSourceMap } = require('../packages/sourcemap-wasm/pkg/fast.js');
 import { SourceMap as NapiSourceMap } from '../packages/sourcemap/index.js';
 import { encode } from '@jridgewell/sourcemap-codec';
 
@@ -98,6 +101,7 @@ for (const { name, json } of maps) {
   bench
     .add('trace-mapping', () => new TraceMap(json))
     .add('srcmap WASM', () => new SourceMap(json))
+    .add('srcmap WASM (fast)', () => new FastSourceMap(json))
     .add('srcmap NAPI', () => new NapiSourceMap(json));
 
   await bench.run();

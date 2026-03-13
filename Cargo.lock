@@ -898,7 +898,7 @@ name = "srcmap-sourcemap-wasm"
 version = "0.2.1"
 dependencies = [
  "js-sys",
- "serde-wasm-bindgen",
+ "serde_json",
  "srcmap-sourcemap",
  "wasm-bindgen",
 ]

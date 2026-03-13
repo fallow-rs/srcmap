@@ -8,7 +8,7 @@ description = "WebAssembly bindings for srcmap-sourcemap"
 publish = false
 
 [package.metadata.wasm-pack.profile.release]
-wasm-opt = ["-Os", "--enable-bulk-memory"]
+wasm-opt = ["-Os", "--enable-bulk-memory", "--enable-nontrapping-float-to-int"]
 
 [lib]
 crate-type = ["cdylib"]
@@ -16,5 +16,5 @@ crate-type = ["cdylib"]
 [dependencies]
 srcmap-sourcemap = { workspace = true }
 wasm-bindgen = { workspace = true }
-serde-wasm-bindgen = { workspace = true }
+serde_json = { workspace = true }
 js-sys = { workspace = true }
