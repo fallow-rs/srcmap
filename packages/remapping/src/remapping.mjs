@@ -53,8 +53,52 @@ class SourceMap {
  * @param {object | string} input
  * @returns {string}
  */
+const BASE64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
+
+const encodeVlq = (value) => {
+  let vlq = value < 0 ? ((-value) << 1) | 1 : value << 1
+  let result = ''
+  do {
+    let digit = vlq & 0x1f
+    vlq >>>= 5
+    if (vlq > 0) digit |= 0x20
+    result += BASE64[digit]
+  } while (vlq > 0)
+  return result
+}
+
+const encodeMappings = (decoded) => {
+  const lines = []
+  for (const line of decoded) {
+    const segments = []
+    let prevCol = 0, prevSource = 0, prevOrigLine = 0, prevOrigCol = 0, prevName = 0
+    for (const seg of line) {
+      let str = encodeVlq(seg[0] - prevCol)
+      prevCol = seg[0]
+      if (seg.length > 1) {
+        str += encodeVlq(seg[1] - prevSource)
+        str += encodeVlq(seg[2] - prevOrigLine)
+        str += encodeVlq(seg[3] - prevOrigCol)
+        prevSource = seg[1]
+        prevOrigLine = seg[2]
+        prevOrigCol = seg[3]
+        if (seg.length > 4) {
+          str += encodeVlq(seg[4] - prevName)
+          prevName = seg[4]
+        }
+      }
+      segments.push(str)
+    }
+    lines.push(segments.join(','))
+  }
+  return lines.join(';')
+}
+
 const toJsonString = (input) => {
   if (typeof input === 'string') return input
+  if (input && Array.isArray(input.mappings)) {
+    return JSON.stringify({ ...input, mappings: encodeMappings(input.mappings) })
+  }
   return JSON.stringify(input)
 }
 

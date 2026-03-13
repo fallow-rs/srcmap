@@ -192,7 +192,7 @@ export const maybeAddMapping = (map, mapping) => {
 export const setSourceContent = (map, source, content) => {
   const idx = putSource(map, source)
   map._sourcesContent[idx] = content
-  if (content !== null) {
+  if (content != null) {
     map._wasm.setSourceContent(idx, content)
   }
 }
