@@ -1541,6 +1541,44 @@ impl SourceMap {
         let json = self.to_json_with_options(exclude_content);
         writer.write_all(json.as_bytes())
     }
+
+    /// Serialize the source map to a `data:` URL.
+    ///
+    /// Format: `data:application/json;base64,<base64-encoded-json>`
+    pub fn to_data_url(&self) -> String {
+        utils::to_data_url(&self.to_json())
+    }
+
+    // ── Mutable setters ─────────────────────────────────────────
+
+    /// Set or clear the `file` property.
+    pub fn set_file(&mut self, file: Option<String>) {
+        self.file = file;
+    }
+
+    /// Set or clear the `sourceRoot` property.
+    pub fn set_source_root(&mut self, source_root: Option<String>) {
+        self.source_root = source_root;
+    }
+
+    /// Set or clear the `debugId` property.
+    pub fn set_debug_id(&mut self, debug_id: Option<String>) {
+        self.debug_id = debug_id;
+    }
+
+    /// Set the `ignoreList` property.
+    pub fn set_ignore_list(&mut self, ignore_list: Vec<u32>) {
+        self.ignore_list = ignore_list;
+    }
+
+    /// Replace the sources array and rebuild the source index lookup map.
+    pub fn set_sources(&mut self, sources: Vec<Option<String>>) {
+        let source_root = self.source_root.as_deref().unwrap_or("");
+        self.sources = resolve_sources(&sources, source_root);
+        self.source_map = build_source_map(&self.sources);
+        // Invalidate the reverse index since source indices may have changed
+        self.reverse_index = OnceCell::new();
+    }
 }
 
 // ── LazySourceMap ──────────────────────────────────────────────────
@@ -7227,5 +7265,100 @@ mod tests {
         sm.to_writer_with_options(&mut buf, true).unwrap();
         let output = String::from_utf8(buf).unwrap();
         assert!(!output.contains("sourcesContent"));
+    }
+
+    // ── Setter tests ─────────────────────────────────────────────
+
+    #[test]
+    fn set_file() {
+        let json = r#"{"version":3,"sources":["a.js"],"names":[],"mappings":"AAAA"}"#;
+        let mut sm = SourceMap::from_json(json).unwrap();
+        assert_eq!(sm.file, None);
+
+        sm.set_file(Some("output.js".to_string()));
+        assert_eq!(sm.file, Some("output.js".to_string()));
+        assert!(sm.to_json().contains(r#""file":"output.js""#));
+
+        sm.set_file(None);
+        assert_eq!(sm.file, None);
+        assert!(!sm.to_json().contains("file"));
+    }
+
+    #[test]
+    fn set_source_root() {
+        let json = r#"{"version":3,"sources":["a.js"],"names":[],"mappings":"AAAA"}"#;
+        let mut sm = SourceMap::from_json(json).unwrap();
+        assert_eq!(sm.source_root, None);
+
+        sm.set_source_root(Some("src/".to_string()));
+        assert_eq!(sm.source_root, Some("src/".to_string()));
+        assert!(sm.to_json().contains(r#""sourceRoot":"src/""#));
+
+        sm.set_source_root(None);
+        assert_eq!(sm.source_root, None);
+    }
+
+    #[test]
+    fn set_debug_id() {
+        let json = r#"{"version":3,"sources":["a.js"],"names":[],"mappings":"AAAA"}"#;
+        let mut sm = SourceMap::from_json(json).unwrap();
+        assert_eq!(sm.debug_id, None);
+
+        sm.set_debug_id(Some("abc-123".to_string()));
+        assert_eq!(sm.debug_id, Some("abc-123".to_string()));
+        assert!(sm.to_json().contains(r#""debugId":"abc-123""#));
+
+        sm.set_debug_id(None);
+        assert_eq!(sm.debug_id, None);
+        assert!(!sm.to_json().contains("debugId"));
+    }
+
+    #[test]
+    fn set_ignore_list() {
+        let json = r#"{"version":3,"sources":["a.js","b.js"],"names":[],"mappings":"AAAA"}"#;
+        let mut sm = SourceMap::from_json(json).unwrap();
+        assert!(sm.ignore_list.is_empty());
+
+        sm.set_ignore_list(vec![0, 1]);
+        assert_eq!(sm.ignore_list, vec![0, 1]);
+        assert!(sm.to_json().contains("\"ignoreList\":[0,1]"));
+
+        sm.set_ignore_list(vec![]);
+        assert!(sm.ignore_list.is_empty());
+        assert!(!sm.to_json().contains("ignoreList"));
+    }
+
+    #[test]
+    fn set_sources() {
+        let json = r#"{"version":3,"sources":["a.js"],"names":[],"mappings":"AAAA"}"#;
+        let mut sm = SourceMap::from_json(json).unwrap();
+        assert_eq!(sm.sources, vec!["a.js"]);
+
+        sm.set_sources(vec![Some("x.js".to_string()), Some("y.js".to_string())]);
+        assert_eq!(sm.sources, vec!["x.js", "y.js"]);
+        assert_eq!(sm.source_index("x.js"), Some(0));
+        assert_eq!(sm.source_index("y.js"), Some(1));
+        assert_eq!(sm.source_index("a.js"), None);
+    }
+
+    #[test]
+    fn set_sources_with_source_root() {
+        let json = r#"{"version":3,"sourceRoot":"src/","sources":["a.js"],"names":[],"mappings":"AAAA"}"#;
+        let mut sm = SourceMap::from_json(json).unwrap();
+        assert_eq!(sm.sources, vec!["src/a.js"]);
+
+        sm.set_sources(vec![Some("b.js".to_string())]);
+        assert_eq!(sm.sources, vec!["src/b.js"]);
+    }
+
+    #[test]
+    fn to_data_url_roundtrip() {
+        let json = r#"{"version":3,"sources":["a.js"],"names":[],"mappings":"AAAA"}"#;
+        let sm = SourceMap::from_json(json).unwrap();
+        let url = sm.to_data_url();
+        assert!(url.starts_with("data:application/json;base64,"));
+        let sm2 = SourceMap::from_data_url(&url).unwrap();
+        assert_eq!(sm.sources, sm2.sources);
+        assert_eq!(sm.to_json(), sm2.to_json());
     }
 }
