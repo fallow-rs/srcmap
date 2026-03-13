@@ -26,6 +26,7 @@
 use std::cell::{Cell, OnceCell, RefCell};
 use std::collections::HashMap;
 use std::fmt;
+use std::io;
 
 use serde::Deserialize;
 use srcmap_codec::{DecodeError, vlq_encode_unsigned};
@@ -141,6 +142,8 @@ pub enum ParseError {
     NestedIndexMap,
     /// Sections in an indexed source map are not in ascending (line, column) order.
     SectionsNotOrdered,
+    /// The data URL is malformed (not a valid `data:application/json` URL).
+    InvalidDataUrl,
 }
 
 impl fmt::Display for ParseError {
@@ -154,6 +157,7 @@ impl fmt::Display for ParseError {
             Self::SectionsNotOrdered => {
                 write!(f, "sections must be in ascending (line, column) order")
             }
+            Self::InvalidDataUrl => write!(f, "malformed data URL"),
         }
     }
 }
@@ -164,7 +168,10 @@ impl std::error::Error for ParseError {
             Self::Json(e) => Some(e),
             Self::Vlq(e) => Some(e),
             Self::Scopes(e) => Some(e),
-            Self::InvalidVersion(_) | Self::NestedIndexMap | Self::SectionsNotOrdered => None,
+            Self::InvalidVersion(_)
+            | Self::NestedIndexMap
+            | Self::SectionsNotOrdered
+            | Self::InvalidDataUrl => None,
         }
     }
 }
@@ -1478,6 +1485,62 @@ impl SourceMap {
     pub fn range_mapping_count(&self) -> usize {
         self.mappings.iter().filter(|m| m.is_range_mapping).count()
     }
+
+    /// Parse a source map from a `data:` URL.
+    ///
+    /// Supports both base64-encoded and plain JSON data URLs:
+    /// - `data:application/json;base64,<base64-encoded-json>`
+    /// - `data:application/json;charset=utf-8;base64,<base64-encoded-json>`
+    /// - `data:application/json,<json>`
+    ///
+    /// Returns [`ParseError::InvalidDataUrl`] if the URL format is not recognized
+    /// or base64 decoding fails.
+    pub fn from_data_url(url: &str) -> Result<Self, ParseError> {
+        let rest = url
+            .strip_prefix("data:application/json")
+            .ok_or(ParseError::InvalidDataUrl)?;
+
+        // Try base64-encoded variants first
+        let json = if let Some(data) = rest
+            .strip_prefix(";base64,")
+            .or_else(|| rest.strip_prefix(";charset=utf-8;base64,"))
+            .or_else(|| rest.strip_prefix(";charset=UTF-8;base64,"))
+        {
+            base64_decode(data).ok_or(ParseError::InvalidDataUrl)?
+        } else if let Some(data) = rest.strip_prefix(',') {
+            // Plain JSON — percent-decode if needed
+            if data.contains('%') {
+                percent_decode(data)
+            } else {
+                data.to_string()
+            }
+        } else {
+            return Err(ParseError::InvalidDataUrl);
+        };
+
+        Self::from_json(&json)
+    }
+
+    /// Serialize the source map JSON to a writer.
+    ///
+    /// Equivalent to calling [`to_json`](Self::to_json) and writing the result.
+    /// The full JSON string is built in memory before writing.
+    pub fn to_writer(&self, mut writer: impl io::Write) -> io::Result<()> {
+        let json = self.to_json();
+        writer.write_all(json.as_bytes())
+    }
+
+    /// Serialize the source map JSON to a writer with options.
+    ///
+    /// If `exclude_content` is true, `sourcesContent` is omitted from the output.
+    pub fn to_writer_with_options(
+        &self,
+        mut writer: impl io::Write,
+        exclude_content: bool,
+    ) -> io::Result<()> {
+        let json = self.to_json_with_options(exclude_content);
+        writer.write_all(json.as_bytes())
+    }
 }
 
 // ── LazySourceMap ──────────────────────────────────────────────────
@@ -1619,7 +1682,12 @@ impl LazySourceMap {
             source_map,
             fast_scan: false,
             decode_watermark: Cell::new(0),
-            decode_state: Cell::new(VlqState { source_index: 0, original_line: 0, original_column: 0, name_index: 0 }),
+            decode_state: Cell::new(VlqState {
+                source_index: 0,
+                original_line: 0,
+                original_column: 0,
+                name_index: 0,
+            }),
         })
     }
 
@@ -1681,7 +1749,12 @@ impl LazySourceMap {
             source_map,
             fast_scan: false,
             decode_watermark: Cell::new(0),
-            decode_state: Cell::new(VlqState { source_index: 0, original_line: 0, original_column: 0, name_index: 0 }),
+            decode_state: Cell::new(VlqState {
+                source_index: 0,
+                original_line: 0,
+                original_column: 0,
+                name_index: 0,
+            }),
         })
     }
 
@@ -1718,7 +1791,12 @@ impl LazySourceMap {
             source_map,
             fast_scan: false,
             decode_watermark: Cell::new(0),
-            decode_state: Cell::new(VlqState { source_index: 0, original_line: 0, original_column: 0, name_index: 0 }),
+            decode_state: Cell::new(VlqState {
+                source_index: 0,
+                original_line: 0,
+                original_column: 0,
+                name_index: 0,
+            }),
         })
     }
 
@@ -1773,7 +1851,12 @@ impl LazySourceMap {
             source_map,
             fast_scan: true,
             decode_watermark: Cell::new(0),
-            decode_state: Cell::new(VlqState { source_index: 0, original_line: 0, original_column: 0, name_index: 0 }),
+            decode_state: Cell::new(VlqState {
+                source_index: 0,
+                original_line: 0,
+                original_column: 0,
+                name_index: 0,
+            }),
         })
     }
 
@@ -1816,11 +1899,17 @@ impl LazySourceMap {
             if pos < end && bytes[pos] != b',' && bytes[pos] != b';' {
                 source_index += vlq_fast(bytes, &mut pos)?;
                 if pos >= end || bytes[pos] == b',' || bytes[pos] == b';' {
-                    return Err(DecodeError::InvalidSegmentLength { fields: 2, offset: pos });
+                    return Err(DecodeError::InvalidSegmentLength {
+                        fields: 2,
+                        offset: pos,
+                    });
                 }
                 original_line += vlq_fast(bytes, &mut pos)?;
                 if pos >= end || bytes[pos] == b',' || bytes[pos] == b';' {
-                    return Err(DecodeError::InvalidSegmentLength { fields: 3, offset: pos });
+                    return Err(DecodeError::InvalidSegmentLength {
+                        fields: 3,
+                        offset: pos,
+                    });
                 }
                 original_column += vlq_fast(bytes, &mut pos)?;
 
@@ -1885,7 +1974,12 @@ impl LazySourceMap {
             let mut state = if line >= watermark {
                 self.decode_state.get()
             } else {
-                VlqState { source_index: 0, original_line: 0, original_column: 0, name_index: 0 }
+                VlqState {
+                    source_index: 0,
+                    original_line: 0,
+                    original_column: 0,
+                    name_index: 0,
+                }
             };
 
             for l in start..=line {
@@ -1914,7 +2008,9 @@ impl LazySourceMap {
         // Normal mode: line_info has pre-computed VLQ state
         let state = self.line_info[line_idx].state;
         let (mappings, _) = self.decode_line_with_state(line, state)?;
-        self.decoded_lines.borrow_mut().insert(line, mappings.clone());
+        self.decoded_lines
+            .borrow_mut()
+            .insert(line, mappings.clone());
         Ok(mappings)
     }
 
@@ -2151,11 +2247,17 @@ fn walk_vlq_state(
         if pos < end && bytes[pos] != b',' && bytes[pos] != b';' {
             state.source_index += vlq_fast(bytes, &mut pos)?;
             if pos >= end || bytes[pos] == b',' || bytes[pos] == b';' {
-                return Err(DecodeError::InvalidSegmentLength { fields: 2, offset: pos });
+                return Err(DecodeError::InvalidSegmentLength {
+                    fields: 2,
+                    offset: pos,
+                });
             }
             state.original_line += vlq_fast(bytes, &mut pos)?;
             if pos >= end || bytes[pos] == b',' || bytes[pos] == b';' {
-                return Err(DecodeError::InvalidSegmentLength { fields: 3, offset: pos });
+                return Err(DecodeError::InvalidSegmentLength {
+                    fields: 3,
+                    offset: pos,
+                });
             }
             state.original_column += vlq_fast(bytes, &mut pos)?;
             if pos < end && bytes[pos] != b',' && bytes[pos] != b';' {
@@ -2262,6 +2364,34 @@ pub fn parse_source_mapping_url(source: &str) -> Option<SourceMappingUrl> {
 }
 
 /// Simple base64 decoder (no dependencies).
+/// Decode percent-encoded strings (e.g. `%7B` → `{`).
+fn percent_decode(input: &str) -> String {
+    let mut output = Vec::with_capacity(input.len());
+    let bytes = input.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' && i + 2 < bytes.len() {
+            if let (Some(hi), Some(lo)) = (hex_val(bytes[i + 1]), hex_val(bytes[i + 2])) {
+                output.push((hi << 4) | lo);
+                i += 3;
+                continue;
+            }
+        }
+        output.push(bytes[i]);
+        i += 1;
+    }
+    String::from_utf8(output).unwrap_or_else(|_| input.to_string())
+}
+
+fn hex_val(b: u8) -> Option<u8> {
+    match b {
+        b'0'..=b'9' => Some(b - b'0'),
+        b'a'..=b'f' => Some(b - b'a' + 10),
+        b'A'..=b'F' => Some(b - b'A' + 10),
+        _ => None,
+    }
+}
+
 fn base64_decode(input: &str) -> Option<String> {
     let input = input.trim();
     let bytes: Vec<u8> = input.bytes().filter(|b| !b.is_ascii_whitespace()).collect();
@@ -3041,9 +3171,15 @@ impl Iterator for MappingsIter<'_> {
                     }
                 }
                 // Reject 2-field segments (only 1, 4, or 5 are valid per ECMA-426)
-                if self.pos >= self.len || self.bytes[self.pos] == b',' || self.bytes[self.pos] == b';' {
+                if self.pos >= self.len
+                    || self.bytes[self.pos] == b','
+                    || self.bytes[self.pos] == b';'
+                {
                     self.done = true;
-                    return Some(Err(DecodeError::InvalidSegmentLength { fields: 2, offset: self.pos }));
+                    return Some(Err(DecodeError::InvalidSegmentLength {
+                        fields: 2,
+                        offset: self.pos,
+                    }));
                 }
                 // Field 3: original line
                 match vlq_fast(self.bytes, &mut self.pos) {
@@ -3054,9 +3190,15 @@ impl Iterator for MappingsIter<'_> {
                     }
                 }
                 // Reject 3-field segments (only 1, 4, or 5 are valid per ECMA-426)
-                if self.pos >= self.len || self.bytes[self.pos] == b',' || self.bytes[self.pos] == b';' {
+                if self.pos >= self.len
+                    || self.bytes[self.pos] == b','
+                    || self.bytes[self.pos] == b';'
+                {
                     self.done = true;
-                    return Some(Err(DecodeError::InvalidSegmentLength { fields: 3, offset: self.pos }));
+                    return Some(Err(DecodeError::InvalidSegmentLength {
+                        fields: 3,
+                        offset: self.pos,
+                    }));
                 }
                 // Field 4: original column
                 match vlq_fast(self.bytes, &mut self.pos) {
@@ -6872,7 +7014,8 @@ mod tests {
     #[test]
     fn lazy_sourcemap_backward_seek() {
         // Test that backward seek works correctly in fast-scan mode
-        let json = r#"{"version":3,"sources":["a.js"],"names":[],"mappings":"AAAA;AACA;AACA;AACA;AACA"}"#;
+        let json =
+            r#"{"version":3,"sources":["a.js"],"names":[],"mappings":"AAAA;AACA;AACA;AACA;AACA"}"#;
         let sm = LazySourceMap::from_json_fast(json).unwrap();
 
         // Forward: decode lines 0, 1, 2, 3
@@ -6981,5 +7124,108 @@ mod tests {
         for info in &result {
             assert_eq!(info.byte_offset, info.byte_end); // empty lines
         }
+    }
+
+    // ── from_data_url ────────────────────────────────────────────
+
+    #[test]
+    fn from_data_url_base64() {
+        let json = r#"{"version":3,"sources":["a.js"],"names":[],"mappings":"AAAA"}"#;
+        let encoded = base64_encode_simple(json);
+        let url = format!("data:application/json;base64,{encoded}");
+        let sm = SourceMap::from_data_url(&url).unwrap();
+        assert_eq!(sm.sources, vec!["a.js"]);
+        let loc = sm.original_position_for(0, 0).unwrap();
+        assert_eq!(loc.line, 0);
+        assert_eq!(loc.column, 0);
+    }
+
+    #[test]
+    fn from_data_url_base64_charset_utf8() {
+        let json = r#"{"version":3,"sources":["b.js"],"names":[],"mappings":"AAAA"}"#;
+        let encoded = base64_encode_simple(json);
+        let url = format!("data:application/json;charset=utf-8;base64,{encoded}");
+        let sm = SourceMap::from_data_url(&url).unwrap();
+        assert_eq!(sm.sources, vec!["b.js"]);
+    }
+
+    #[test]
+    fn from_data_url_plain_json() {
+        let json = r#"{"version":3,"sources":["c.js"],"names":[],"mappings":"AAAA"}"#;
+        let url = format!("data:application/json,{json}");
+        let sm = SourceMap::from_data_url(&url).unwrap();
+        assert_eq!(sm.sources, vec!["c.js"]);
+    }
+
+    #[test]
+    fn from_data_url_percent_encoded() {
+        let url = "data:application/json,%7B%22version%22%3A3%2C%22sources%22%3A%5B%22d.js%22%5D%2C%22names%22%3A%5B%5D%2C%22mappings%22%3A%22AAAA%22%7D";
+        let sm = SourceMap::from_data_url(url).unwrap();
+        assert_eq!(sm.sources, vec!["d.js"]);
+    }
+
+    #[test]
+    fn from_data_url_invalid_prefix() {
+        let result = SourceMap::from_data_url("data:text/plain;base64,abc");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn from_data_url_not_a_data_url() {
+        let result = SourceMap::from_data_url("https://example.com/foo.map");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn from_data_url_invalid_base64() {
+        let result = SourceMap::from_data_url("data:application/json;base64,!!!invalid!!!");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn from_data_url_roundtrip_with_to_data_url() {
+        use crate::utils::to_data_url;
+        let json = r#"{"version":3,"sources":["round.js"],"names":["x"],"mappings":"AACAA"}"#;
+        let url = to_data_url(json);
+        let sm = SourceMap::from_data_url(&url).unwrap();
+        assert_eq!(sm.sources, vec!["round.js"]);
+        assert_eq!(sm.names, vec!["x"]);
+    }
+
+    // ── to_writer ────────────────────────────────────────────────
+
+    #[test]
+    fn to_writer_basic() {
+        let json = r#"{"version":3,"sources":["a.js"],"names":[],"mappings":"AAAA"}"#;
+        let sm = SourceMap::from_json(json).unwrap();
+        let mut buf = Vec::new();
+        sm.to_writer(&mut buf).unwrap();
+        let output = String::from_utf8(buf).unwrap();
+        assert!(output.contains("\"version\":3"));
+        assert!(output.contains("\"sources\":[\"a.js\"]"));
+        // Verify it parses back correctly
+        let sm2 = SourceMap::from_json(&output).unwrap();
+        assert_eq!(sm2.sources, sm.sources);
+    }
+
+    #[test]
+    fn to_writer_matches_to_json() {
+        let json = r#"{"version":3,"sources":["a.js","b.js"],"names":["foo"],"mappings":"AACAA,GCAA","sourcesContent":["var foo;","var bar;"]}"#;
+        let sm = SourceMap::from_json(json).unwrap();
+        let expected = sm.to_json();
+        let mut buf = Vec::new();
+        sm.to_writer(&mut buf).unwrap();
+        let output = String::from_utf8(buf).unwrap();
+        assert_eq!(output, expected);
+    }
+
+    #[test]
+    fn to_writer_with_options_excludes_content() {
+        let json = r#"{"version":3,"sources":["a.js"],"names":[],"mappings":"AAAA","sourcesContent":["var x;"]}"#;
+        let sm = SourceMap::from_json(json).unwrap();
+        let mut buf = Vec::new();
+        sm.to_writer_with_options(&mut buf, true).unwrap();
+        let output = String::from_utf8(buf).unwrap();
+        assert!(!output.contains("sourcesContent"));
     }
 }
