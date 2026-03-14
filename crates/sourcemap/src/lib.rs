@@ -787,14 +787,15 @@ impl SourceMap {
     /// Look up the generated position for an original source position.
     ///
     /// `source` is the source filename. `line` and `column` are 0-based.
-    /// Uses `LeastUpperBound` by default (finds first mapping at or after the position).
+    /// Uses `GreatestLowerBound` by default (finds closest mapping at or before the position),
+    /// matching `@jridgewell/trace-mapping`'s `generatedPositionFor` semantics.
     pub fn generated_position_for(
         &self,
         source: &str,
         line: u32,
         column: u32,
     ) -> Option<GeneratedLocation> {
-        self.generated_position_for_with_bias(source, line, column, Bias::LeastUpperBound)
+        self.generated_position_for_with_bias(source, line, column, Bias::GreatestLowerBound)
     }
 
     /// Look up the generated position with a search bias.
@@ -4894,6 +4895,20 @@ mod tests {
             .generated_position_for_with_bias("input.js", 0, 7, Bias::GreatestLowerBound)
             .unwrap();
         assert_eq!(loc.column, 5);
+    }
+
+    #[test]
+    fn generated_position_for_default_bias_is_glb() {
+        // The default bias must be GreatestLowerBound to match jridgewell's
+        // generatedPositionFor semantics.
+        let sm = SourceMap::from_json(bias_map()).unwrap();
+        // With GLB: looking for original col 7, GLB finds the mapping at col 5
+        let glb = sm.generated_position_for("input.js", 0, 7).unwrap();
+        let glb_explicit = sm
+            .generated_position_for_with_bias("input.js", 0, 7, Bias::GreatestLowerBound)
+            .unwrap();
+        assert_eq!(glb.line, glb_explicit.line);
+        assert_eq!(glb.column, glb_explicit.column);
     }
 
     // ── Range mapping tests ──────────────────────────────────────
