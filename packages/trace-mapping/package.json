@@ -1,6 +1,6 @@
 {
   "name": "@srcmap/trace-mapping",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "description": "Drop-in replacement for @jridgewell/trace-mapping powered by Rust via WebAssembly",
   "type": "module",
   "main": "src/trace-mapping.cjs",
@@ -26,7 +26,7 @@
     "test:coverage": "mkdir -p coverage && node --test --experimental-test-coverage --test-reporter=lcov --test-reporter-destination=coverage/lcov.info --test-reporter=spec --test-reporter-destination=stdout __tests__/trace-mapping.test.mjs"
   },
   "dependencies": {
-    "@srcmap/sourcemap-wasm": "0.2.2"
+    "@srcmap/sourcemap-wasm": "0.2.3"
   },
   "repository": {
     "type": "git",
