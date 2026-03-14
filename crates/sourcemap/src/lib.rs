@@ -2409,12 +2409,13 @@ fn percent_decode(input: &str) -> String {
     let bytes = input.as_bytes();
     let mut i = 0;
     while i < bytes.len() {
-        if bytes[i] == b'%' && i + 2 < bytes.len() {
-            if let (Some(hi), Some(lo)) = (hex_val(bytes[i + 1]), hex_val(bytes[i + 2])) {
-                output.push((hi << 4) | lo);
-                i += 3;
-                continue;
-            }
+        if bytes[i] == b'%'
+            && i + 2 < bytes.len()
+            && let (Some(hi), Some(lo)) = (hex_val(bytes[i + 1]), hex_val(bytes[i + 2]))
+        {
+            output.push((hi << 4) | lo);
+            i += 3;
+            continue;
         }
         output.push(bytes[i]);
         i += 1;
@@ -7358,7 +7359,8 @@ mod tests {
 
     #[test]
     fn set_sources_with_source_root() {
-        let json = r#"{"version":3,"sourceRoot":"src/","sources":["a.js"],"names":[],"mappings":"AAAA"}"#;
+        let json =
+            r#"{"version":3,"sourceRoot":"src/","sources":["a.js"],"names":[],"mappings":"AAAA"}"#;
         let mut sm = SourceMap::from_json(json).unwrap();
         assert_eq!(sm.sources, vec!["src/a.js"]);
 

@@ -308,7 +308,6 @@ fn lookup_upstream(upstream_sm: &SourceMap, line: u32, column: u32) -> Option<Up
         original_line: mapping.original_line,
         original_column,
         name: mapping.name,
-        is_range_mapping: mapping.is_range_mapping,
     })
 }
 
@@ -320,7 +319,6 @@ struct UpstreamLookup {
     original_line: u32,
     original_column: u32,
     name: u32,
-    is_range_mapping: bool,
 }
 
 /// Fall back to the full `original_position_for` when the inlined lookup can't
@@ -338,7 +336,6 @@ fn fallback_to_full_lookup(
         original_line: loc.line,
         original_column: loc.column,
         name: loc.name.unwrap_or(NO_NAME),
-        is_range_mapping: false, // doesn't matter for the builder, position is already resolved
     })
 }
 
@@ -859,8 +856,7 @@ where
                         if outer_ignore_set.contains(&m.source) && ignored_sources.insert(idx) {
                             builder.add_to_ignore_list(idx);
                         }
-                        source_entries[si] =
-                            StreamingSourceEntry::Passthrough { builder_src: idx };
+                        source_entries[si] = StreamingSourceEntry::Passthrough { builder_src: idx };
                     }
                 }
             }
@@ -1841,10 +1837,9 @@ mod tests {
     #[test]
     fn remap_empty_string_source_filtered() {
         // Outer map has an empty-string source (from JSON null)
-        let outer = SourceMap::from_json(
-            r#"{"version":3,"sources":[""],"names":[],"mappings":"AAAA"}"#,
-        )
-        .unwrap();
+        let outer =
+            SourceMap::from_json(r#"{"version":3,"sources":[""],"names":[],"mappings":"AAAA"}"#)
+                .unwrap();
 
         let result = remap(&outer, |_| None);
 
@@ -1861,10 +1856,9 @@ mod tests {
     #[test]
     fn remap_null_source_filtered() {
         // JSON null in sources array becomes "" after resolve_sources
-        let outer = SourceMap::from_json(
-            r#"{"version":3,"sources":[null],"names":[],"mappings":"AAAA"}"#,
-        )
-        .unwrap();
+        let outer =
+            SourceMap::from_json(r#"{"version":3,"sources":[null],"names":[],"mappings":"AAAA"}"#)
+                .unwrap();
 
         let result = remap(&outer, |_| None);
 
@@ -1876,10 +1870,9 @@ mod tests {
 
     #[test]
     fn streaming_empty_string_source_filtered() {
-        let outer = SourceMap::from_json(
-            r#"{"version":3,"sources":[""],"names":[],"mappings":"AAAA"}"#,
-        )
-        .unwrap();
+        let outer =
+            SourceMap::from_json(r#"{"version":3,"sources":[""],"names":[],"mappings":"AAAA"}"#)
+                .unwrap();
 
         let result = streaming_from_sm(&outer, |_| None);
 
@@ -1926,10 +1919,8 @@ mod tests {
     fn remap_skips_sourceless_at_line_start() {
         // Outer has a sourceless segment at position 0 on a line
         // A = gen(0,0) with no source
-        let outer = SourceMap::from_json(
-            r#"{"version":3,"sources":[],"names":[],"mappings":"A"}"#,
-        )
-        .unwrap();
+        let outer = SourceMap::from_json(r#"{"version":3,"sources":[],"names":[],"mappings":"A"}"#)
+            .unwrap();
 
         let result = remap(&outer, |_| None);
 
