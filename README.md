@@ -206,16 +206,39 @@ Run `cd benchmarks && npm run download-fixtures && npm run bench:real-world` to 
 
 srcmap ships WASM and NAPI bindings for use in Node.js — useful for symbolication services, error monitoring, and bulk source map operations.
 
+### Choosing a package
+
+- **Consuming source maps?** → [`@srcmap/trace-mapping`](https://www.npmjs.com/package/@srcmap/trace-mapping) (drop-in for `@jridgewell/trace-mapping`)
+- **Generating source maps?** → [`@srcmap/gen-mapping`](https://www.npmjs.com/package/@srcmap/gen-mapping) (drop-in for `@jridgewell/gen-mapping`)
+- **Using Mozilla's API?** → [`@srcmap/source-map`](https://www.npmjs.com/package/@srcmap/source-map) (drop-in for `source-map` v0.6)
+- **Composing/remapping?** → [`@srcmap/remapping`](https://www.npmjs.com/package/@srcmap/remapping) (drop-in for `@ampproject/remapping`)
+- **Batch lookups or low-level control?** → [`@srcmap/sourcemap-wasm`](https://www.npmjs.com/package/@srcmap/sourcemap-wasm) (raw WASM API, fastest for bulk ops)
+
+### Quick start (Node.js)
+
+```js
+// Swap the import — the rest of your code stays the same
+import { TraceMap, originalPositionFor } from '@srcmap/trace-mapping'
+
+const map = new TraceMap(sourceMapJsonOrObject)
+const pos = originalPositionFor(map, { line: 43, column: 10 })
+// { source: 'src/app.ts', line: 11, column: 4, name: 'handleClick' }
+
+map.free() // Release WASM memory (or use `using` with Symbol.dispose)
+```
+
+### All packages
+
 | Package | Description |
 |---|---|
-| [`@srcmap/sourcemap-wasm`](https://www.npmjs.com/package/@srcmap/sourcemap-wasm) | Parser + consumer (WASM) |
-| [`@srcmap/generator-wasm`](https://www.npmjs.com/package/@srcmap/generator-wasm) | Source map builder (WASM) |
-| [`@srcmap/remapping-wasm`](https://www.npmjs.com/package/@srcmap/remapping-wasm) | Concatenation + composition (WASM) |
-| [`@srcmap/symbolicate-wasm`](https://www.npmjs.com/package/@srcmap/symbolicate-wasm) | Stack trace symbolication (WASM) |
 | [`@srcmap/trace-mapping`](https://www.npmjs.com/package/@srcmap/trace-mapping) | Drop-in for `@jridgewell/trace-mapping` (WASM) |
 | [`@srcmap/gen-mapping`](https://www.npmjs.com/package/@srcmap/gen-mapping) | Drop-in for `@jridgewell/gen-mapping` (WASM) |
 | [`@srcmap/source-map`](https://www.npmjs.com/package/@srcmap/source-map) | Drop-in for Mozilla `source-map` v0.6 (WASM) |
 | [`@srcmap/remapping`](https://www.npmjs.com/package/@srcmap/remapping) | Drop-in for `@ampproject/remapping` (WASM) |
+| [`@srcmap/sourcemap-wasm`](https://www.npmjs.com/package/@srcmap/sourcemap-wasm) | Parser + consumer (WASM) |
+| [`@srcmap/generator-wasm`](https://www.npmjs.com/package/@srcmap/generator-wasm) | Source map builder (WASM) |
+| [`@srcmap/remapping-wasm`](https://www.npmjs.com/package/@srcmap/remapping-wasm) | Concatenation + composition (WASM) |
+| [`@srcmap/symbolicate-wasm`](https://www.npmjs.com/package/@srcmap/symbolicate-wasm) | Stack trace symbolication (WASM) |
 | [`@srcmap/sourcemap`](https://www.npmjs.com/package/@srcmap/sourcemap) | Parser + consumer (NAPI) |
 | [`@srcmap/codec`](https://www.npmjs.com/package/@srcmap/codec) | VLQ codec (NAPI) |
 
@@ -234,18 +257,19 @@ srcmap encode mappings.json --json          # Encode back to VLQ
 srcmap concat a.js.map b.js.map -o bundle.js.map              # Concatenate
 srcmap remap minified.js.map --dir ./maps -o composed.js.map  # Compose
 srcmap symbolicate stack.txt --dir ./maps --json               # Symbolicate
+srcmap scopes bundle.js.map --json          # Inspect ECMA-426 scopes & bindings
 srcmap schema                               # All commands as JSON (for agents)
 ```
 
 All commands support `--json` for structured output.
 
-## Internals
+## Why srcmap is fast
 
-- **Flat Mapping struct** — 28 bytes (6 × u32 + bool), cache-friendly contiguous layout
-- **Inlined VLQ decoder** — single-char fast path for values −15..15 (~85% of real-world VLQ values)
+- **Cache-friendly layout** — 28-byte flat Mapping struct in contiguous memory (6 × u32 + bool)
+- **Single-char VLQ fast path** — ~85% of real-world values decode in one operation
 - **Lazy reverse index** — only built on first `generated_position_for` call
-- **Binary search lookups** — O(log n) for both forward and reverse queries
-- **Borrowed deserialization** — `mappings` string borrowed from JSON input (zero-copy)
+- **Binary search** — O(log n) for both forward and reverse lookups
+- **Zero-copy parsing** — `mappings` string borrowed directly from JSON input
 - **Pre-counted capacity** — segment and line counts estimated before allocation
 
 ## Development
