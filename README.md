@@ -212,7 +212,10 @@ srcmap ships WASM and NAPI bindings for use in Node.js — useful for symbolicat
 | [`@srcmap/generator-wasm`](https://www.npmjs.com/package/@srcmap/generator-wasm) | Source map builder (WASM) |
 | [`@srcmap/remapping-wasm`](https://www.npmjs.com/package/@srcmap/remapping-wasm) | Concatenation + composition (WASM) |
 | [`@srcmap/symbolicate-wasm`](https://www.npmjs.com/package/@srcmap/symbolicate-wasm) | Stack trace symbolication (WASM) |
-| [`@srcmap/trace-mapping`](https://www.npmjs.com/package/@srcmap/trace-mapping) | trace-mapping compatible API (WASM) |
+| [`@srcmap/trace-mapping`](https://www.npmjs.com/package/@srcmap/trace-mapping) | Drop-in for `@jridgewell/trace-mapping` (WASM) |
+| [`@srcmap/gen-mapping`](https://www.npmjs.com/package/@srcmap/gen-mapping) | Drop-in for `@jridgewell/gen-mapping` (WASM) |
+| [`@srcmap/source-map`](https://www.npmjs.com/package/@srcmap/source-map) | Drop-in for Mozilla `source-map` v0.6 (WASM) |
+| [`@srcmap/remapping`](https://www.npmjs.com/package/@srcmap/remapping) | Drop-in for `@ampproject/remapping` (WASM) |
 | [`@srcmap/sourcemap`](https://www.npmjs.com/package/@srcmap/sourcemap) | Parser + consumer (NAPI) |
 | [`@srcmap/codec`](https://www.npmjs.com/package/@srcmap/codec) | VLQ codec (NAPI) |
 
