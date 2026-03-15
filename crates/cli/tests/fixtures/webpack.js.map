@@ -1,0 +1,8 @@
+{
+  "version": 3,
+  "file": "webpack.js",
+  "sources": ["webpack:///src/index.ts", "webpack:///./src/helpers/utils.ts", "../lib/external.ts"],
+  "names": ["init"],
+  "mappings": "AAAA,IAAM;ACAA;ACAA",
+  "sourcesContent": ["export const init = () => {};", "export const helper = () => {};", "export const ext = () => {};"]
+}

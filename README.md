@@ -249,7 +249,7 @@ cargo install srcmap-cli
 
 srcmap info bundle.js.map --json            # Inspect metadata and statistics
 srcmap validate bundle.js.map --json        # Validate a source map
-srcmap lookup bundle.js.map 42 10 --json    # Original position (0-based)
+srcmap lookup bundle.js.map 42 10 --context 5 --json  # Original position with source context
 srcmap resolve bundle.js.map --source src/app.ts 10 0 --json  # Reverse lookup
 srcmap mappings bundle.js.map --limit 100 --json              # List mappings
 srcmap decode "AAAA;AACA" --json            # Decode VLQ mappings string
@@ -258,6 +258,8 @@ srcmap concat a.js.map b.js.map -o bundle.js.map              # Concatenate
 srcmap remap minified.js.map --dir ./maps -o composed.js.map  # Compose
 srcmap symbolicate stack.txt --dir ./maps --json               # Symbolicate
 srcmap scopes bundle.js.map --json          # Inspect ECMA-426 scopes & bindings
+srcmap fetch https://cdn.example.com/app.min.js -o ./debug     # Fetch bundle + source map
+srcmap sources bundle.js.map --extract -o ./src                # Extract original sources
 srcmap schema                               # All commands as JSON (for agents)
 ```
 

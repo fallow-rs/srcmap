@@ -533,6 +533,232 @@ fn schema_output() {
     assert!(names.contains(&"schema"));
 }
 
+// ── sources ──────────────────────────────────────────────────
+
+#[test]
+fn sources_list_human() {
+    let out = srcmap()
+        .args(["sources", fixture("simple.js.map").to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(out.status.success());
+    let stdout = String::from_utf8(out.stdout).unwrap();
+    assert!(stdout.contains("src/app.ts"));
+    assert!(stdout.contains("src/util.ts"));
+    assert!(stdout.contains("no content"));
+}
+
+#[test]
+fn sources_list_json() {
+    let out = srcmap()
+        .args([
+            "sources",
+            fixture("simple.js.map").to_str().unwrap(),
+            "--json",
+        ])
+        .output()
+        .unwrap();
+    assert!(out.status.success());
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(v["total"], 2);
+    assert_eq!(v["withContent"], 1);
+    let sources = v["sources"].as_array().unwrap();
+    assert_eq!(sources[0]["source"], "src/app.ts");
+    assert_eq!(sources[0]["hasContent"], true);
+    assert_eq!(sources[1]["source"], "src/util.ts");
+    assert_eq!(sources[1]["hasContent"], false);
+}
+
+#[test]
+fn sources_extract() {
+    let dir = tempfile::tempdir().unwrap();
+    let out = srcmap()
+        .current_dir(dir.path())
+        .args([
+            "sources",
+            fixture("simple.js.map").to_str().unwrap(),
+            "--extract",
+            "-o",
+            dir.path().to_str().unwrap(),
+            "--json",
+        ])
+        .output()
+        .unwrap();
+    assert!(out.status.success());
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(v["extracted"].as_array().unwrap().len(), 1);
+    assert_eq!(v["skipped"].as_array().unwrap().len(), 1);
+
+    // Verify the extracted file exists and has correct content
+    let extracted_path = dir.path().join("src/app.ts");
+    assert!(extracted_path.exists());
+    let content = fs::read_to_string(&extracted_path).unwrap();
+    assert!(content.contains("const greet"));
+}
+
+// ── lookup with context ─────────────────────────────────────
+
+#[test]
+fn lookup_with_context_human() {
+    let out = srcmap()
+        .args([
+            "lookup",
+            fixture("simple.js.map").to_str().unwrap(),
+            "0",
+            "0",
+            "--context",
+            "1",
+        ])
+        .output()
+        .unwrap();
+    assert!(out.status.success());
+    let stdout = String::from_utf8(out.stdout).unwrap();
+    assert!(stdout.contains("src/app.ts"));
+    assert!(stdout.contains("const greet"));
+}
+
+#[test]
+fn lookup_with_context_json() {
+    let out = srcmap()
+        .args([
+            "lookup",
+            fixture("simple.js.map").to_str().unwrap(),
+            "0",
+            "0",
+            "--context",
+            "2",
+            "--json",
+        ])
+        .output()
+        .unwrap();
+    assert!(out.status.success());
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(v["source"], "src/app.ts");
+    assert!(v["context"].is_array());
+    let ctx = v["context"].as_array().unwrap();
+    assert!(!ctx.is_empty());
+    // First line should be highlighted (line 0)
+    assert_eq!(ctx[0]["highlight"], true);
+    assert!(ctx[0]["text"].as_str().unwrap().contains("const greet"));
+}
+
+// ── lookup context edge cases ────────────────────────────────
+
+#[test]
+fn lookup_context_zero_no_context_block() {
+    // --context 0 should behave like normal lookup (no context in output)
+    let out = srcmap()
+        .args([
+            "lookup",
+            fixture("simple.js.map").to_str().unwrap(),
+            "0",
+            "0",
+            "--context",
+            "0",
+            "--json",
+        ])
+        .output()
+        .unwrap();
+    assert!(out.status.success());
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(v["source"], "src/app.ts");
+    assert!(v["context"].is_null());
+}
+
+#[test]
+fn lookup_context_no_sources_content() {
+    // second.js.map has no sourcesContent — context should be absent, not crash
+    let out = srcmap()
+        .args([
+            "lookup",
+            fixture("second.js.map").to_str().unwrap(),
+            "0",
+            "0",
+            "--context",
+            "3",
+            "--json",
+        ])
+        .output()
+        .unwrap();
+    assert!(out.status.success());
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(v["source"], "src/other.ts");
+    assert!(v["context"].is_null());
+}
+
+// ── sources extract with special paths ──────────────────────
+
+#[test]
+fn sources_extract_webpack_paths() {
+    let dir = tempfile::tempdir().unwrap();
+    let out = srcmap()
+        .current_dir(dir.path())
+        .args([
+            "sources",
+            fixture("webpack.js.map").to_str().unwrap(),
+            "--extract",
+            "-o",
+            dir.path().to_str().unwrap(),
+            "--json",
+        ])
+        .output()
+        .unwrap();
+    assert!(out.status.success());
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(v["extracted"].as_array().unwrap().len(), 3);
+
+    // webpack:///src/index.ts → src/index.ts
+    let index_path = dir.path().join("src/index.ts");
+    assert!(index_path.exists());
+    let content = fs::read_to_string(&index_path).unwrap();
+    assert!(content.contains("export const init"));
+
+    // webpack:///./src/helpers/utils.ts → src/helpers/utils.ts
+    let utils_path = dir.path().join("src/helpers/utils.ts");
+    assert!(utils_path.exists());
+
+    // ../lib/external.ts → lib/external.ts (leading ../ stripped)
+    let ext_path = dir.path().join("lib/external.ts");
+    assert!(ext_path.exists());
+}
+
+// ── fetch ────────────────────────────────────────────────────
+
+#[test]
+fn fetch_invalid_url() {
+    let out = srcmap().args(["fetch", "not-a-url"]).output().unwrap();
+    assert!(!out.status.success());
+    let stderr = String::from_utf8(out.stderr).unwrap();
+    assert!(stderr.contains("INVALID_INPUT") || stderr.contains("http://"));
+}
+
+#[test]
+fn fetch_invalid_url_json() {
+    let out = srcmap()
+        .args(["fetch", "not-a-url", "--json"])
+        .output()
+        .unwrap();
+    assert!(!out.status.success());
+    let v: serde_json::Value = serde_json::from_slice(&out.stderr).unwrap();
+    assert_eq!(v["code"], "INVALID_INPUT");
+}
+
+// ── schema includes new commands ─────────────────────────────
+
+#[test]
+fn schema_includes_new_commands() {
+    let out = srcmap().arg("schema").output().unwrap();
+    assert!(out.status.success());
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    let commands = v["commands"].as_array().unwrap();
+    let names: Vec<&str> = commands
+        .iter()
+        .map(|c| c["name"].as_str().unwrap())
+        .collect();
+    assert!(names.contains(&"fetch"));
+    assert!(names.contains(&"sources"));
+}
+
 // ── error handling ───────────────────────────────────────────────
 
 #[test]

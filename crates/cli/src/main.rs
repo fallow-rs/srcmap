@@ -6,7 +6,8 @@ use std::process::ExitCode;
 use clap::{Parser, Subcommand};
 use srcmap_codec::{decode, encode};
 use srcmap_remapping::{ConcatBuilder, remap};
-use srcmap_sourcemap::{Bias, SourceMap};
+use srcmap_sourcemap::utils::resolve_source_map_url;
+use srcmap_sourcemap::{Bias, SourceMap, SourceMappingUrl, parse_source_mapping_url};
 
 // ── CLI definition ───────────────────────────────────────────────
 
@@ -57,6 +58,10 @@ enum Command {
         /// Search bias: "glb" (default, greatest lower bound) or "lub" (least upper bound)
         #[arg(long, default_value = "glb")]
         bias: String,
+
+        /// Number of context lines to show around the matched position
+        #[arg(long, default_value = "0")]
+        context: u32,
 
         /// Output as JSON
         #[arg(long)]
@@ -205,6 +210,38 @@ enum Command {
         json: bool,
     },
 
+    /// Fetch a JavaScript/CSS bundle and its source map from a URL
+    Fetch {
+        /// URL of the JavaScript or CSS file
+        url: String,
+
+        /// Output directory (default: current directory)
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
+    },
+
+    /// List or extract original sources embedded in a source map
+    Sources {
+        /// Source map file
+        file: PathBuf,
+
+        /// Extract sourcesContent to files on disk
+        #[arg(long)]
+        extract: bool,
+
+        /// Output directory for extracted files (default: current directory)
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
+    },
+
     /// Describe all commands and their arguments as JSON (for agent introspection)
     Schema,
 }
@@ -246,6 +283,10 @@ impl CliError {
 
     fn invalid_input(message: impl Into<String>) -> Self {
         Self::new("INVALID_INPUT", message)
+    }
+
+    fn fetch_error(message: impl Into<String>) -> Self {
+        Self::new("FETCH_ERROR", message)
     }
 
     fn to_json(&self) -> String {
@@ -376,6 +417,79 @@ fn write_output(output: &Option<PathBuf>, content: &str) -> Result<(), CliError>
             Ok(())
         }
     }
+}
+
+fn http_get(url: &str) -> Result<String, CliError> {
+    let response = ureq::get(url)
+        .set(
+            "User-Agent",
+            concat!("srcmap-cli/", env!("CARGO_PKG_VERSION")),
+        )
+        .call()
+        .map_err(|e| CliError::fetch_error(format!("failed to fetch {url}: {e}")))?;
+
+    let status = response.status();
+    if status != 200 {
+        return Err(CliError::fetch_error(format!("HTTP {status} for {url}")));
+    }
+
+    response
+        .into_string()
+        .map_err(|e| CliError::fetch_error(format!("failed to read response body from {url}: {e}")))
+}
+
+fn url_filename(url: &str) -> String {
+    let path = url.split('?').next().unwrap_or(url);
+    let path = path.split('#').next().unwrap_or(path);
+    let name = path.rsplit('/').next().unwrap_or("bundle.js");
+    if name.is_empty() {
+        "bundle.js".to_string()
+    } else {
+        name.to_string()
+    }
+}
+
+fn sanitize_source_path(source: &str) -> Result<PathBuf, CliError> {
+    let stripped = source
+        .strip_prefix("webpack:///")
+        .or_else(|| source.strip_prefix("webpack://"))
+        .or_else(|| source.strip_prefix("file:///"))
+        .or_else(|| source.strip_prefix("file://"))
+        .unwrap_or(source);
+
+    let stripped = stripped.trim_start_matches('/');
+
+    if stripped.is_empty() {
+        return Err(CliError::invalid_input(
+            "empty source name after stripping prefixes",
+        ));
+    }
+
+    // Normalize: resolve . and .., stripping leading ../ (relative to map file, safe to drop)
+    let mut components = Vec::new();
+    for component in Path::new(stripped).components() {
+        match component {
+            std::path::Component::ParentDir => {
+                if !components.is_empty() {
+                    components.pop();
+                }
+                // Leading .. silently dropped — it's relative to the map file location
+            }
+            std::path::Component::CurDir => {}
+            _ => {
+                components.push(component);
+            }
+        }
+    }
+
+    if components.is_empty() {
+        return Err(CliError::invalid_input(format!(
+            "source name resolves to empty path: {source}"
+        )));
+    }
+
+    let path: PathBuf = components.iter().collect();
+    Ok(path)
 }
 
 fn format_size(bytes: usize) -> String {
@@ -543,6 +657,7 @@ fn cmd_lookup(
     line: u32,
     column: u32,
     bias: &str,
+    context: u32,
     json: bool,
 ) -> Result<(), CliError> {
     let b = parse_bias(bias)?;
@@ -553,18 +668,64 @@ fn cmd_lookup(
             let source = sm.source(loc.source);
             let name = loc.name.map(|n| sm.name(n).to_string());
 
+            // Extract context lines from sourcesContent if requested
+            let context_lines = if context > 0 {
+                sm.sources_content
+                    .get(loc.source as usize)
+                    .and_then(|c| c.as_ref())
+                    .map(|content| {
+                        let lines: Vec<&str> = content.lines().collect();
+                        let target = loc.line as usize;
+                        let start = target.saturating_sub(context as usize);
+                        let end = (target + context as usize + 1).min(lines.len());
+                        (start, target, lines[start..end].to_vec())
+                    })
+            } else {
+                None
+            };
+
             if json {
-                let obj = serde_json::json!({
+                let mut obj = serde_json::json!({
                     "source": source,
                     "line": loc.line,
                     "column": loc.column,
                     "name": name,
                 });
+
+                if let Some((start, target, ref lines)) = context_lines {
+                    let ctx: Vec<serde_json::Value> = lines
+                        .iter()
+                        .enumerate()
+                        .map(|(i, text)| {
+                            let line_num = start + i;
+                            serde_json::json!({
+                                "line": line_num,
+                                "text": text,
+                                "highlight": line_num == target,
+                            })
+                        })
+                        .collect();
+                    obj["context"] = serde_json::json!(ctx);
+                }
+
                 println!("{}", serde_json::to_string_pretty(&obj).unwrap());
             } else {
                 println!("{source}:{line}:{col}", line = loc.line, col = loc.column);
                 if let Some(name) = name {
                     println!("  name: {name}");
+                }
+
+                if let Some((start, target, ref lines)) = context_lines {
+                    println!();
+                    let gutter_width = format!("{}", start + lines.len()).len();
+                    for (i, text) in lines.iter().enumerate() {
+                        let line_num = start + i;
+                        let marker = if line_num == target { ">" } else { " " };
+                        println!(
+                            "{marker} {line_num:>gutter_width$} | {text}",
+                            gutter_width = gutter_width
+                        );
+                    }
                 }
             }
         }
@@ -1277,6 +1438,272 @@ fn cmd_scopes(file: &PathBuf, json: bool) -> Result<(), CliError> {
     Ok(())
 }
 
+fn cmd_fetch(url: &str, output: &Option<PathBuf>, json: bool) -> Result<(), CliError> {
+    // Validate URL
+    if !url.starts_with("http://") && !url.starts_with("https://") {
+        return Err(CliError::invalid_input(
+            "URL must start with http:// or https://",
+        ));
+    }
+
+    let output_dir = match output {
+        Some(dir) => dir.clone(),
+        None => {
+            std::env::current_dir().map_err(|e| CliError::io(format!("cannot get cwd: {e}")))?
+        }
+    };
+
+    if !output_dir.exists() {
+        fs::create_dir_all(&output_dir).map_err(|e| {
+            CliError::io(format!(
+                "failed to create output directory {}: {e}",
+                output_dir.display()
+            ))
+        })?;
+    }
+
+    // Fetch the bundle
+    eprintln!("Fetching {url}...");
+    let bundle_body = http_get(url)?;
+    let bundle_filename = url_filename(url);
+    let bundle_path = output_dir.join(&bundle_filename);
+
+    fs::write(&bundle_path, &bundle_body)
+        .map_err(|e| CliError::io(format!("failed to write {}: {e}", bundle_path.display())))?;
+    eprintln!(
+        "  Saved {} ({})",
+        bundle_path.display(),
+        format_size(bundle_body.len())
+    );
+
+    // Extract sourceMappingURL
+    let map_result = match parse_source_mapping_url(&bundle_body) {
+        Some(SourceMappingUrl::Inline(decoded_json)) => {
+            let map_filename = format!("{bundle_filename}.map");
+            let map_path = output_dir.join(&map_filename);
+            fs::write(&map_path, &decoded_json).map_err(|e| {
+                CliError::io(format!("failed to write {}: {e}", map_path.display()))
+            })?;
+            eprintln!(
+                "  Saved {} (inline, {})",
+                map_path.display(),
+                format_size(decoded_json.len())
+            );
+            Some((
+                map_path.display().to_string(),
+                decoded_json.len(),
+                "inline".to_string(),
+            ))
+        }
+        Some(SourceMappingUrl::External(ref map_ref)) => {
+            let map_url = resolve_source_map_url(url, map_ref).ok_or_else(|| {
+                CliError::fetch_error(format!("could not resolve source map URL: {map_ref}"))
+            })?;
+            eprintln!("Fetching {map_url}...");
+            let map_body = http_get(&map_url)?;
+            let map_filename = url_filename(&map_url);
+            let map_path = output_dir.join(&map_filename);
+            fs::write(&map_path, &map_body).map_err(|e| {
+                CliError::io(format!("failed to write {}: {e}", map_path.display()))
+            })?;
+            eprintln!(
+                "  Saved {} ({})",
+                map_path.display(),
+                format_size(map_body.len())
+            );
+            Some((map_path.display().to_string(), map_body.len(), map_url))
+        }
+        None => {
+            // Try conventional .map suffix
+            let map_url = format!("{url}.map");
+            eprintln!("No sourceMappingURL found, trying {map_url}...");
+            match http_get(&map_url) {
+                Ok(map_body) => {
+                    let map_filename = format!("{bundle_filename}.map");
+                    let map_path = output_dir.join(&map_filename);
+                    fs::write(&map_path, &map_body).map_err(|e| {
+                        CliError::io(format!("failed to write {}: {e}", map_path.display()))
+                    })?;
+                    eprintln!(
+                        "  Saved {} (convention, {})",
+                        map_path.display(),
+                        format_size(map_body.len())
+                    );
+                    Some((map_path.display().to_string(), map_body.len(), map_url))
+                }
+                Err(_) => {
+                    eprintln!("  No source map found");
+                    None
+                }
+            }
+        }
+    };
+
+    if json {
+        let obj = serde_json::json!({
+            "bundle": {
+                "url": url,
+                "file": bundle_path.display().to_string(),
+                "size": bundle_body.len(),
+            },
+            "sourceMap": map_result.as_ref().map(|(path, size, source_url)| {
+                serde_json::json!({
+                    "url": source_url,
+                    "file": path,
+                    "size": size,
+                })
+            }),
+        });
+        println!("{}", serde_json::to_string_pretty(&obj).unwrap());
+    } else if map_result.is_none() {
+        println!("Fetched {} (no source map found)", bundle_path.display());
+    } else {
+        println!("Done");
+    }
+
+    Ok(())
+}
+
+fn cmd_sources(
+    file: &PathBuf,
+    extract: bool,
+    output: &Option<PathBuf>,
+    json: bool,
+) -> Result<(), CliError> {
+    let (sm, _) = parse_source_map(file)?;
+
+    if extract {
+        let output_dir = match output {
+            Some(dir) => dir.clone(),
+            None => {
+                std::env::current_dir().map_err(|e| CliError::io(format!("cannot get cwd: {e}")))?
+            }
+        };
+
+        let mut extracted = Vec::new();
+        let mut skipped = Vec::new();
+
+        for (i, source_name) in sm.sources.iter().enumerate() {
+            let content = match sm.sources_content.get(i).and_then(|c| c.as_ref()) {
+                Some(c) => c,
+                None => {
+                    skipped.push(source_name.clone());
+                    continue;
+                }
+            };
+
+            let dest_path = match sanitize_source_path(source_name) {
+                Ok(p) => output_dir.join(p),
+                Err(_) => {
+                    skipped.push(source_name.clone());
+                    continue;
+                }
+            };
+
+            if let Some(parent) = dest_path.parent() {
+                fs::create_dir_all(parent).map_err(|e| {
+                    CliError::io(format!(
+                        "failed to create directory {}: {e}",
+                        parent.display()
+                    ))
+                })?;
+            }
+
+            fs::write(&dest_path, content).map_err(|e| {
+                CliError::io(format!("failed to write {}: {e}", dest_path.display()))
+            })?;
+
+            extracted.push(serde_json::json!({
+                "source": source_name,
+                "file": dest_path.display().to_string(),
+                "size": content.len(),
+            }));
+        }
+
+        if json {
+            let obj = serde_json::json!({
+                "extracted": extracted,
+                "skipped": skipped,
+                "total": sm.sources.len(),
+            });
+            println!("{}", serde_json::to_string_pretty(&obj).unwrap());
+        } else {
+            println!(
+                "Extracted {}/{} sources to {}",
+                extracted.len(),
+                sm.sources.len(),
+                output_dir.display()
+            );
+            for entry in &extracted {
+                let source = entry["source"].as_str().unwrap();
+                let size = entry["size"].as_u64().unwrap() as usize;
+                println!("  {source} [{}]", format_size(size));
+            }
+            if !skipped.is_empty() {
+                println!("Skipped {} sources without content", skipped.len());
+            }
+        }
+    } else {
+        // List mode
+        let entries: Vec<serde_json::Value> = sm
+            .sources
+            .iter()
+            .enumerate()
+            .map(|(i, source)| {
+                let content_size = sm
+                    .sources_content
+                    .get(i)
+                    .and_then(|c| c.as_ref())
+                    .map(|c| c.len());
+                let ignored = sm.ignore_list.contains(&(i as u32));
+
+                serde_json::json!({
+                    "index": i,
+                    "source": source,
+                    "hasContent": content_size.is_some(),
+                    "contentSize": content_size,
+                    "ignored": ignored,
+                })
+            })
+            .collect();
+
+        if json {
+            let obj = serde_json::json!({
+                "sources": entries,
+                "total": sm.sources.len(),
+                "withContent": entries.iter().filter(|e| e["hasContent"].as_bool() == Some(true)).count(),
+            });
+            println!("{}", serde_json::to_string_pretty(&obj).unwrap());
+        } else {
+            let with_content = entries
+                .iter()
+                .filter(|e| e["hasContent"].as_bool() == Some(true))
+                .count();
+            println!(
+                "Sources ({}, {} with content):",
+                sm.sources.len(),
+                with_content
+            );
+            for entry in &entries {
+                let idx = entry["index"].as_u64().unwrap();
+                let source = entry["source"].as_str().unwrap();
+                let size_str = match entry["contentSize"].as_u64() {
+                    Some(size) => format!(" [{}]", format_size(size as usize)),
+                    None => " [no content]".to_string(),
+                };
+                let ignored = if entry["ignored"].as_bool() == Some(true) {
+                    " (ignored)"
+                } else {
+                    ""
+                };
+                println!("  {idx}: {source}{size_str}{ignored}");
+            }
+        }
+    }
+
+    Ok(())
+}
+
 fn cmd_schema() -> Result<(), CliError> {
     let schema = serde_json::json!({
         "name": "srcmap",
@@ -1318,6 +1745,7 @@ fn cmd_schema() -> Result<(), CliError> {
                 ],
                 "flags": {
                     "--bias": {"type": "string", "default": "glb", "description": "Search bias: glb (greatest lower bound) or lub (least upper bound)"},
+                    "--context": {"type": "u32", "default": 0, "description": "Number of context lines to show around the matched position"},
                     "--json": {"type": "bool", "default": false, "description": "Output as JSON"}
                 }
             },
@@ -1418,6 +1846,29 @@ fn cmd_schema() -> Result<(), CliError> {
                 }
             },
             {
+                "name": "fetch",
+                "description": "Fetch a JavaScript/CSS bundle and its source map from a URL",
+                "args": [
+                    {"name": "url", "type": "string", "required": true, "description": "URL of the JavaScript or CSS file"}
+                ],
+                "flags": {
+                    "-o, --output": {"type": "path", "required": false, "description": "Output directory (default: current directory)"},
+                    "--json": {"type": "bool", "default": false, "description": "Output as JSON"}
+                }
+            },
+            {
+                "name": "sources",
+                "description": "List or extract original sources embedded in a source map",
+                "args": [
+                    {"name": "file", "type": "path", "required": true, "description": "Source map file"}
+                ],
+                "flags": {
+                    "--extract": {"type": "bool", "default": false, "description": "Extract sourcesContent to files on disk"},
+                    "-o, --output": {"type": "path", "required": false, "description": "Output directory for extracted files (default: current directory)"},
+                    "--json": {"type": "bool", "default": false, "description": "Output as JSON"}
+                }
+            },
+            {
                 "name": "schema",
                 "description": "Describe all commands and their arguments as JSON (this output)",
                 "args": [],
@@ -1447,6 +1898,8 @@ fn main() -> ExitCode {
             | Command::Remap { json: true, .. }
             | Command::Symbolicate { json: true, .. }
             | Command::Scopes { json: true, .. }
+            | Command::Fetch { json: true, .. }
+            | Command::Sources { json: true, .. }
     );
 
     let result = match &cli.command {
@@ -1461,8 +1914,9 @@ fn main() -> ExitCode {
             line,
             column,
             bias,
+            context,
             json,
-        } => cmd_lookup(file, *line, *column, bias, *json),
+        } => cmd_lookup(file, *line, *column, bias, *context, *json),
         Command::Resolve {
             file,
             source,
@@ -1502,6 +1956,13 @@ fn main() -> ExitCode {
             json,
         } => cmd_symbolicate(file, dir, maps, *json),
         Command::Scopes { file, json } => cmd_scopes(file, *json),
+        Command::Fetch { url, output, json } => cmd_fetch(url, output, *json),
+        Command::Sources {
+            file,
+            extract,
+            output,
+            json,
+        } => cmd_sources(file, *extract, output, *json),
         Command::Schema => cmd_schema(),
     };
 

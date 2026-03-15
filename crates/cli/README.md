@@ -28,6 +28,8 @@ cargo install srcmap-cli
 | `remap` | Compose/remap source maps through a transform chain |
 | `symbolicate` | Symbolicate a stack trace using source maps |
 | `scopes` | Inspect ECMA-426 scopes and variable bindings |
+| `fetch` | Fetch a JS/CSS bundle and its source map from a URL |
+| `sources` | List or extract original sources from a source map |
 | `schema` | Describe all commands as JSON (for agent introspection) |
 
 ## Usage
@@ -41,6 +43,9 @@ srcmap validate bundle.js.map
 
 # Look up original position (0-based line:column)
 srcmap lookup bundle.js.map 42 12
+
+# Look up with surrounding source context
+srcmap lookup bundle.js.map 42 12 --context 5
 
 # Reverse lookup
 srcmap resolve bundle.js.map --source src/app.ts 10 0
@@ -63,6 +68,15 @@ srcmap symbolicate stacktrace.txt --dir ./sourcemaps
 # Inspect ECMA-426 scopes
 srcmap scopes bundle.js.map
 
+# Fetch a bundle and its source map from a URL
+srcmap fetch https://cdn.example.com/app.min.js -o ./debug
+
+# List embedded original sources
+srcmap sources bundle.js.map
+
+# Extract all original sources to disk
+srcmap sources bundle.js.map --extract -o ./src
+
 # All commands support --json for structured output
 srcmap info bundle.js.map --json
 
@@ -78,7 +92,10 @@ srcmap schema
 - **Dry run** — `--dry-run` on mutating commands (`concat`, `remap`) to validate without writing
 - **Input hardening** — rejects control characters, path traversals, and percent-encoding in source names
 - **Output sandboxing** — all file writes validated against the current working directory
-- **Structured errors** — error codes (`IO_ERROR`, `PARSE_ERROR`, `NOT_FOUND`, `VALIDATION_ERROR`, `PATH_TRAVERSAL`, `INVALID_INPUT`) in JSON mode
+- **Remote fetching** — `srcmap fetch` downloads bundles and source maps from URLs, resolving `sourceMappingURL` automatically
+- **Source extraction** — `srcmap sources --extract` writes embedded `sourcesContent` to disk with directory structure
+- **Context lines** — `srcmap lookup --context N` shows surrounding original source around a mapped position
+- **Structured errors** — error codes (`IO_ERROR`, `PARSE_ERROR`, `NOT_FOUND`, `VALIDATION_ERROR`, `PATH_TRAVERSAL`, `INVALID_INPUT`, `FETCH_ERROR`) in JSON mode
 
 ## Part of [srcmap](https://github.com/BartWaardenburg/srcmap)
 
