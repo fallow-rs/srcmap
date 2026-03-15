@@ -1016,7 +1016,7 @@ checksum = "67b1b7a3b5fe4f1376887184045fcf45c69e92af734b7aaddc05fb777b6fbd03"
 
 [[package]]
 name = "srcmap-cli"
-version = "0.2.3"
+version = "0.3.0"
 dependencies = [
  "clap",
  "serde_json",
@@ -1031,7 +1031,7 @@ dependencies = [
 
 [[package]]
 name = "srcmap-codec"
-version = "0.2.3"
+version = "0.3.0"
 dependencies = [
  "criterion",
  "rayon",
@@ -1039,7 +1039,7 @@ dependencies = [
 
 [[package]]
 name = "srcmap-codec-napi"
-version = "0.2.3"
+version = "0.3.0"
 dependencies = [
  "napi",
  "napi-build",
@@ -1049,7 +1049,7 @@ dependencies = [
 
 [[package]]
 name = "srcmap-generator"
-version = "0.2.3"
+version = "0.3.0"
 dependencies = [
  "criterion",
  "rayon",
@@ -1063,7 +1063,7 @@ dependencies = [
 
 [[package]]
 name = "srcmap-generator-napi"
-version = "0.2.3"
+version = "0.3.0"
 dependencies = [
  "napi",
  "napi-build",
@@ -1074,7 +1074,7 @@ dependencies = [
 
 [[package]]
 name = "srcmap-generator-wasm"
-version = "0.2.3"
+version = "0.3.0"
 dependencies = [
  "js-sys",
  "srcmap-generator",
@@ -1084,7 +1084,7 @@ dependencies = [
 
 [[package]]
 name = "srcmap-hermes"
-version = "0.2.3"
+version = "0.3.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -1094,14 +1094,14 @@ dependencies = [
 
 [[package]]
 name = "srcmap-ram-bundle"
-version = "0.2.3"
+version = "0.3.0"
 dependencies = [
  "srcmap-sourcemap",
 ]
 
 [[package]]
 name = "srcmap-remapping"
-version = "0.2.3"
+version = "0.3.0"
 dependencies = [
  "criterion",
  "serde_json",
@@ -1112,7 +1112,7 @@ dependencies = [
 
 [[package]]
 name = "srcmap-remapping-napi"
-version = "0.2.3"
+version = "0.3.0"
 dependencies = [
  "napi",
  "napi-build",
@@ -1123,7 +1123,7 @@ dependencies = [
 
 [[package]]
 name = "srcmap-remapping-wasm"
-version = "0.2.3"
+version = "0.3.0"
 dependencies = [
  "js-sys",
  "srcmap-remapping",
@@ -1133,14 +1133,14 @@ dependencies = [
 
 [[package]]
 name = "srcmap-scopes"
-version = "0.2.3"
+version = "0.3.0"
 dependencies = [
  "srcmap-codec",
 ]
 
 [[package]]
 name = "srcmap-scopes-wasm"
-version = "0.2.3"
+version = "0.3.0"
 dependencies = [
  "js-sys",
  "serde",
@@ -1152,7 +1152,7 @@ dependencies = [
 
 [[package]]
 name = "srcmap-sourcemap"
-version = "0.2.3"
+version = "0.3.0"
 dependencies = [
  "criterion",
  "rustc-hash",
@@ -1164,7 +1164,7 @@ dependencies = [
 
 [[package]]
 name = "srcmap-sourcemap-napi"
-version = "0.2.3"
+version = "0.3.0"
 dependencies = [
  "napi",
  "napi-build",
@@ -1174,7 +1174,7 @@ dependencies = [
 
 [[package]]
 name = "srcmap-sourcemap-wasm"
-version = "0.2.3"
+version = "0.3.0"
 dependencies = [
  "js-sys",
  "serde_json",
@@ -1184,7 +1184,7 @@ dependencies = [
 
 [[package]]
 name = "srcmap-symbolicate"
-version = "0.2.3"
+version = "0.3.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -1193,7 +1193,7 @@ dependencies = [
 
 [[package]]
 name = "srcmap-symbolicate-wasm"
-version = "0.2.3"
+version = "0.3.0"
 dependencies = [
  "js-sys",
  "serde-wasm-bindgen",

@@ -13,7 +13,7 @@ Merges or chains source maps from multiple build steps into a single map. Drop-i
 
 ```toml
 [dependencies]
-srcmap-remapping = "0.2"
+srcmap-remapping = "0.3"
 ```
 
 ## Usage

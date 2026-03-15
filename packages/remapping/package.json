@@ -1,6 +1,6 @@
 {
   "name": "@srcmap/remapping",
-  "version": "0.2.3",
+  "version": "0.3.0",
   "description": "Drop-in replacement for @jridgewell/remapping and @ampproject/remapping powered by Rust via WebAssembly",
   "type": "module",
   "main": "src/remapping.cjs",
@@ -26,7 +26,7 @@
     "test:cjs": "node --test __tests__/remapping.cjs.test.cjs"
   },
   "dependencies": {
-    "@srcmap/remapping-wasm": "0.2.3"
+    "@srcmap/remapping-wasm": "0.3.0"
   },
   "repository": {
     "type": "git",
