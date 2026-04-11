@@ -167,8 +167,11 @@ Environment metadata for source maps. The proposal is minimal at Stage 1 — tra
 | Gap | Severity | Impact |
 |-----|----------|--------|
 | Serialization overhead | Medium | Rspack |
+| SIMD VLQ decoding | Medium | All consumers; biggest wins on 1MB+ maps |
 
 VLQ encoding and composition have been optimized. Serialization may still have room for improvement — profile against rspack-sources to verify.
+
+The scalar VLQ decoder is well-tuned (single-char fast path, fully inlined as of 2026-04 — see [perf_findings.md](https://github.com/fallow-rs/srcmap/commit/ebcac6a)) but VLQ decoding is still 35-75% of total parse time on real-world maps (preact 34%, chartjs 73%, pdfjs 61%). A SIMD base64+VLQ implementation could shave another 1.5-2x off that portion. Would need either `base64-simd` + custom VLQ logic, or a from-scratch SIMD VLQ pass. Anti-finding: both `sonic-rs` and `simd-json` were prototyped as JSON parser swaps and proved to be slower (sonic-rs) or significantly slower (simd-json) on srcmap's typical input sizes — JSON parse is not the bottleneck.
 
 ### Long-term strategic targets
 
