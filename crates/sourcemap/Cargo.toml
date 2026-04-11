@@ -21,6 +21,8 @@ rustc-hash = { workspace = true }
 
 [dev-dependencies]
 criterion = { workspace = true }
+simd-json = { workspace = true }
+sonic-rs = { workspace = true }
 
 [[bench]]
 name = "parse"
