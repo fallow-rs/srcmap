@@ -120,7 +120,7 @@ pub fn vlq_encode(out: &mut Vec<u8>, value: i64) {
 /// Decode a single VLQ value from the input bytes starting at the given position.
 ///
 /// Returns `(decoded_value, bytes_consumed)` or a [`DecodeError`].
-#[inline]
+#[inline(always)]
 pub fn vlq_decode(input: &[u8], pos: usize) -> Result<(i64, usize), DecodeError> {
     if pos >= input.len() {
         return Err(DecodeError::UnexpectedEof { offset: pos });
