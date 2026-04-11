@@ -2,8 +2,8 @@
 
 [![crates.io](https://img.shields.io/crates/v/srcmap-generator.svg)](https://crates.io/crates/srcmap-generator)
 [![docs.rs](https://docs.rs/srcmap-generator/badge.svg)](https://docs.rs/srcmap-generator)
-[![CI](https://github.com/BartWaardenburg/srcmap/actions/workflows/ci.yml/badge.svg)](https://github.com/BartWaardenburg/srcmap/actions/workflows/ci.yml)
-[![Coverage](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/BartWaardenburg/srcmap/badges/rust-coverage.json)](https://github.com/BartWaardenburg/srcmap/actions/workflows/coverage.yml)
+[![CI](https://github.com/fallow-rs/srcmap/actions/workflows/ci.yml/badge.svg)](https://github.com/fallow-rs/srcmap/actions/workflows/ci.yml)
+[![Coverage](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/fallow-rs/srcmap/badges/rust-coverage.json)](https://github.com/fallow-rs/srcmap/actions/workflows/coverage.yml)
 
 High-performance source map generator for Rust.
 
@@ -99,7 +99,7 @@ On-the-fly VLQ encoder that emits mappings as they are added, without collecting
 - **Parallel VLQ encoding** for large maps (opt-in via `parallel` feature)
 - **Hand-rolled JSON serialization** — no serde overhead in output path
 
-## Part of [srcmap](https://github.com/BartWaardenburg/srcmap)
+## Part of [srcmap](https://github.com/fallow-rs/srcmap)
 
 See also:
 - [`srcmap-sourcemap`](https://crates.io/crates/srcmap-sourcemap) - Parser and consumer

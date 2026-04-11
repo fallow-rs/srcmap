@@ -64,9 +64,9 @@ assert_eq!(decoded.scopes.len(), 1);
 
 The scopes format uses tag-based VLQ encoding where each item is prefixed with a tag byte identifying the item type (scope start, scope end, range start, etc.) followed by flags and VLQ-encoded values. This enables efficient serialization of tree-structured scope and range data into a single flat string.
 
-## Part of [srcmap](https://github.com/BartWaardenburg/srcmap)
+## Part of [srcmap](https://github.com/fallow-rs/srcmap)
 
-Used by `srcmap-sourcemap` (decode) and `srcmap-generator` (encode). See the [main repo](https://github.com/BartWaardenburg/srcmap) for the full source map SDK.
+Used by `srcmap-sourcemap` (decode) and `srcmap-generator` (encode). See the [main repo](https://github.com/fallow-rs/srcmap) for the full source map SDK.
 
 ## License
 

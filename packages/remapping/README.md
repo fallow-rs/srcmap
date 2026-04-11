@@ -1,7 +1,7 @@
 # @srcmap/remapping
 
 [![npm](https://img.shields.io/npm/v/@srcmap/remapping.svg)](https://www.npmjs.com/package/@srcmap/remapping)
-[![CI](https://github.com/BartWaardenburg/srcmap/actions/workflows/ci.yml/badge.svg)](https://github.com/BartWaardenburg/srcmap/actions/workflows/ci.yml)
+[![CI](https://github.com/fallow-rs/srcmap/actions/workflows/ci.yml/badge.svg)](https://github.com/fallow-rs/srcmap/actions/workflows/ci.yml)
 
 Drop-in replacement for [`@jridgewell/remapping`](https://github.com/jridgewell/remapping) and [`@ampproject/remapping`](https://github.com/nicolo-ribaudo/remapping) powered by Rust via WebAssembly.
 
@@ -80,7 +80,7 @@ The `loader` function receives a source filename and should return the upstream 
 - **WASM-powered**: Composition runs in Rust via WebAssembly
 - **Indexed source maps**: Handled natively (no JS-side flattening)
 
-## Part of [srcmap](https://github.com/BartWaardenburg/srcmap)
+## Part of [srcmap](https://github.com/fallow-rs/srcmap)
 
 High-performance source map tooling written in Rust. See also:
 - [`@srcmap/trace-mapping`](https://www.npmjs.com/package/@srcmap/trace-mapping) - Drop-in for `@jridgewell/trace-mapping` (consumer)

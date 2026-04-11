@@ -1,5 +1,5 @@
 blank_issues_enabled: false
 contact_links:
   - name: Question
-    url: https://github.com/BartWaardenburg/srcmap/discussions
+    url: https://github.com/fallow-rs/srcmap/discussions
     about: Ask questions and discuss ideas in GitHub Discussions

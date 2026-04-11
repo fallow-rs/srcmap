@@ -1,7 +1,7 @@
 # @srcmap/source-map
 
 [![npm](https://img.shields.io/npm/v/@srcmap/source-map.svg)](https://www.npmjs.com/package/@srcmap/source-map)
-[![CI](https://github.com/BartWaardenburg/srcmap/actions/workflows/ci.yml/badge.svg)](https://github.com/BartWaardenburg/srcmap/actions/workflows/ci.yml)
+[![CI](https://github.com/fallow-rs/srcmap/actions/workflows/ci.yml/badge.svg)](https://github.com/fallow-rs/srcmap/actions/workflows/ci.yml)
 
 Drop-in replacement for [Mozilla's `source-map`](https://github.com/nicolo-ribaudo/source-map-js) v0.6 API powered by Rust via WebAssembly.
 
@@ -95,7 +95,7 @@ generator.destroy()
 - **WASM memory**: Call `consumer.destroy()` / `generator.destroy()` when done to free WASM memory
 - **Indexed source maps**: Handled natively by the WASM engine
 
-## Part of [srcmap](https://github.com/BartWaardenburg/srcmap)
+## Part of [srcmap](https://github.com/fallow-rs/srcmap)
 
 High-performance source map tooling written in Rust. See also:
 - [`@srcmap/trace-mapping`](https://www.npmjs.com/package/@srcmap/trace-mapping) - Drop-in for `@jridgewell/trace-mapping`

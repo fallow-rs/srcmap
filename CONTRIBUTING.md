@@ -13,7 +13,7 @@ Thanks for your interest in contributing to srcmap! Whether it's a bug fix, new 
 **Setup:**
 
 ```bash
-git clone https://github.com/BartWaardenburg/srcmap.git
+git clone https://github.com/fallow-rs/srcmap.git
 cd srcmap
 
 # Build all Rust crates
@@ -123,8 +123,8 @@ Example: `feat: add name resolution to scopes decoder`
 
 ## Reporting bugs and suggesting features
 
-- **Bugs:** Open an issue using the [bug report template](https://github.com/BartWaardenburg/srcmap/issues/new?template=bug_report.yml). Include a minimal reproducing source map when possible.
-- **Features:** Open an issue using the [feature request template](https://github.com/BartWaardenburg/srcmap/issues/new?template=feature_request.yml). Discussion before implementation is encouraged for larger changes.
+- **Bugs:** Open an issue using the [bug report template](https://github.com/fallow-rs/srcmap/issues/new?template=bug_report.yml). Include a minimal reproducing source map when possible.
+- **Features:** Open an issue using the [feature request template](https://github.com/fallow-rs/srcmap/issues/new?template=feature_request.yml). Discussion before implementation is encouraged for larger changes.
 
 ## License
 

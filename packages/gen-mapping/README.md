@@ -1,7 +1,7 @@
 # @srcmap/gen-mapping
 
 [![npm](https://img.shields.io/npm/v/@srcmap/gen-mapping.svg)](https://www.npmjs.com/package/@srcmap/gen-mapping)
-[![CI](https://github.com/BartWaardenburg/srcmap/actions/workflows/ci.yml/badge.svg)](https://github.com/BartWaardenburg/srcmap/actions/workflows/ci.yml)
+[![CI](https://github.com/fallow-rs/srcmap/actions/workflows/ci.yml/badge.svg)](https://github.com/fallow-rs/srcmap/actions/workflows/ci.yml)
 
 Drop-in replacement for [`@jridgewell/gen-mapping`](https://github.com/jridgewell/gen-mapping) powered by Rust via WebAssembly.
 
@@ -65,7 +65,7 @@ Follows `@jridgewell/gen-mapping` conventions:
 - **WASM memory**: Call `map.free()` when done, or use `using map = new GenMapping(...)` with `Symbol.dispose`
 - **VLQ encoding runs in WASM**: No JS-side encoding overhead
 
-## Part of [srcmap](https://github.com/BartWaardenburg/srcmap)
+## Part of [srcmap](https://github.com/fallow-rs/srcmap)
 
 High-performance source map tooling written in Rust. See also:
 - [`@srcmap/trace-mapping`](https://www.npmjs.com/package/@srcmap/trace-mapping) - Drop-in for `@jridgewell/trace-mapping` (consumer)

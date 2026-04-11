@@ -54,9 +54,9 @@ assert!(!sm.is_for_ram_bundle());
 | `HermesScopeOffset` | A scope boundary: 0-based `line`, `column`, and `name_index` |
 | `HermesError` | Error type: `Parse`, `Vlq`, or `InvalidFunctionMap` |
 
-## Part of [srcmap](https://github.com/BartWaardenburg/srcmap)
+## Part of [srcmap](https://github.com/fallow-rs/srcmap)
 
-See the [main repo](https://github.com/BartWaardenburg/srcmap) for the full source map SDK.
+See the [main repo](https://github.com/fallow-rs/srcmap) for the full source map SDK.
 
 ## License
 

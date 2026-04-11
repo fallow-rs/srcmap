@@ -2,8 +2,8 @@
 
 [![crates.io](https://img.shields.io/crates/v/srcmap-remapping.svg)](https://crates.io/crates/srcmap-remapping)
 [![docs.rs](https://docs.rs/srcmap-remapping/badge.svg)](https://docs.rs/srcmap-remapping)
-[![CI](https://github.com/BartWaardenburg/srcmap/actions/workflows/ci.yml/badge.svg)](https://github.com/BartWaardenburg/srcmap/actions/workflows/ci.yml)
-[![Coverage](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/BartWaardenburg/srcmap/badges/rust-coverage.json)](https://github.com/BartWaardenburg/srcmap/actions/workflows/coverage.yml)
+[![CI](https://github.com/fallow-rs/srcmap/actions/workflows/ci.yml/badge.svg)](https://github.com/fallow-rs/srcmap/actions/workflows/ci.yml)
+[![Coverage](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/fallow-rs/srcmap/badges/rust-coverage.json)](https://github.com/fallow-rs/srcmap/actions/workflows/coverage.yml)
 
 Source map concatenation and composition/remapping for Rust.
 
@@ -90,7 +90,7 @@ The `loader` function receives each source filename and returns `Option<SourceMa
 - **Range mapping preservation** through both concatenation and composition
 - **Streaming composition** via `remap_streaming` for reduced-allocation pipelines
 
-## Part of [srcmap](https://github.com/BartWaardenburg/srcmap)
+## Part of [srcmap](https://github.com/fallow-rs/srcmap)
 
 See also:
 - [`srcmap-sourcemap`](https://crates.io/crates/srcmap-sourcemap) - Parser and consumer

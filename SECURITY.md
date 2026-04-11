@@ -13,7 +13,7 @@
 
 Instead, report vulnerabilities through one of the following channels:
 
-- GitHub: [Private vulnerability reporting](https://github.com/BartWaardenburg/srcmap/security/advisories/new)
+- GitHub: [Private vulnerability reporting](https://github.com/fallow-rs/srcmap/security/advisories/new)
 
 Include as much detail as possible: steps to reproduce, affected versions, and potential impact.
 

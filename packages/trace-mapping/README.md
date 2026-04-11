@@ -1,7 +1,7 @@
 # @srcmap/trace-mapping
 
 [![npm](https://img.shields.io/npm/v/@srcmap/trace-mapping.svg)](https://www.npmjs.com/package/@srcmap/trace-mapping)
-[![CI](https://github.com/BartWaardenburg/srcmap/actions/workflows/ci.yml/badge.svg)](https://github.com/BartWaardenburg/srcmap/actions/workflows/ci.yml)
+[![CI](https://github.com/fallow-rs/srcmap/actions/workflows/ci.yml/badge.svg)](https://github.com/fallow-rs/srcmap/actions/workflows/ci.yml)
 
 Drop-in replacement for [`@jridgewell/trace-mapping`](https://github.com/jridgewell/trace-mapping) powered by Rust via WebAssembly.
 
@@ -83,7 +83,7 @@ Follows `@jridgewell/trace-mapping` conventions:
 - **Indexed source maps**: Handled natively by the WASM engine (no JS-side flattening)
 - **No `@jridgewell/sourcemap-codec` dependency**: VLQ encoding/decoding runs in WASM
 
-## Part of [srcmap](https://github.com/BartWaardenburg/srcmap)
+## Part of [srcmap](https://github.com/fallow-rs/srcmap)
 
 High-performance source map tooling written in Rust. See also:
 - [`@srcmap/sourcemap-wasm`](https://www.npmjs.com/package/@srcmap/sourcemap-wasm) - Lower-level WASM API (0-based lines)

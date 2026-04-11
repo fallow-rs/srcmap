@@ -1,8 +1,8 @@
 # @srcmap/codec
 
 [![npm](https://img.shields.io/npm/v/@srcmap/codec.svg)](https://www.npmjs.com/package/@srcmap/codec)
-[![CI](https://github.com/BartWaardenburg/srcmap/actions/workflows/ci.yml/badge.svg)](https://github.com/BartWaardenburg/srcmap/actions/workflows/ci.yml)
-[![Coverage](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/BartWaardenburg/srcmap/badges/coverage.json)](https://github.com/BartWaardenburg/srcmap/actions/workflows/coverage.yml)
+[![CI](https://github.com/fallow-rs/srcmap/actions/workflows/ci.yml/badge.svg)](https://github.com/fallow-rs/srcmap/actions/workflows/ci.yml)
+[![Coverage](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/fallow-rs/srcmap/badges/coverage.json)](https://github.com/fallow-rs/srcmap/actions/workflows/coverage.yml)
 
 High-performance VLQ source map codec powered by Rust via [NAPI](https://napi.rs).
 
@@ -56,7 +56,7 @@ Encode decoded mappings back into a VLQ string.
 
 API-compatible with `@jridgewell/sourcemap-codec` — same function signatures, same output format. Can be used as a drop-in replacement.
 
-## Part of [srcmap](https://github.com/BartWaardenburg/srcmap)
+## Part of [srcmap](https://github.com/fallow-rs/srcmap)
 
 High-performance source map tooling written in Rust. See also:
 - [`@srcmap/sourcemap`](https://www.npmjs.com/package/@srcmap/sourcemap) - Source map parser (NAPI)

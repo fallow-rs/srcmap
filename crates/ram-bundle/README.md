@@ -45,9 +45,9 @@ if is_ram_bundle(&data) {
 | `is_ram_bundle(data)` | fn | Check if data starts with the RAM bundle magic number |
 | `is_unbundle_dir(path)` | fn | Check if a path looks like an unbundle directory |
 
-## Part of [srcmap](https://github.com/BartWaardenburg/srcmap)
+## Part of [srcmap](https://github.com/fallow-rs/srcmap)
 
-See the [main repo](https://github.com/BartWaardenburg/srcmap) for the full source map SDK.
+See the [main repo](https://github.com/fallow-rs/srcmap) for the full source map SDK.
 
 ## License
 

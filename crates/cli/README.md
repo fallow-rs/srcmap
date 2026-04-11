@@ -1,7 +1,7 @@
 # srcmap-cli
 
 [![crates.io](https://img.shields.io/crates/v/srcmap-cli.svg)](https://crates.io/crates/srcmap-cli)
-[![CI](https://github.com/BartWaardenburg/srcmap/actions/workflows/ci.yml/badge.svg)](https://github.com/BartWaardenburg/srcmap/actions/workflows/ci.yml)
+[![CI](https://github.com/fallow-rs/srcmap/actions/workflows/ci.yml/badge.svg)](https://github.com/fallow-rs/srcmap/actions/workflows/ci.yml)
 
 CLI tool to inspect, validate, compose, and manipulate source maps.
 
@@ -97,7 +97,7 @@ srcmap schema
 - **Context lines** — `srcmap lookup --context N` shows surrounding original source around a mapped position
 - **Structured errors** — error codes (`IO_ERROR`, `PARSE_ERROR`, `NOT_FOUND`, `VALIDATION_ERROR`, `PATH_TRAVERSAL`, `INVALID_INPUT`, `FETCH_ERROR`) in JSON mode
 
-## Part of [srcmap](https://github.com/BartWaardenburg/srcmap)
+## Part of [srcmap](https://github.com/fallow-rs/srcmap)
 
 See also:
 - [`srcmap-sourcemap`](https://crates.io/crates/srcmap-sourcemap) - Parser and consumer

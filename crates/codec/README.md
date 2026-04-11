@@ -2,8 +2,8 @@
 
 [![crates.io](https://img.shields.io/crates/v/srcmap-codec.svg)](https://crates.io/crates/srcmap-codec)
 [![docs.rs](https://docs.rs/srcmap-codec/badge.svg)](https://docs.rs/srcmap-codec)
-[![CI](https://github.com/BartWaardenburg/srcmap/actions/workflows/ci.yml/badge.svg)](https://github.com/BartWaardenburg/srcmap/actions/workflows/ci.yml)
-[![Coverage](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/BartWaardenburg/srcmap/badges/rust-coverage.json)](https://github.com/BartWaardenburg/srcmap/actions/workflows/coverage.yml)
+[![CI](https://github.com/fallow-rs/srcmap/actions/workflows/ci.yml/badge.svg)](https://github.com/fallow-rs/srcmap/actions/workflows/ci.yml)
+[![Coverage](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/fallow-rs/srcmap/badges/rust-coverage.json)](https://github.com/fallow-rs/srcmap/actions/workflows/coverage.yml)
 
 High-performance VLQ source map codec for Rust.
 
@@ -87,9 +87,9 @@ Segments have 1, 4, or 5 fields:
 
 Standard VLQ loop with a pre-computed base64 lookup table and continuation-bit processing. The encoder includes a single-char fast path for small values.
 
-## Part of [srcmap](https://github.com/BartWaardenburg/srcmap)
+## Part of [srcmap](https://github.com/fallow-rs/srcmap)
 
-This crate is the foundation of the srcmap source map toolkit. See the [main repository](https://github.com/BartWaardenburg/srcmap) for the full suite including parser, generator, and remapping.
+This crate is the foundation of the srcmap source map toolkit. See the [main repository](https://github.com/fallow-rs/srcmap) for the full suite including parser, generator, and remapping.
 
 ## License
 

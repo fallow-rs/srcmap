@@ -1,7 +1,7 @@
 # @srcmap/remapping-wasm
 
 [![npm](https://img.shields.io/npm/v/@srcmap/remapping-wasm.svg)](https://www.npmjs.com/package/@srcmap/remapping-wasm)
-[![CI](https://github.com/BartWaardenburg/srcmap/actions/workflows/ci.yml/badge.svg)](https://github.com/BartWaardenburg/srcmap/actions/workflows/ci.yml)
+[![CI](https://github.com/fallow-rs/srcmap/actions/workflows/ci.yml/badge.svg)](https://github.com/fallow-rs/srcmap/actions/workflows/ci.yml)
 
 High-performance source map concatenation and composition powered by Rust via WebAssembly.
 
@@ -87,7 +87,7 @@ npm run build:web
 npm run build:bundler
 ```
 
-## Part of [srcmap](https://github.com/BartWaardenburg/srcmap)
+## Part of [srcmap](https://github.com/fallow-rs/srcmap)
 
 High-performance source map tooling written in Rust. See also:
 - [`@srcmap/sourcemap-wasm`](https://www.npmjs.com/package/@srcmap/sourcemap-wasm) - Source map parser (WASM)

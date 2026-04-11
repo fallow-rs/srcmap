@@ -1,8 +1,8 @@
 # @srcmap/sourcemap
 
 [![npm](https://img.shields.io/npm/v/@srcmap/sourcemap.svg)](https://www.npmjs.com/package/@srcmap/sourcemap)
-[![CI](https://github.com/BartWaardenburg/srcmap/actions/workflows/ci.yml/badge.svg)](https://github.com/BartWaardenburg/srcmap/actions/workflows/ci.yml)
-[![Coverage](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/BartWaardenburg/srcmap/badges/coverage.json)](https://github.com/BartWaardenburg/srcmap/actions/workflows/coverage.yml)
+[![CI](https://github.com/fallow-rs/srcmap/actions/workflows/ci.yml/badge.svg)](https://github.com/fallow-rs/srcmap/actions/workflows/ci.yml)
+[![Coverage](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/fallow-rs/srcmap/badges/coverage.json)](https://github.com/fallow-rs/srcmap/actions/workflows/coverage.yml)
 
 High-performance source map parser and consumer powered by Rust via [NAPI](https://napi.rs).
 
@@ -84,7 +84,7 @@ Parse a source map from a JSON string.
 
 NAPI has ~300ns overhead per call. For bulk operations, use the batch API (`originalPositionsFor`) or consider the [WASM package](https://www.npmjs.com/package/@srcmap/sourcemap-wasm) which has lower per-call overhead.
 
-## Part of [srcmap](https://github.com/BartWaardenburg/srcmap)
+## Part of [srcmap](https://github.com/fallow-rs/srcmap)
 
 High-performance source map tooling written in Rust. See also:
 - [`@srcmap/codec`](https://www.npmjs.com/package/@srcmap/codec) - VLQ codec (NAPI)

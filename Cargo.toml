@@ -6,7 +6,7 @@ members = ["crates/*", "packages/codec", "packages/sourcemap", "packages/sourcem
 version = "0.3.0"
 edition = "2024"
 license = "MIT"
-repository = "https://github.com/BartWaardenburg/srcmap"
+repository = "https://github.com/fallow-rs/srcmap"
 
 [workspace.dependencies]
 srcmap-codec = { version = "0.3.0", path = "crates/codec" }
