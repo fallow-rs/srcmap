@@ -3,20 +3,20 @@ resolver = "2"
 members = ["crates/*", "packages/codec", "packages/sourcemap", "packages/sourcemap-wasm", "packages/generator-wasm", "packages/remapping-wasm", "packages/symbolicate-wasm", "packages/scopes-wasm", "packages/generator", "packages/remapping"]
 
 [workspace.package]
-version = "0.3.0"
+version = "0.3.1"
 edition = "2024"
 license = "MIT"
 repository = "https://github.com/fallow-rs/srcmap"
 
 [workspace.dependencies]
-srcmap-codec = { version = "0.3.0", path = "crates/codec" }
-srcmap-sourcemap = { version = "0.3.0", path = "crates/sourcemap" }
-srcmap-generator = { version = "0.3.0", path = "crates/generator" }
-srcmap-remapping = { version = "0.3.0", path = "crates/remapping" }
-srcmap-scopes = { version = "0.3.0", path = "crates/scopes" }
-srcmap-symbolicate = { version = "0.3.0", path = "crates/symbolicate" }
-srcmap-hermes = { version = "0.3.0", path = "crates/hermes" }
-srcmap-ram-bundle = { version = "0.3.0", path = "crates/ram-bundle" }
+srcmap-codec = { version = "0.3.1", path = "crates/codec" }
+srcmap-sourcemap = { version = "0.3.1", path = "crates/sourcemap" }
+srcmap-generator = { version = "0.3.1", path = "crates/generator" }
+srcmap-remapping = { version = "0.3.1", path = "crates/remapping" }
+srcmap-scopes = { version = "0.3.1", path = "crates/scopes" }
+srcmap-symbolicate = { version = "0.3.1", path = "crates/symbolicate" }
+srcmap-hermes = { version = "0.3.1", path = "crates/hermes" }
+srcmap-ram-bundle = { version = "0.3.1", path = "crates/ram-bundle" }
 criterion = { version = "0.5", features = ["html_reports"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["raw_value"] }
