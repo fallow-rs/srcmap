@@ -21,5 +21,6 @@ benchmarks/fixtures/
 .claude/
 .codex/
 .fallow/
+quality/
 OUTREACH.md
 outreach-reports/

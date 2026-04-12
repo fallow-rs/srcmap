@@ -80,6 +80,365 @@ struct BuildingRange {
     children: Vec<GeneratedRange>,
 }
 
+struct DecodeState {
+    scopes: Vec<Option<OriginalScope>>,
+    source_idx: usize,
+    scope_stack: Vec<BuildingScope>,
+    os_line: u32,
+    os_col: u32,
+    os_name: i64,
+    os_kind: i64,
+    os_var: i64,
+    ranges: Vec<GeneratedRange>,
+    range_stack: Vec<BuildingRange>,
+    gr_line: u32,
+    gr_col: u32,
+    gr_def: i64,
+    h_var_acc: u64,
+    in_generated_ranges: bool,
+    num_sources: usize,
+}
+
+impl DecodeState {
+    fn new(num_sources: usize) -> Self {
+        Self {
+            scopes: Vec::new(),
+            source_idx: 0,
+            scope_stack: Vec::new(),
+            os_line: 0,
+            os_col: 0,
+            os_name: 0,
+            os_kind: 0,
+            os_var: 0,
+            ranges: Vec::new(),
+            range_stack: Vec::new(),
+            gr_line: 0,
+            gr_col: 0,
+            gr_def: 0,
+            h_var_acc: 0,
+            in_generated_ranges: false,
+            num_sources,
+        }
+    }
+
+    fn finish(mut self) -> Result<ScopeInfo, ScopesError> {
+        if !self.scope_stack.is_empty() {
+            return Err(ScopesError::UnclosedScope);
+        }
+        if !self.range_stack.is_empty() {
+            return Err(ScopesError::UnclosedRange);
+        }
+
+        // Fill remaining source slots.
+        while self.scopes.len() < self.num_sources {
+            self.scopes.push(None);
+        }
+
+        Ok(ScopeInfo { scopes: self.scopes, ranges: self.ranges })
+    }
+
+    fn handle_empty_item(&mut self) {
+        if !self.in_generated_ranges
+            && self.source_idx < self.num_sources
+            && self.scope_stack.is_empty()
+        {
+            self.scopes.push(None);
+            self.source_idx += 1;
+        }
+    }
+
+    fn start_generated_ranges_if_needed(&mut self) {
+        if self.in_generated_ranges {
+            return;
+        }
+
+        self.in_generated_ranges = true;
+        // Fill remaining source slots.
+        while self.scopes.len() < self.num_sources {
+            self.scopes.push(None);
+        }
+        self.source_idx = self.num_sources;
+    }
+
+    fn handle_original_scope_start(
+        &mut self,
+        tok: &mut Tokenizer<'_>,
+        names: &[String],
+    ) -> Result<(), ScopesError> {
+        if self.scope_stack.is_empty() {
+            self.os_line = 0;
+            self.os_col = 0;
+        }
+
+        let flags = tok.read_unsigned()?;
+
+        let line_delta = tok.read_unsigned()? as u32;
+        Self::advance_position(
+            line_delta,
+            tok.read_unsigned()? as u32,
+            &mut self.os_line,
+            &mut self.os_col,
+        );
+
+        let name = if flags & crate::OS_FLAG_HAS_NAME != 0 {
+            let d = tok.read_signed()?;
+            self.os_name += d;
+            Some(resolve_name(names, self.os_name)?)
+        } else {
+            None
+        };
+
+        let kind = if flags & crate::OS_FLAG_HAS_KIND != 0 {
+            let d = tok.read_signed()?;
+            self.os_kind += d;
+            Some(resolve_name(names, self.os_kind)?)
+        } else {
+            None
+        };
+
+        let is_stack_frame = flags & crate::OS_FLAG_IS_STACK_FRAME != 0;
+
+        self.scope_stack.push(BuildingScope {
+            start: Position { line: self.os_line, column: self.os_col },
+            name,
+            kind,
+            is_stack_frame,
+            variables: Vec::new(),
+            children: Vec::new(),
+        });
+
+        Ok(())
+    }
+
+    fn handle_original_scope_end(&mut self, tok: &mut Tokenizer<'_>) -> Result<(), ScopesError> {
+        if self.scope_stack.is_empty() {
+            return Err(ScopesError::UnmatchedScopeEnd);
+        }
+
+        let line_delta = tok.read_unsigned()? as u32;
+        Self::advance_position(
+            line_delta,
+            tok.read_unsigned()? as u32,
+            &mut self.os_line,
+            &mut self.os_col,
+        );
+
+        // Safe: scope_stack.is_empty() checked above.
+        let building = self.scope_stack.pop().expect("non-empty: checked above");
+        let finished = OriginalScope {
+            start: building.start,
+            end: Position { line: self.os_line, column: self.os_col },
+            name: building.name,
+            kind: building.kind,
+            is_stack_frame: building.is_stack_frame,
+            variables: building.variables,
+            children: building.children,
+        };
+
+        if self.scope_stack.is_empty() {
+            self.scopes.push(Some(finished));
+            self.source_idx += 1;
+        } else {
+            self.scope_stack.last_mut().expect("non-empty: checked above").children.push(finished);
+        }
+
+        Ok(())
+    }
+
+    fn handle_original_scope_variables(
+        &mut self,
+        tok: &mut Tokenizer<'_>,
+        names: &[String],
+    ) -> Result<(), ScopesError> {
+        if let Some(current) = self.scope_stack.last_mut() {
+            while !tok.at_item_end() {
+                let d = tok.read_signed()?;
+                self.os_var += d;
+                current.variables.push(resolve_name(names, self.os_var)?);
+            }
+        } else {
+            while !tok.at_item_end() {
+                let _ = tok.read_signed()?;
+            }
+        }
+
+        Ok(())
+    }
+
+    fn handle_generated_range_start(&mut self, tok: &mut Tokenizer<'_>) -> Result<(), ScopesError> {
+        self.start_generated_ranges_if_needed();
+
+        let flags = tok.read_unsigned()?;
+
+        let line_delta =
+            if flags & crate::GR_FLAG_HAS_LINE != 0 { tok.read_unsigned()? as u32 } else { 0 };
+        Self::advance_position(
+            line_delta,
+            tok.read_unsigned()? as u32,
+            &mut self.gr_line,
+            &mut self.gr_col,
+        );
+
+        let definition = if flags & crate::GR_FLAG_HAS_DEFINITION != 0 {
+            let d = tok.read_signed()?;
+            self.gr_def += d;
+            Some(self.gr_def as u32)
+        } else {
+            None
+        };
+
+        let is_stack_frame = flags & crate::GR_FLAG_IS_STACK_FRAME != 0;
+        let is_hidden = flags & crate::GR_FLAG_IS_HIDDEN != 0;
+
+        // Reset H-tag variable index accumulator for each new range.
+        self.h_var_acc = 0;
+
+        self.range_stack.push(BuildingRange {
+            start: Position { line: self.gr_line, column: self.gr_col },
+            is_stack_frame,
+            is_hidden,
+            definition,
+            call_site: None,
+            bindings: Vec::new(),
+            sub_range_bindings: Vec::new(),
+            children: Vec::new(),
+        });
+
+        Ok(())
+    }
+
+    fn handle_generated_range_end(&mut self, tok: &mut Tokenizer<'_>) -> Result<(), ScopesError> {
+        if self.range_stack.is_empty() {
+            return Err(ScopesError::UnmatchedRangeEnd);
+        }
+
+        // F tag: 1 VLQ = column only, 2 VLQs = line + column.
+        let first = tok.read_unsigned()? as u32;
+        let (line_delta, col_raw) = if !tok.at_item_end() {
+            let second = tok.read_unsigned()? as u32;
+            (first, second)
+        } else {
+            (0, first)
+        };
+        Self::advance_position(line_delta, col_raw, &mut self.gr_line, &mut self.gr_col);
+
+        // Safe: range_stack.is_empty() checked above.
+        let building = self.range_stack.pop().expect("non-empty: checked above");
+
+        // Merge sub-range bindings into final bindings.
+        let final_bindings =
+            merge_bindings(building.bindings, &building.sub_range_bindings, building.start);
+
+        let finished = GeneratedRange {
+            start: building.start,
+            end: Position { line: self.gr_line, column: self.gr_col },
+            is_stack_frame: building.is_stack_frame,
+            is_hidden: building.is_hidden,
+            definition: building.definition,
+            call_site: building.call_site,
+            bindings: final_bindings,
+            children: building.children,
+        };
+
+        if self.range_stack.is_empty() {
+            self.ranges.push(finished);
+        } else {
+            self.range_stack.last_mut().expect("non-empty: checked above").children.push(finished);
+        }
+
+        Ok(())
+    }
+
+    fn handle_generated_range_bindings(
+        &mut self,
+        tok: &mut Tokenizer<'_>,
+        names: &[String],
+    ) -> Result<(), ScopesError> {
+        if let Some(current) = self.range_stack.last_mut() {
+            while !tok.at_item_end() {
+                let idx = tok.read_unsigned()?;
+                let binding = match resolve_binding(names, idx)? {
+                    Some(expr) => Binding::Expression(expr),
+                    None => Binding::Unavailable,
+                };
+                current.bindings.push(binding);
+            }
+        } else {
+            Self::skip_unsigned_item(tok)?;
+        }
+
+        Ok(())
+    }
+
+    fn handle_generated_range_sub_range_bindings(
+        &mut self,
+        tok: &mut Tokenizer<'_>,
+        names: &[String],
+    ) -> Result<(), ScopesError> {
+        if let Some(current) = self.range_stack.last_mut() {
+            let var_delta = tok.read_unsigned()?;
+            self.h_var_acc += var_delta;
+            let var_idx = self.h_var_acc as usize;
+
+            let mut sub_ranges: Vec<SubRangeBinding> = Vec::new();
+            // Line/column state relative to range start.
+            let mut h_line = current.start.line;
+            let mut h_col = current.start.column;
+
+            while !tok.at_item_end() {
+                let binding_raw = tok.read_unsigned()?;
+                let line_delta = tok.read_unsigned()? as u32;
+                Self::advance_position(
+                    line_delta,
+                    tok.read_unsigned()? as u32,
+                    &mut h_line,
+                    &mut h_col,
+                );
+
+                let expression = resolve_binding(names, binding_raw)?;
+                sub_ranges.push(SubRangeBinding {
+                    expression,
+                    from: Position { line: h_line, column: h_col },
+                });
+            }
+
+            current.sub_range_bindings.push((var_idx, sub_ranges));
+        } else {
+            Self::skip_unsigned_item(tok)?;
+        }
+
+        Ok(())
+    }
+
+    fn handle_generated_range_call_site(
+        &mut self,
+        tok: &mut Tokenizer<'_>,
+    ) -> Result<(), ScopesError> {
+        if let Some(current) = self.range_stack.last_mut() {
+            let source_index = tok.read_unsigned()? as u32;
+            let line = tok.read_unsigned()? as u32;
+            let column = tok.read_unsigned()? as u32;
+            current.call_site = Some(CallSite { source_index, line, column });
+        } else {
+            Self::skip_unsigned_item(tok)?;
+        }
+
+        Ok(())
+    }
+
+    fn advance_position(line_delta: u32, col_raw: u32, line: &mut u32, column: &mut u32) {
+        *line += line_delta;
+        *column = if line_delta != 0 { col_raw } else { *column + col_raw };
+    }
+
+    fn skip_unsigned_item(tok: &mut Tokenizer<'_>) -> Result<(), ScopesError> {
+        while !tok.at_item_end() {
+            let _ = tok.read_unsigned()?;
+        }
+        Ok(())
+    }
+}
+
 // ── Decode ───────────────────────────────────────────────────────
 
 /// Decode a `scopes` string into structured scope information.
@@ -94,39 +453,12 @@ pub fn decode_scopes(
     names: &[String],
     num_sources: usize,
 ) -> Result<ScopeInfo, ScopesError> {
-    if input.is_empty() {
-        let scopes = vec![None; num_sources];
-        return Ok(ScopeInfo { scopes, ranges: vec![] });
-    }
-
     let mut tok = Tokenizer::new(input.as_bytes());
-
-    // Original scope state
-    let mut scopes: Vec<Option<OriginalScope>> = Vec::new();
-    let mut source_idx = 0usize;
-    let mut scope_stack: Vec<BuildingScope> = Vec::new();
-    let mut os_line = 0u32;
-    let mut os_col = 0u32;
-    let mut os_name = 0i64;
-    let mut os_kind = 0i64;
-    let mut os_var = 0i64;
-
-    // Generated range state
-    let mut ranges: Vec<GeneratedRange> = Vec::new();
-    let mut range_stack: Vec<BuildingRange> = Vec::new();
-    let mut gr_line = 0u32;
-    let mut gr_col = 0u32;
-    let mut gr_def = 0i64;
-    let mut h_var_acc: u64 = 0;
-    let mut in_generated_ranges = false;
+    let mut state = DecodeState::new(num_sources);
 
     while tok.has_next() {
-        // Empty item: no scope info for this source file
         if tok.at_item_end() {
-            if !in_generated_ranges && source_idx < num_sources && scope_stack.is_empty() {
-                scopes.push(None);
-                source_idx += 1;
-            }
+            state.handle_empty_item();
             tok.skip_comma();
             continue;
         }
@@ -134,279 +466,27 @@ pub fn decode_scopes(
         let tag = tok.read_unsigned()?;
 
         match tag {
-            TAG_ORIGINAL_SCOPE_START => {
-                // Reset position state at start of new top-level tree
-                if scope_stack.is_empty() {
-                    os_line = 0;
-                    os_col = 0;
-                }
-
-                let flags = tok.read_unsigned()?;
-
-                let line_delta = tok.read_unsigned()? as u32;
-                os_line += line_delta;
-                let col_raw = tok.read_unsigned()? as u32;
-                os_col = if line_delta != 0 { col_raw } else { os_col + col_raw };
-
-                let name = if flags & crate::OS_FLAG_HAS_NAME != 0 {
-                    let d = tok.read_signed()?;
-                    os_name += d;
-                    Some(resolve_name(names, os_name)?)
-                } else {
-                    None
-                };
-
-                let kind = if flags & crate::OS_FLAG_HAS_KIND != 0 {
-                    let d = tok.read_signed()?;
-                    os_kind += d;
-                    Some(resolve_name(names, os_kind)?)
-                } else {
-                    None
-                };
-
-                let is_stack_frame = flags & crate::OS_FLAG_IS_STACK_FRAME != 0;
-
-                scope_stack.push(BuildingScope {
-                    start: Position { line: os_line, column: os_col },
-                    name,
-                    kind,
-                    is_stack_frame,
-                    variables: Vec::new(),
-                    children: Vec::new(),
-                });
-            }
-
-            TAG_ORIGINAL_SCOPE_END => {
-                if scope_stack.is_empty() {
-                    return Err(ScopesError::UnmatchedScopeEnd);
-                }
-
-                let line_delta = tok.read_unsigned()? as u32;
-                os_line += line_delta;
-                let col_raw = tok.read_unsigned()? as u32;
-                os_col = if line_delta != 0 { col_raw } else { os_col + col_raw };
-
-                // Safe: scope_stack.is_empty() checked above
-                let building = scope_stack.pop().expect("non-empty: checked above");
-                let finished = OriginalScope {
-                    start: building.start,
-                    end: Position { line: os_line, column: os_col },
-                    name: building.name,
-                    kind: building.kind,
-                    is_stack_frame: building.is_stack_frame,
-                    variables: building.variables,
-                    children: building.children,
-                };
-
-                if scope_stack.is_empty() {
-                    scopes.push(Some(finished));
-                    source_idx += 1;
-                } else {
-                    // Safe: just checked !is_empty()
-                    scope_stack
-                        .last_mut()
-                        .expect("non-empty: checked above")
-                        .children
-                        .push(finished);
-                }
-            }
-
+            TAG_ORIGINAL_SCOPE_START => state.handle_original_scope_start(&mut tok, names)?,
+            TAG_ORIGINAL_SCOPE_END => state.handle_original_scope_end(&mut tok)?,
             TAG_ORIGINAL_SCOPE_VARIABLES => {
-                if let Some(current) = scope_stack.last_mut() {
-                    while !tok.at_item_end() {
-                        let d = tok.read_signed()?;
-                        os_var += d;
-                        current.variables.push(resolve_name(names, os_var)?);
-                    }
-                } else {
-                    while !tok.at_item_end() {
-                        let _ = tok.read_signed()?;
-                    }
-                }
+                state.handle_original_scope_variables(&mut tok, names)?
             }
-
-            TAG_GENERATED_RANGE_START => {
-                if !in_generated_ranges {
-                    in_generated_ranges = true;
-                    // Fill remaining source slots
-                    while scopes.len() < num_sources {
-                        scopes.push(None);
-                    }
-                    source_idx = num_sources;
-                }
-
-                let flags = tok.read_unsigned()?;
-
-                let line_delta = if flags & crate::GR_FLAG_HAS_LINE != 0 {
-                    tok.read_unsigned()? as u32
-                } else {
-                    0
-                };
-                gr_line += line_delta;
-
-                let col_raw = tok.read_unsigned()? as u32;
-                gr_col = if line_delta != 0 { col_raw } else { gr_col + col_raw };
-
-                let definition = if flags & crate::GR_FLAG_HAS_DEFINITION != 0 {
-                    let d = tok.read_signed()?;
-                    gr_def += d;
-                    Some(gr_def as u32)
-                } else {
-                    None
-                };
-
-                let is_stack_frame = flags & crate::GR_FLAG_IS_STACK_FRAME != 0;
-                let is_hidden = flags & crate::GR_FLAG_IS_HIDDEN != 0;
-
-                // Reset H-tag variable index accumulator for each new range
-                h_var_acc = 0;
-
-                range_stack.push(BuildingRange {
-                    start: Position { line: gr_line, column: gr_col },
-                    is_stack_frame,
-                    is_hidden,
-                    definition,
-                    call_site: None,
-                    bindings: Vec::new(),
-                    sub_range_bindings: Vec::new(),
-                    children: Vec::new(),
-                });
-            }
-
-            TAG_GENERATED_RANGE_END => {
-                if range_stack.is_empty() {
-                    return Err(ScopesError::UnmatchedRangeEnd);
-                }
-
-                // F tag: 1 VLQ = column only, 2 VLQs = line + column
-                let first = tok.read_unsigned()? as u32;
-                let (line_delta, col_raw) = if !tok.at_item_end() {
-                    let second = tok.read_unsigned()? as u32;
-                    (first, second)
-                } else {
-                    (0, first)
-                };
-                gr_line += line_delta;
-                gr_col = if line_delta != 0 { col_raw } else { gr_col + col_raw };
-
-                // Safe: range_stack.is_empty() checked above
-                let building = range_stack.pop().expect("non-empty: checked above");
-
-                // Merge sub-range bindings into final bindings
-                let final_bindings =
-                    merge_bindings(building.bindings, &building.sub_range_bindings, building.start);
-
-                let finished = GeneratedRange {
-                    start: building.start,
-                    end: Position { line: gr_line, column: gr_col },
-                    is_stack_frame: building.is_stack_frame,
-                    is_hidden: building.is_hidden,
-                    definition: building.definition,
-                    call_site: building.call_site,
-                    bindings: final_bindings,
-                    children: building.children,
-                };
-
-                if range_stack.is_empty() {
-                    ranges.push(finished);
-                } else {
-                    // Safe: just checked !is_empty()
-                    range_stack
-                        .last_mut()
-                        .expect("non-empty: checked above")
-                        .children
-                        .push(finished);
-                }
-            }
-
+            TAG_GENERATED_RANGE_START => state.handle_generated_range_start(&mut tok)?,
+            TAG_GENERATED_RANGE_END => state.handle_generated_range_end(&mut tok)?,
             TAG_GENERATED_RANGE_BINDINGS => {
-                if let Some(current) = range_stack.last_mut() {
-                    while !tok.at_item_end() {
-                        let idx = tok.read_unsigned()?;
-                        let binding = match resolve_binding(names, idx)? {
-                            Some(expr) => Binding::Expression(expr),
-                            None => Binding::Unavailable,
-                        };
-                        current.bindings.push(binding);
-                    }
-                } else {
-                    while !tok.at_item_end() {
-                        let _ = tok.read_unsigned()?;
-                    }
-                }
+                state.handle_generated_range_bindings(&mut tok, names)?
             }
-
             TAG_GENERATED_RANGE_SUB_RANGE_BINDINGS => {
-                if let Some(current) = range_stack.last_mut() {
-                    let var_delta = tok.read_unsigned()?;
-                    h_var_acc += var_delta;
-                    let var_idx = h_var_acc as usize;
-
-                    let mut sub_ranges: Vec<SubRangeBinding> = Vec::new();
-                    // Line/column state relative to range start
-                    let mut h_line = current.start.line;
-                    let mut h_col = current.start.column;
-
-                    while !tok.at_item_end() {
-                        let binding_raw = tok.read_unsigned()?;
-                        let line_delta = tok.read_unsigned()? as u32;
-                        h_line += line_delta;
-
-                        let col_raw = tok.read_unsigned()? as u32;
-                        h_col = if line_delta != 0 { col_raw } else { h_col + col_raw };
-
-                        let expression = resolve_binding(names, binding_raw)?;
-                        sub_ranges.push(SubRangeBinding {
-                            expression,
-                            from: Position { line: h_line, column: h_col },
-                        });
-                    }
-
-                    current.sub_range_bindings.push((var_idx, sub_ranges));
-                } else {
-                    while !tok.at_item_end() {
-                        let _ = tok.read_unsigned()?;
-                    }
-                }
+                state.handle_generated_range_sub_range_bindings(&mut tok, names)?
             }
-
-            TAG_GENERATED_RANGE_CALL_SITE => {
-                if let Some(current) = range_stack.last_mut() {
-                    let source_index = tok.read_unsigned()? as u32;
-                    let line = tok.read_unsigned()? as u32;
-                    let column = tok.read_unsigned()? as u32;
-                    current.call_site = Some(CallSite { source_index, line, column });
-                } else {
-                    while !tok.at_item_end() {
-                        let _ = tok.read_unsigned()?;
-                    }
-                }
-            }
-
-            _ => {
-                // Unknown tag: skip remaining VLQs in this item
-                while !tok.at_item_end() {
-                    let _ = tok.read_unsigned()?;
-                }
-            }
+            TAG_GENERATED_RANGE_CALL_SITE => state.handle_generated_range_call_site(&mut tok)?,
+            _ => DecodeState::skip_unsigned_item(&mut tok)?,
         }
 
         tok.skip_comma();
     }
 
-    if !scope_stack.is_empty() {
-        return Err(ScopesError::UnclosedScope);
-    }
-    if !range_stack.is_empty() {
-        return Err(ScopesError::UnclosedRange);
-    }
-
-    // Fill remaining source slots
-    while scopes.len() < num_sources {
-        scopes.push(None);
-    }
-
-    Ok(ScopeInfo { scopes, ranges })
+    state.finish()
 }
 
 /// Merge initial bindings from G items with sub-range overrides from H items.

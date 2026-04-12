@@ -141,6 +141,10 @@ class TraceMap {
       this._wasm = null;
     }
   }
+
+  [Symbol.dispose]() {
+    this.free();
+  }
 }
 
 // ── Free functions ───────────────────────────────────────────────
