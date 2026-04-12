@@ -1,6 +1,6 @@
 {
   "name": "@srcmap/source-map",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "Drop-in replacement for Mozilla's source-map v0.6 API, powered by Rust via WebAssembly",
   "keywords": [
     "consumer",
@@ -41,7 +41,7 @@
     "test:coverage": "mkdir -p coverage && node --test --experimental-test-coverage --test-reporter=lcov --test-reporter-destination=coverage/lcov.info --test-reporter=spec --test-reporter-destination=stdout __tests__/source-map.test.mjs"
   },
   "dependencies": {
-    "@srcmap/generator-wasm": "0.3.1",
-    "@srcmap/sourcemap-wasm": "0.3.1"
+    "@srcmap/generator-wasm": "0.3.2",
+    "@srcmap/sourcemap-wasm": "0.3.2"
   }
 }

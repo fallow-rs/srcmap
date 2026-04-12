@@ -1,6 +1,6 @@
 {
   "name": "@srcmap/gen-mapping",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "Drop-in replacement for @jridgewell/gen-mapping powered by Rust via WebAssembly",
   "keywords": [
     "builder",
@@ -41,7 +41,7 @@
     "test:coverage": "mkdir -p coverage && node --test --experimental-test-coverage --test-reporter=lcov --test-reporter-destination=coverage/lcov.info --test-reporter=spec --test-reporter-destination=stdout __tests__/gen-mapping.test.mjs"
   },
   "dependencies": {
-    "@srcmap/generator-wasm": "0.3.1",
-    "@srcmap/sourcemap-wasm": "0.3.1"
+    "@srcmap/generator-wasm": "0.3.2",
+    "@srcmap/sourcemap-wasm": "0.3.2"
   }
 }

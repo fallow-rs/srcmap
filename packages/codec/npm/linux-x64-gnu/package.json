@@ -1,6 +1,6 @@
 {
   "name": "@srcmap/codec-linux-x64-gnu",
-  "version": "0.2.0",
+  "version": "0.3.2",
   "description": "High-performance VLQ source map codec powered by Rust",
   "keywords": [
     "codec",
