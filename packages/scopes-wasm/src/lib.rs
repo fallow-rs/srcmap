@@ -13,10 +13,7 @@ pub fn decode_scopes(
     names: Vec<JsValue>,
     num_sources: u32,
 ) -> Result<JsValue, JsError> {
-    let names_vec: Vec<String> = names
-        .iter()
-        .map(|v| v.as_string().unwrap_or_default())
-        .collect();
+    let names_vec: Vec<String> = names.iter().map(|v| v.as_string().unwrap_or_default()).collect();
 
     let info = srcmap_scopes::decode_scopes(scopes_str, &names_vec, num_sources as usize)
         .map_err(|e| JsError::new(&e.to_string()))?;
@@ -60,10 +57,8 @@ pub fn encode_scopes(scopes_json: &str, names: Vec<JsValue>) -> Result<JsValue, 
 
     let scope_info = info.into_scope_info();
 
-    let mut names_vec: Vec<String> = names
-        .iter()
-        .map(|v| v.as_string().unwrap_or_default())
-        .collect();
+    let mut names_vec: Vec<String> =
+        names.iter().map(|v| v.as_string().unwrap_or_default()).collect();
 
     let encoded = srcmap_scopes::encode_scopes(&scope_info, &mut names_vec);
 
@@ -292,11 +287,7 @@ struct SubRangeJson {
 impl ScopeInfoJson {
     fn into_scope_info(self) -> srcmap_scopes::ScopeInfo {
         srcmap_scopes::ScopeInfo {
-            scopes: self
-                .scopes
-                .into_iter()
-                .map(|s| s.map(|s| s.into()))
-                .collect(),
+            scopes: self.scopes.into_iter().map(|s| s.map(|s| s.into())).collect(),
             ranges: self.ranges.into_iter().map(|r| r.into()).collect(),
         }
     }
@@ -305,14 +296,8 @@ impl ScopeInfoJson {
 impl From<OriginalScopeJson> for srcmap_scopes::OriginalScope {
     fn from(s: OriginalScopeJson) -> Self {
         Self {
-            start: srcmap_scopes::Position {
-                line: s.start.line,
-                column: s.start.column,
-            },
-            end: srcmap_scopes::Position {
-                line: s.end.line,
-                column: s.end.column,
-            },
+            start: srcmap_scopes::Position { line: s.start.line, column: s.start.column },
+            end: srcmap_scopes::Position { line: s.end.line, column: s.end.column },
             name: s.name,
             kind: s.kind,
             is_stack_frame: s.is_stack_frame,
@@ -325,14 +310,8 @@ impl From<OriginalScopeJson> for srcmap_scopes::OriginalScope {
 impl From<GeneratedRangeJson> for srcmap_scopes::GeneratedRange {
     fn from(r: GeneratedRangeJson) -> Self {
         Self {
-            start: srcmap_scopes::Position {
-                line: r.start.line,
-                column: r.start.column,
-            },
-            end: srcmap_scopes::Position {
-                line: r.end.line,
-                column: r.end.column,
-            },
+            start: srcmap_scopes::Position { line: r.start.line, column: r.start.column },
+            end: srcmap_scopes::Position { line: r.end.line, column: r.end.column },
             is_stack_frame: r.is_stack_frame,
             is_hidden: r.is_hidden,
             definition: r.definition,
@@ -365,10 +344,7 @@ impl From<SubRangeJson> for srcmap_scopes::SubRangeBinding {
     fn from(s: SubRangeJson) -> Self {
         Self {
             expression: s.expression,
-            from: srcmap_scopes::Position {
-                line: s.from.line,
-                column: s.from.column,
-            },
+            from: srcmap_scopes::Position { line: s.from.line, column: s.from.column },
         }
     }
 }

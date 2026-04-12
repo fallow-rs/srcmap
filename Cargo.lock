@@ -1137,17 +1137,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "serde-wasm-bindgen"
-version = "0.6.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8302e169f0eddcc139c70f139d19d6467353af16f9fce27e8c30158036a1e16b"
-dependencies = [
- "js-sys",
- "serde",
- "wasm-bindgen",
-]
-
-[[package]]
 name = "serde_core"
 version = "1.0.228"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1297,7 +1286,6 @@ dependencies = [
  "criterion",
  "rayon",
  "rustc-hash",
- "serde",
  "serde_json",
  "srcmap-codec",
  "srcmap-scopes",
@@ -1312,16 +1300,13 @@ dependencies = [
  "napi-build",
  "napi-derive",
  "srcmap-generator",
- "srcmap-sourcemap",
 ]
 
 [[package]]
 name = "srcmap-generator-wasm"
 version = "0.3.1"
 dependencies = [
- "js-sys",
  "srcmap-generator",
- "srcmap-sourcemap",
  "wasm-bindgen",
 ]
 
@@ -1329,7 +1314,6 @@ dependencies = [
 name = "srcmap-hermes"
 version = "0.3.1"
 dependencies = [
- "serde",
  "serde_json",
  "srcmap-codec",
  "srcmap-sourcemap",
@@ -1348,7 +1332,6 @@ version = "0.3.1"
 dependencies = [
  "criterion",
  "serde_json",
- "srcmap-codec",
  "srcmap-generator",
  "srcmap-sourcemap",
 ]
@@ -1387,7 +1370,6 @@ version = "0.3.1"
 dependencies = [
  "js-sys",
  "serde",
- "serde-wasm-bindgen",
  "serde_json",
  "srcmap-scopes",
  "wasm-bindgen",
@@ -1398,7 +1380,6 @@ name = "srcmap-sourcemap"
 version = "0.3.1"
 dependencies = [
  "criterion",
- "rustc-hash",
  "serde",
  "serde_json",
  "simd-json",
@@ -1431,7 +1412,6 @@ dependencies = [
 name = "srcmap-symbolicate"
 version = "0.3.1"
 dependencies = [
- "serde",
  "serde_json",
  "srcmap-sourcemap",
 ]
@@ -1441,7 +1421,6 @@ name = "srcmap-symbolicate-wasm"
 version = "0.3.1"
 dependencies = [
  "js-sys",
- "serde-wasm-bindgen",
  "srcmap-sourcemap",
  "srcmap-symbolicate",
  "wasm-bindgen",

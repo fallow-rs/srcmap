@@ -1,29 +1,29 @@
 {
   "name": "@srcmap/codec-darwin-x64",
   "version": "0.2.0",
-  "cpu": [
-    "x64"
-  ],
-  "main": "srcmap-codec.darwin-x64.node",
-  "files": [
-    "srcmap-codec.darwin-x64.node"
-  ],
   "description": "High-performance VLQ source map codec powered by Rust",
   "keywords": [
-    "sourcemap",
-    "source-map",
-    "vlq",
     "codec",
-    "rust",
     "napi",
-    "performance"
+    "performance",
+    "rust",
+    "source-map",
+    "sourcemap",
+    "vlq"
   ],
   "license": "MIT",
   "repository": {
     "type": "git",
     "url": "https://github.com/fallow-rs/srcmap"
   },
+  "files": [
+    "srcmap-codec.darwin-x64.node"
+  ],
   "os": [
     "darwin"
-  ]
+  ],
+  "cpu": [
+    "x64"
+  ],
+  "main": "srcmap-codec.darwin-x64.node"
 }

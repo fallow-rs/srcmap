@@ -210,11 +210,7 @@ pub fn resolve_sources(raw_sources: &[Option<String>], source_root: &str) -> Vec
 
 /// Build a source filename -> index lookup map.
 fn build_source_map(sources: &[String]) -> HashMap<String, u32> {
-    sources
-        .iter()
-        .enumerate()
-        .map(|(i, s)| (s.clone(), i as u32))
-        .collect()
+    sources.iter().enumerate().map(|(i, s)| (s.clone(), i as u32)).collect()
 }
 
 // ── Raw JSON structure ─────────────────────────────────────────────
@@ -391,11 +387,9 @@ impl SourceMap {
 
         let num_sources = sources.len();
         let scopes = match raw.scopes {
-            Some(scopes_str) if !scopes_str.is_empty() => Some(srcmap_scopes::decode_scopes(
-                scopes_str,
-                &raw.names,
-                num_sources,
-            )?),
+            Some(scopes_str) if !scopes_str.is_empty() => {
+                Some(srcmap_scopes::decode_scopes(scopes_str, &raw.names, num_sources)?)
+            }
             _ => None,
         };
 
@@ -463,11 +457,9 @@ impl SourceMap {
         // Decode scopes if present
         let num_sources = sources.len();
         let scopes = match raw.scopes {
-            Some(scopes_str) if !scopes_str.is_empty() => Some(srcmap_scopes::decode_scopes(
-                scopes_str,
-                &raw.names,
-                num_sources,
-            )?),
+            Some(scopes_str) if !scopes_str.is_empty() => {
+                Some(srcmap_scopes::decode_scopes(scopes_str, &raw.names, num_sources)?)
+            }
             _ => None,
         };
 
@@ -596,11 +588,7 @@ impl SourceMap {
                     },
                     original_line: m.original_line,
                     original_column: m.original_column,
-                    name: if m.name == NO_NAME {
-                        NO_NAME
-                    } else {
-                        name_remap[m.name as usize]
-                    },
+                    name: if m.name == NO_NAME { NO_NAME } else { name_remap[m.name as usize] },
                     is_range_mapping: m.is_range_mapping,
                 });
 
@@ -618,11 +606,7 @@ impl SourceMap {
         });
 
         // Build line_offsets
-        let line_count = if all_mappings.is_empty() {
-            0
-        } else {
-            max_line as usize + 1
-        };
+        let line_count = if all_mappings.is_empty() { 0 } else { max_line as usize + 1 };
         let mut line_offsets: Vec<u32> = vec![0; line_count + 1];
         let mut current_line: usize = 0;
         for (i, m) in all_mappings.iter().enumerate() {
@@ -728,11 +712,7 @@ impl SourceMap {
                 source: mapping.source,
                 line: mapping.original_line,
                 column: mapping.original_column + column_delta,
-                name: if mapping.name == NO_NAME {
-                    None
-                } else {
-                    Some(mapping.name)
-                },
+                name: if mapping.name == NO_NAME { None } else { Some(mapping.name) },
             });
         }
 
@@ -740,11 +720,7 @@ impl SourceMap {
             source: mapping.source,
             line: mapping.original_line,
             column: mapping.original_column,
-            name: if mapping.name == NO_NAME {
-                None
-            } else {
-                Some(mapping.name)
-            },
+            name: if mapping.name == NO_NAME { None } else { Some(mapping.name) },
         })
     }
 
@@ -767,20 +743,13 @@ impl SourceMap {
             return None;
         }
         let line_delta = line - last_mapping.generated_line;
-        let column_delta = if line_delta == 0 {
-            column.saturating_sub(last_mapping.generated_column)
-        } else {
-            0
-        };
+        let column_delta =
+            if line_delta == 0 { column.saturating_sub(last_mapping.generated_column) } else { 0 };
         Some(OriginalLocation {
             source: last_mapping.source,
             line: last_mapping.original_line + line_delta,
             column: last_mapping.original_column + column_delta,
-            name: if last_mapping.name == NO_NAME {
-                None
-            } else {
-                Some(last_mapping.name)
-            },
+            name: if last_mapping.name == NO_NAME { None } else { Some(last_mapping.name) },
         })
     }
 
@@ -812,9 +781,7 @@ impl SourceMap {
     ) -> Option<GeneratedLocation> {
         let &source_idx = self.source_map.get(source)?;
 
-        let reverse_index = self
-            .reverse_index
-            .get_or_init(|| build_reverse_index(&self.mappings));
+        let reverse_index = self.reverse_index.get_or_init(|| build_reverse_index(&self.mappings));
 
         // Binary search in reverse_index for (source, line, column)
         let idx = reverse_index.partition_point(|&i| {
@@ -906,9 +873,7 @@ impl SourceMap {
             return Vec::new();
         };
 
-        let reverse_index = self
-            .reverse_index
-            .get_or_init(|| build_reverse_index(&self.mappings));
+        let reverse_index = self.reverse_index.get_or_init(|| build_reverse_index(&self.mappings));
 
         // Find the first entry matching (source, line, column)
         let start = reverse_index.partition_point(|&i| {
@@ -923,10 +888,7 @@ impl SourceMap {
             if m.source != source_idx || m.original_line != line || m.original_column != column {
                 break;
             }
-            results.push(GeneratedLocation {
-                line: m.generated_line,
-                column: m.generated_column,
-            });
+            results.push(GeneratedLocation { line: m.generated_line, column: m.generated_column });
         }
 
         results
@@ -1170,7 +1132,10 @@ impl SourceMap {
     /// This avoids the encode-then-decode round-trip used in composition pipelines.
     /// Mappings must be sorted by (generated_line, generated_column).
     /// Use `u32::MAX` for `source`/`name` fields to indicate absence.
-    #[allow(clippy::too_many_arguments)]
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "constructor-style API keeps the hot path allocation-free"
+    )]
     pub fn from_parts(
         file: Option<String>,
         source_root: Option<String>,
@@ -1228,7 +1193,7 @@ impl SourceMap {
     /// This is the fast path for WASM: JS does `JSON.parse()` (V8-native speed),
     /// then only the VLQ mappings string crosses into WASM for decoding.
     /// Avoids copying large `sourcesContent` into WASM linear memory.
-    #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::too_many_arguments, reason = "WASM bindings pass parsed map parts directly")]
     pub fn from_vlq(
         mappings_str: &str,
         sources: Vec<String>,
@@ -1254,7 +1219,10 @@ impl SourceMap {
 
     /// Build a source map from pre-parsed components, a VLQ mappings string,
     /// and an optional range mappings string.
-    #[allow(clippy::too_many_arguments)]
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "range mappings are optional but share the same low-level constructor shape"
+    )]
     pub fn from_vlq_with_range_mappings(
         mappings_str: &str,
         sources: Vec<String>,
@@ -1345,11 +1313,9 @@ impl SourceMap {
         // Decode scopes if present
         let num_sources = sources.len();
         let scopes = match raw.scopes {
-            Some(scopes_str) if !scopes_str.is_empty() => Some(srcmap_scopes::decode_scopes(
-                scopes_str,
-                &raw.names,
-                num_sources,
-            )?),
+            Some(scopes_str) if !scopes_str.is_empty() => {
+                Some(srcmap_scopes::decode_scopes(scopes_str, &raw.names, num_sources)?)
+            }
             _ => None,
         };
 
@@ -1434,9 +1400,9 @@ impl SourceMap {
             }
         }
 
+        debug_assert!(out.is_ascii());
         // SAFETY: vlq_encode only pushes bytes from BASE64_ENCODE (all ASCII),
         // and we only add b';' and b',' — all valid UTF-8.
-        debug_assert!(out.is_ascii());
         unsafe { String::from_utf8_unchecked(out) }
     }
 
@@ -1471,9 +1437,9 @@ impl SourceMap {
         if out.is_empty() {
             return None;
         }
+        debug_assert!(out.is_ascii());
         // SAFETY: vlq_encode_unsigned only pushes ASCII base64 chars,
         // and we only add b';' and b',' — all valid UTF-8.
-        debug_assert!(out.is_ascii());
         Some(unsafe { String::from_utf8_unchecked(out) })
     }
 
@@ -1497,9 +1463,7 @@ impl SourceMap {
     /// Returns [`ParseError::InvalidDataUrl`] if the URL format is not recognized
     /// or base64 decoding fails.
     pub fn from_data_url(url: &str) -> Result<Self, ParseError> {
-        let rest = url
-            .strip_prefix("data:application/json")
-            .ok_or(ParseError::InvalidDataUrl)?;
+        let rest = url.strip_prefix("data:application/json").ok_or(ParseError::InvalidDataUrl)?;
 
         // Try base64-encoded variants first
         let json = if let Some(data) = rest
@@ -1510,11 +1474,7 @@ impl SourceMap {
             base64_decode(data).ok_or(ParseError::InvalidDataUrl)?
         } else if let Some(data) = rest.strip_prefix(',') {
             // Plain JSON — percent-decode if needed
-            if data.contains('%') {
-                percent_decode(data)
-            } else {
-                data.to_string()
-            }
+            if data.contains('%') { percent_decode(data) } else { data.to_string() }
         } else {
             return Err(ParseError::InvalidDataUrl);
         };
@@ -1685,11 +1645,9 @@ impl LazySourceMap {
         // Decode scopes if present
         let num_sources = sources.len();
         let scopes = match raw.scopes {
-            Some(scopes_str) if !scopes_str.is_empty() => Some(srcmap_scopes::decode_scopes(
-                scopes_str,
-                &raw.names,
-                num_sources,
-            )?),
+            Some(scopes_str) if !scopes_str.is_empty() => {
+                Some(srcmap_scopes::decode_scopes(scopes_str, &raw.names, num_sources)?)
+            }
             _ => None,
         };
 
@@ -1759,11 +1717,9 @@ impl LazySourceMap {
 
         let num_sources = sources.len();
         let scopes = match raw.scopes {
-            Some(scopes_str) if !scopes_str.is_empty() => Some(srcmap_scopes::decode_scopes(
-                scopes_str,
-                &raw.names,
-                num_sources,
-            )?),
+            Some(scopes_str) if !scopes_str.is_empty() => {
+                Some(srcmap_scopes::decode_scopes(scopes_str, &raw.names, num_sources)?)
+            }
             _ => None,
         };
 
@@ -1938,17 +1894,11 @@ impl LazySourceMap {
             if pos < end && bytes[pos] != b',' && bytes[pos] != b';' {
                 source_index += vlq_fast(bytes, &mut pos)?;
                 if pos >= end || bytes[pos] == b',' || bytes[pos] == b';' {
-                    return Err(DecodeError::InvalidSegmentLength {
-                        fields: 2,
-                        offset: pos,
-                    });
+                    return Err(DecodeError::InvalidSegmentLength { fields: 2, offset: pos });
                 }
                 original_line += vlq_fast(bytes, &mut pos)?;
                 if pos >= end || bytes[pos] == b',' || bytes[pos] == b';' {
-                    return Err(DecodeError::InvalidSegmentLength {
-                        fields: 3,
-                        offset: pos,
-                    });
+                    return Err(DecodeError::InvalidSegmentLength { fields: 3, offset: pos });
                 }
                 original_column += vlq_fast(bytes, &mut pos)?;
 
@@ -2013,12 +1963,7 @@ impl LazySourceMap {
             let mut state = if line >= watermark {
                 self.decode_state.get()
             } else {
-                VlqState {
-                    source_index: 0,
-                    original_line: 0,
-                    original_column: 0,
-                    name_index: 0,
-                }
+                VlqState { source_index: 0, original_line: 0, original_column: 0, name_index: 0 }
             };
 
             for l in start..=line {
@@ -2047,9 +1992,7 @@ impl LazySourceMap {
         // Normal mode: line_info has pre-computed VLQ state
         let state = self.line_info[line_idx].state;
         let (mappings, _) = self.decode_line_with_state(line, state)?;
-        self.decoded_lines
-            .borrow_mut()
-            .insert(line, mappings.clone());
+        self.decoded_lines.borrow_mut().insert(line, mappings.clone());
         Ok(mappings)
     }
 
@@ -2081,11 +2024,7 @@ impl LazySourceMap {
             source: mapping.source,
             line: mapping.original_line,
             column: mapping.original_column,
-            name: if mapping.name == NO_NAME {
-                None
-            } else {
-                Some(mapping.name)
-            },
+            name: if mapping.name == NO_NAME { None } else { Some(mapping.name) },
         })
     }
 
@@ -2188,12 +2127,7 @@ fn prescan_mappings(input: &str) -> Result<Vec<LineInfo>, DecodeError> {
 
     loop {
         let line_start = pos;
-        let state = VlqState {
-            source_index,
-            original_line,
-            original_column,
-            name_index,
-        };
+        let state = VlqState { source_index, original_line, original_column, name_index };
 
         let mut saw_semicolon = false;
 
@@ -2221,10 +2155,7 @@ fn prescan_mappings(input: &str) -> Result<Vec<LineInfo>, DecodeError> {
 
                 // Reject 2-field segments (only 1, 4, or 5 are valid per ECMA-426)
                 if pos >= len || bytes[pos] == b',' || bytes[pos] == b';' {
-                    return Err(DecodeError::InvalidSegmentLength {
-                        fields: 2,
-                        offset: pos,
-                    });
+                    return Err(DecodeError::InvalidSegmentLength { fields: 2, offset: pos });
                 }
 
                 // Field 3: original line
@@ -2232,10 +2163,7 @@ fn prescan_mappings(input: &str) -> Result<Vec<LineInfo>, DecodeError> {
 
                 // Reject 3-field segments (only 1, 4, or 5 are valid per ECMA-426)
                 if pos >= len || bytes[pos] == b',' || bytes[pos] == b';' {
-                    return Err(DecodeError::InvalidSegmentLength {
-                        fields: 3,
-                        offset: pos,
-                    });
+                    return Err(DecodeError::InvalidSegmentLength { fields: 3, offset: pos });
                 }
 
                 // Field 4: original column
@@ -2251,11 +2179,7 @@ fn prescan_mappings(input: &str) -> Result<Vec<LineInfo>, DecodeError> {
         // byte_end is before the semicolon (or end of string)
         let byte_end = if saw_semicolon { pos - 1 } else { pos };
 
-        line_info.push(LineInfo {
-            byte_offset: line_start,
-            byte_end,
-            state,
-        });
+        line_info.push(LineInfo { byte_offset: line_start, byte_end, state });
 
         if !saw_semicolon {
             break;
@@ -2286,17 +2210,11 @@ fn walk_vlq_state(
         if pos < end && bytes[pos] != b',' && bytes[pos] != b';' {
             state.source_index += vlq_fast(bytes, &mut pos)?;
             if pos >= end || bytes[pos] == b',' || bytes[pos] == b';' {
-                return Err(DecodeError::InvalidSegmentLength {
-                    fields: 2,
-                    offset: pos,
-                });
+                return Err(DecodeError::InvalidSegmentLength { fields: 2, offset: pos });
             }
             state.original_line += vlq_fast(bytes, &mut pos)?;
             if pos >= end || bytes[pos] == b',' || bytes[pos] == b';' {
-                return Err(DecodeError::InvalidSegmentLength {
-                    fields: 3,
-                    offset: pos,
-                });
+                return Err(DecodeError::InvalidSegmentLength { fields: 3, offset: pos });
             }
             state.original_column += vlq_fast(bytes, &mut pos)?;
             if pos < end && bytes[pos] != b',' && bytes[pos] != b';' {
@@ -2316,12 +2234,8 @@ fn fast_scan_lines(input: &str) -> Vec<LineInfo> {
 
     let bytes = input.as_bytes();
     let len = bytes.len();
-    let zero_state = VlqState {
-        source_index: 0,
-        original_line: 0,
-        original_column: 0,
-        name_index: 0,
-    };
+    let zero_state =
+        VlqState { source_index: 0, original_line: 0, original_column: 0, name_index: 0 };
 
     // Single pass: grow dynamically instead of double-scanning for semicolon count
     let mut line_info = Vec::new();
@@ -2506,11 +2420,7 @@ pub fn validate_deep(sm: &SourceMap) -> Vec<String> {
             ));
         }
         if m.name != NO_NAME && m.name as usize >= sm.names.len() {
-            warnings.push(format!(
-                "name index {} out of bounds (max {})",
-                m.name,
-                sm.names.len()
-            ));
+            warnings.push(format!("name index {} out of bounds (max {})", m.name, sm.names.len()));
         }
     }
 
@@ -2605,17 +2515,11 @@ fn vlq_fast(bytes: &[u8], pos: &mut usize) -> Result<i64, DecodeError> {
 
     let b0 = bytes[p];
     if b0 >= 128 {
-        return Err(DecodeError::InvalidBase64 {
-            byte: b0,
-            offset: p,
-        });
+        return Err(DecodeError::InvalidBase64 { byte: b0, offset: p });
     }
     let d0 = B64[b0 as usize];
     if d0 == 0xFF {
-        return Err(DecodeError::InvalidBase64 {
-            byte: b0,
-            offset: p,
-        });
+        return Err(DecodeError::InvalidBase64 { byte: b0, offset: p });
     }
 
     // Fast path: single character VLQ (values -15..15)
@@ -2657,11 +2561,7 @@ fn vlq_fast(bytes: &[u8], pos: &mut usize) -> Result<i64, DecodeError> {
     }
 
     *pos = i;
-    let value = if (result & 1) == 1 {
-        -((result >> 1) as i64)
-    } else {
-        (result >> 1) as i64
-    };
+    let value = if (result & 1) == 1 { -((result >> 1) as i64) } else { (result >> 1) as i64 };
     Ok(value)
 }
 
@@ -2673,17 +2573,11 @@ fn vlq_unsigned_fast(bytes: &[u8], pos: &mut usize) -> Result<u64, DecodeError> 
     }
     let b0 = bytes[p];
     if b0 >= 128 {
-        return Err(DecodeError::InvalidBase64 {
-            byte: b0,
-            offset: p,
-        });
+        return Err(DecodeError::InvalidBase64 { byte: b0, offset: p });
     }
     let d0 = B64[b0 as usize];
     if d0 == 0xFF {
-        return Err(DecodeError::InvalidBase64 {
-            byte: b0,
-            offset: p,
-        });
+        return Err(DecodeError::InvalidBase64 { byte: b0, offset: p });
     }
     if (d0 & 0x20) == 0 {
         *pos = p + 1;
@@ -2818,10 +2712,7 @@ fn decode_mappings(input: &str) -> Result<(Vec<Mapping>, Vec<u32>), DecodeError>
 
                 // Reject 2-field segments (only 1, 4, or 5 are valid per ECMA-426)
                 if pos >= len || bytes[pos] == b',' || bytes[pos] == b';' {
-                    return Err(DecodeError::InvalidSegmentLength {
-                        fields: 2,
-                        offset: pos,
-                    });
+                    return Err(DecodeError::InvalidSegmentLength { fields: 2, offset: pos });
                 }
 
                 // Field 3: original line
@@ -2829,10 +2720,7 @@ fn decode_mappings(input: &str) -> Result<(Vec<Mapping>, Vec<u32>), DecodeError>
 
                 // Reject 3-field segments (only 1, 4, or 5 are valid per ECMA-426)
                 if pos >= len || bytes[pos] == b',' || bytes[pos] == b';' {
-                    return Err(DecodeError::InvalidSegmentLength {
-                        fields: 3,
-                        offset: pos,
-                    });
+                    return Err(DecodeError::InvalidSegmentLength { fields: 3, offset: pos });
                 }
 
                 // Field 4: original column
@@ -2953,10 +2841,7 @@ fn decode_mappings_range(
 
                 // Reject 2-field segments (only 1, 4, or 5 are valid per ECMA-426)
                 if pos >= len || bytes[pos] == b',' || bytes[pos] == b';' {
-                    return Err(DecodeError::InvalidSegmentLength {
-                        fields: 2,
-                        offset: pos,
-                    });
+                    return Err(DecodeError::InvalidSegmentLength { fields: 2, offset: pos });
                 }
 
                 // Field 3: original line
@@ -2964,10 +2849,7 @@ fn decode_mappings_range(
 
                 // Reject 3-field segments (only 1, 4, or 5 are valid per ECMA-426)
                 if pos >= len || bytes[pos] == b',' || bytes[pos] == b';' {
-                    return Err(DecodeError::InvalidSegmentLength {
-                        fields: 3,
-                        offset: pos,
-                    });
+                    return Err(DecodeError::InvalidSegmentLength { fields: 3, offset: pos });
                 }
 
                 // Field 4: original column
@@ -3095,9 +2977,8 @@ fn decode_mappings_range(
 
 /// Build reverse index: mapping indices sorted by (source, original_line, original_column).
 fn build_reverse_index(mappings: &[Mapping]) -> Vec<u32> {
-    let mut indices: Vec<u32> = (0..mappings.len() as u32)
-        .filter(|&i| mappings[i as usize].source != NO_SOURCE)
-        .collect();
+    let mut indices: Vec<u32> =
+        (0..mappings.len() as u32).filter(|&i| mappings[i as usize].source != NO_SOURCE).collect();
 
     indices.sort_unstable_by(|&a, &b| {
         let ma = &mappings[a as usize];
@@ -3299,6 +3180,7 @@ impl Iterator for MappingsIter<'_> {
 ///
 /// Avoids the need to pre-collect sources, names, and mappings into `Vec`s.
 /// Delegates to [`SourceMap::from_parts`] internally.
+#[must_use]
 pub struct SourceMapBuilder {
     file: Option<String>,
     source_root: Option<String>,
@@ -3442,10 +3324,7 @@ mod tests {
                     assert_eq!(a.name, b.name);
                 }
                 (None, None) => {}
-                _ => panic!(
-                    "lookup mismatch at ({}, {})",
-                    m.generated_line, m.generated_column
-                ),
+                _ => panic!("lookup mismatch at ({}, {})", m.generated_line, m.generated_column),
             }
         }
     }
@@ -3759,24 +3638,14 @@ mod tests {
         let converted: Vec<Vec<srcmap_codec::Segment>> = mappings_data
             .iter()
             .map(|line| {
-                line.iter()
-                    .map(|seg| srcmap_codec::Segment::from(seg.as_slice()))
-                    .collect()
+                line.iter().map(|seg| srcmap_codec::Segment::from(seg.as_slice())).collect()
             })
             .collect();
         let encoded = srcmap_codec::encode(&converted);
         format!(
             r#"{{"version":3,"sources":[{}],"names":[{}],"mappings":"{}"}}"#,
-            sources
-                .iter()
-                .map(|s| format!("\"{s}\""))
-                .collect::<Vec<_>>()
-                .join(","),
-            names
-                .iter()
-                .map(|n| format!("\"{n}\""))
-                .collect::<Vec<_>>()
-                .join(","),
+            sources.iter().map(|s| format!("\"{s}\"")).collect::<Vec<_>>().join(","),
+            names.iter().map(|n| format!("\"{n}\"")).collect::<Vec<_>>().join(","),
             encoded,
         )
     }
@@ -3985,11 +3854,8 @@ mod tests {
 
     #[test]
     fn lookup_exact_match() {
-        let mappings_data = vec![vec![
-            vec![0_i64, 0, 10, 20],
-            vec![5, 0, 10, 25],
-            vec![15, 0, 11, 0],
-        ]];
+        let mappings_data =
+            vec![vec![vec![0_i64, 0, 10, 20], vec![5, 0, 10, 25], vec![15, 0, 11, 0]]];
         let json = build_sourcemap_json(&["src.js"], &[], &mappings_data);
         let sm = SourceMap::from_json(&json).unwrap();
 
@@ -4010,11 +3876,7 @@ mod tests {
 
     #[test]
     fn lookup_between_segments() {
-        let mappings_data = vec![vec![
-            vec![0_i64, 0, 1, 0],
-            vec![10, 0, 2, 0],
-            vec![20, 0, 3, 0],
-        ]];
+        let mappings_data = vec![vec![vec![0_i64, 0, 1, 0], vec![10, 0, 2, 0], vec![20, 0, 3, 0]]];
         let json = build_sourcemap_json(&["src.js"], &[], &mappings_data);
         let sm = SourceMap::from_json(&json).unwrap();
 
@@ -4040,11 +3902,7 @@ mod tests {
 
     #[test]
     fn lookup_empty_lines_no_mappings() {
-        let mappings_data = vec![
-            vec![vec![0_i64, 0, 0, 0]],
-            vec![],
-            vec![vec![0_i64, 0, 2, 0]],
-        ];
+        let mappings_data = vec![vec![vec![0_i64, 0, 0, 0]], vec![], vec![vec![0_i64, 0, 2, 0]]];
         let json = build_sourcemap_json(&["src.js"], &[], &mappings_data);
         let sm = SourceMap::from_json(&json).unwrap();
 
@@ -4195,10 +4053,7 @@ mod tests {
 
         for orig_line in 0..4 {
             let loc = sm.generated_position_for("x.js", orig_line, 0).unwrap();
-            assert_eq!(
-                loc.line, orig_line,
-                "reverse lookup for orig line {orig_line}"
-            );
+            assert_eq!(loc.line, orig_line, "reverse lookup for orig line {orig_line}");
             assert_eq!(loc.column, 0);
         }
     }
@@ -4241,10 +4096,8 @@ mod tests {
 
     #[test]
     fn all_mappings_returns_complete_list() {
-        let mappings_data = vec![
-            vec![vec![0_i64, 0, 0, 0], vec![5, 0, 0, 5]],
-            vec![vec![0, 0, 1, 0]],
-        ];
+        let mappings_data =
+            vec![vec![vec![0_i64, 0, 0, 0], vec![5, 0, 0, 5]], vec![vec![0, 0, 1, 0]]];
         let json = build_sourcemap_json(&["x.js"], &[], &mappings_data);
         let sm = SourceMap::from_json(&json).unwrap();
         assert_eq!(sm.all_mappings().len(), 3);
@@ -4253,13 +4106,8 @@ mod tests {
 
     #[test]
     fn line_count_matches_decoded_lines() {
-        let mappings_data = vec![
-            vec![vec![0_i64, 0, 0, 0]],
-            vec![],
-            vec![vec![0_i64, 0, 2, 0]],
-            vec![],
-            vec![],
-        ];
+        let mappings_data =
+            vec![vec![vec![0_i64, 0, 0, 0]], vec![], vec![vec![0_i64, 0, 2, 0]], vec![], vec![]];
         let json = build_sourcemap_json(&["x.js"], &[], &mappings_data);
         let sm = SourceMap::from_json(&json).unwrap();
         assert_eq!(sm.line_count(), 5);
@@ -4301,16 +4149,13 @@ mod tests {
             }
             let source_name = sm.source(m.source);
 
-            let orig = sm
-                .original_position_for(m.generated_line, m.generated_column)
-                .unwrap();
+            let orig = sm.original_position_for(m.generated_line, m.generated_column).unwrap();
             assert_eq!(orig.source, m.source);
             assert_eq!(orig.line, m.original_line);
             assert_eq!(orig.column, m.original_column);
 
-            let gen_loc = sm
-                .generated_position_for(source_name, m.original_line, m.original_column)
-                .unwrap();
+            let gen_loc =
+                sm.generated_position_for(source_name, m.original_line, m.original_column).unwrap();
             assert_eq!(gen_loc.line, m.generated_line);
             assert_eq!(gen_loc.column, m.generated_column);
         }
@@ -4387,19 +4232,13 @@ mod tests {
     #[test]
     fn parse_version_0() {
         let json = r#"{"version":0,"sources":[],"names":[],"mappings":""}"#;
-        assert!(matches!(
-            SourceMap::from_json(json).unwrap_err(),
-            ParseError::InvalidVersion(0)
-        ));
+        assert!(matches!(SourceMap::from_json(json).unwrap_err(), ParseError::InvalidVersion(0)));
     }
 
     #[test]
     fn parse_version_4() {
         let json = r#"{"version":4,"sources":[],"names":[],"mappings":""}"#;
-        assert!(matches!(
-            SourceMap::from_json(json).unwrap_err(),
-            ParseError::InvalidVersion(4)
-        ));
+        assert!(matches!(SourceMap::from_json(json).unwrap_err(), ParseError::InvalidVersion(4)));
     }
 
     #[test]
@@ -4444,10 +4283,7 @@ mod tests {
         let output = sm.to_json();
         let _: serde_json::Value = serde_json::from_str(&output).unwrap();
         let sm2 = SourceMap::from_json(&output).unwrap();
-        assert_eq!(
-            sm2.sources_content[0].as_deref(),
-            Some("line1\nline2\ttab\\backslash")
-        );
+        assert_eq!(sm2.sources_content[0].as_deref(), Some("line1\nline2\ttab\\backslash"));
     }
 
     #[test]
@@ -4462,11 +4298,8 @@ mod tests {
 
     #[test]
     fn to_json_roundtrip_with_names() {
-        let mappings_data = vec![vec![
-            vec![0_i64, 0, 0, 0, 0],
-            vec![10, 0, 0, 10, 1],
-            vec![20, 0, 1, 0, 2],
-        ]];
+        let mappings_data =
+            vec![vec![vec![0_i64, 0, 0, 0, 0], vec![10, 0, 0, 10, 1], vec![20, 0, 1, 0, 2]]];
         let json = build_sourcemap_json(&["src.js"], &["foo", "bar", "baz"], &mappings_data);
         let sm = SourceMap::from_json(&json).unwrap();
         let output = sm.to_json();
@@ -4474,9 +4307,7 @@ mod tests {
 
         for m in sm2.all_mappings() {
             if m.source != NO_SOURCE && m.name != NO_NAME {
-                let loc = sm2
-                    .original_position_for(m.generated_line, m.generated_column)
-                    .unwrap();
+                let loc = sm2.original_position_for(m.generated_line, m.generated_column).unwrap();
                 assert!(loc.name.is_some());
             }
         }
@@ -4698,20 +4529,14 @@ mod tests {
     fn parse_debug_id() {
         let json = r#"{"version":3,"sources":["a.js"],"names":[],"mappings":"AAAA","debugId":"85314830-023f-4cf1-a267-535f4e37bb17"}"#;
         let sm = SourceMap::from_json(json).unwrap();
-        assert_eq!(
-            sm.debug_id.as_deref(),
-            Some("85314830-023f-4cf1-a267-535f4e37bb17")
-        );
+        assert_eq!(sm.debug_id.as_deref(), Some("85314830-023f-4cf1-a267-535f4e37bb17"));
     }
 
     #[test]
     fn parse_debug_id_snake_case() {
         let json = r#"{"version":3,"sources":["a.js"],"names":[],"mappings":"AAAA","debug_id":"85314830-023f-4cf1-a267-535f4e37bb17"}"#;
         let sm = SourceMap::from_json(json).unwrap();
-        assert_eq!(
-            sm.debug_id.as_deref(),
-            Some("85314830-023f-4cf1-a267-535f4e37bb17")
-        );
+        assert_eq!(sm.debug_id.as_deref(), Some("85314830-023f-4cf1-a267-535f4e37bb17"));
     }
 
     #[test]
@@ -4741,9 +4566,7 @@ mod tests {
 
     /// Generate a test source map JSON with realistic structure.
     fn generate_test_sourcemap(lines: usize, segs_per_line: usize, num_sources: usize) -> String {
-        let sources: Vec<String> = (0..num_sources)
-            .map(|i| format!("src/file{i}.js"))
-            .collect();
+        let sources: Vec<String> = (0..num_sources).map(|i| format!("src/file{i}.js")).collect();
         let names: Vec<String> = (0..20).map(|i| format!("var{i}")).collect();
 
         let mut mappings_parts = Vec::with_capacity(lines);
@@ -4761,7 +4584,7 @@ mod tests {
                 let gc_delta = 2 + (s as i64 * 3) % 20;
                 gen_col += gc_delta;
 
-                let src_delta = if s % 7 == 0 { 1 } else { 0 };
+                let src_delta = i64::from(s % 7 == 0);
                 src = (src + src_delta) % num_sources as i64;
 
                 src_line += 1;
@@ -4789,16 +4612,8 @@ mod tests {
 
         format!(
             r#"{{"version":3,"sources":[{}],"names":[{}],"mappings":"{}"}}"#,
-            sources
-                .iter()
-                .map(|s| format!("\"{s}\""))
-                .collect::<Vec<_>>()
-                .join(","),
-            names
-                .iter()
-                .map(|n| format!("\"{n}\""))
-                .collect::<Vec<_>>()
-                .join(","),
+            sources.iter().map(|s| format!("\"{s}\"")).collect::<Vec<_>>().join(","),
+            names.iter().map(|n| format!("\"{n}\"")).collect::<Vec<_>>().join(","),
             encoded,
         )
     }
@@ -4815,9 +4630,7 @@ mod tests {
     #[test]
     fn original_position_glb_exact_match() {
         let sm = SourceMap::from_json(bias_map()).unwrap();
-        let loc = sm
-            .original_position_for_with_bias(0, 5, Bias::GreatestLowerBound)
-            .unwrap();
+        let loc = sm.original_position_for_with_bias(0, 5, Bias::GreatestLowerBound).unwrap();
         assert_eq!(loc.column, 5);
     }
 
@@ -4825,18 +4638,14 @@ mod tests {
     fn original_position_glb_snaps_left() {
         let sm = SourceMap::from_json(bias_map()).unwrap();
         // Column 7 should snap to the mapping at column 5
-        let loc = sm
-            .original_position_for_with_bias(0, 7, Bias::GreatestLowerBound)
-            .unwrap();
+        let loc = sm.original_position_for_with_bias(0, 7, Bias::GreatestLowerBound).unwrap();
         assert_eq!(loc.column, 5);
     }
 
     #[test]
     fn original_position_lub_exact_match() {
         let sm = SourceMap::from_json(bias_map()).unwrap();
-        let loc = sm
-            .original_position_for_with_bias(0, 5, Bias::LeastUpperBound)
-            .unwrap();
+        let loc = sm.original_position_for_with_bias(0, 5, Bias::LeastUpperBound).unwrap();
         assert_eq!(loc.column, 5);
     }
 
@@ -4844,9 +4653,7 @@ mod tests {
     fn original_position_lub_snaps_right() {
         let sm = SourceMap::from_json(bias_map()).unwrap();
         // Column 3 with LUB should snap to the mapping at column 5
-        let loc = sm
-            .original_position_for_with_bias(0, 3, Bias::LeastUpperBound)
-            .unwrap();
+        let loc = sm.original_position_for_with_bias(0, 3, Bias::LeastUpperBound).unwrap();
         assert_eq!(loc.column, 5);
     }
 
@@ -4854,9 +4661,7 @@ mod tests {
     fn original_position_lub_before_first() {
         let sm = SourceMap::from_json(bias_map()).unwrap();
         // Column 0 with LUB should find mapping at column 0
-        let loc = sm
-            .original_position_for_with_bias(0, 0, Bias::LeastUpperBound)
-            .unwrap();
+        let loc = sm.original_position_for_with_bias(0, 0, Bias::LeastUpperBound).unwrap();
         assert_eq!(loc.column, 0);
     }
 
@@ -4872,9 +4677,7 @@ mod tests {
     fn original_position_glb_before_first() {
         let sm = SourceMap::from_json(bias_map()).unwrap();
         // Column 0 with GLB should find mapping at column 0
-        let loc = sm
-            .original_position_for_with_bias(0, 0, Bias::GreatestLowerBound)
-            .unwrap();
+        let loc = sm.original_position_for_with_bias(0, 0, Bias::GreatestLowerBound).unwrap();
         assert_eq!(loc.column, 0);
     }
 
@@ -4882,9 +4685,8 @@ mod tests {
     fn generated_position_lub() {
         let sm = SourceMap::from_json(bias_map()).unwrap();
         // LUB: find first generated position at or after original col 3
-        let loc = sm
-            .generated_position_for_with_bias("input.js", 0, 3, Bias::LeastUpperBound)
-            .unwrap();
+        let loc =
+            sm.generated_position_for_with_bias("input.js", 0, 3, Bias::LeastUpperBound).unwrap();
         assert_eq!(loc.column, 5);
     }
 
@@ -4952,10 +4754,7 @@ mod tests {
 
         assert!(sm.extensions.contains_key("x_facebook_sources"));
         assert!(sm.extensions.contains_key("x_google_linecount"));
-        assert_eq!(
-            sm.extensions.get("x_google_linecount"),
-            Some(&serde_json::json!(42))
-        );
+        assert_eq!(sm.extensions.get("x_google_linecount"), Some(&serde_json::json!(42)));
 
         // Round-trip preserves extension fields
         let output = sm.to_json();
@@ -4994,7 +4793,7 @@ mod tests {
             SourceMappingUrl::Inline(decoded) => {
                 assert_eq!(decoded, json);
             }
-            _ => panic!("expected inline"),
+            SourceMappingUrl::External(_) => panic!("expected inline"),
         }
     }
 
@@ -5002,20 +4801,14 @@ mod tests {
     fn source_mapping_url_at_sign() {
         let source = "var a = 1;\n//@ sourceMappingURL=old-style.map";
         let result = parse_source_mapping_url(source).unwrap();
-        assert_eq!(
-            result,
-            SourceMappingUrl::External("old-style.map".to_string())
-        );
+        assert_eq!(result, SourceMappingUrl::External("old-style.map".to_string()));
     }
 
     #[test]
     fn source_mapping_url_css_comment() {
         let source = "body { }\n/*# sourceMappingURL=styles.css.map */";
         let result = parse_source_mapping_url(source).unwrap();
-        assert_eq!(
-            result,
-            SourceMappingUrl::External("styles.css.map".to_string())
-        );
+        assert_eq!(result, SourceMappingUrl::External("styles.css.map".to_string()));
     }
 
     #[test]
@@ -5105,17 +4898,8 @@ mod tests {
 
     #[test]
     fn from_parts_empty() {
-        let sm = SourceMap::from_parts(
-            None,
-            None,
-            vec![],
-            vec![],
-            vec![],
-            vec![],
-            vec![],
-            None,
-            None,
-        );
+        let sm =
+            SourceMap::from_parts(None, None, vec![], vec![], vec![], vec![], vec![], None, None);
         assert_eq!(sm.line_count(), 0);
         assert_eq!(sm.mapping_count(), 0);
         assert!(sm.original_position_for(0, 0).is_none());
@@ -5384,12 +5168,10 @@ mod tests {
             if m.source == NO_SOURCE {
                 continue;
             }
-            let eager_loc = sm_eager
-                .original_position_for(m.generated_line, m.generated_column)
-                .unwrap();
-            let lazy_loc = sm_lazy
-                .original_position_for(m.generated_line, m.generated_column)
-                .unwrap();
+            let eager_loc =
+                sm_eager.original_position_for(m.generated_line, m.generated_column).unwrap();
+            let lazy_loc =
+                sm_lazy.original_position_for(m.generated_line, m.generated_column).unwrap();
             assert_eq!(eager_loc.source, lazy_loc.source);
             assert_eq!(eager_loc.line, lazy_loc.line);
             assert_eq!(eager_loc.column, lazy_loc.column);
@@ -5514,11 +5296,7 @@ mod tests {
         for line in [50, 75] {
             let eager_mappings = sm_eager.mappings_for_line(line);
             let lazy_mappings = sm_lazy.mappings_for_line(line);
-            assert_eq!(
-                eager_mappings.len(),
-                lazy_mappings.len(),
-                "line {line} count mismatch"
-            );
+            assert_eq!(eager_mappings.len(), lazy_mappings.len(), "line {line} count mismatch");
             for (a, b) in eager_mappings.iter().zip(lazy_mappings.iter()) {
                 assert_eq!(a.generated_column, b.generated_column);
                 assert_eq!(a.source, b.source);
@@ -6238,8 +6016,7 @@ mod tests {
             None,
             None,
         );
-        sm.extensions
-            .insert("x_test".to_string(), serde_json::json!(42));
+        sm.extensions.insert("x_test".to_string(), serde_json::json!(42));
         let json = sm.to_json();
         assert!(json.contains("\"ignoreList\":[1]"));
         assert!(json.contains("\"x_test\":42"));
@@ -6395,11 +6172,7 @@ mod tests {
             None,
         );
         let warnings = validate_deep(&sm);
-        assert!(
-            warnings
-                .iter()
-                .any(|w| w.contains("source index") && w.contains("out of bounds"))
-        );
+        assert!(warnings.iter().any(|w| w.contains("source index") && w.contains("out of bounds")));
     }
 
     #[test]
@@ -6424,11 +6197,7 @@ mod tests {
             None,
         );
         let warnings = validate_deep(&sm);
-        assert!(
-            warnings
-                .iter()
-                .any(|w| w.contains("name index") && w.contains("out of bounds"))
-        );
+        assert!(warnings.iter().any(|w| w.contains("name index") && w.contains("out of bounds")));
     }
 
     #[test]
@@ -6453,11 +6222,7 @@ mod tests {
             None,
         );
         let warnings = validate_deep(&sm);
-        assert!(
-            warnings
-                .iter()
-                .any(|w| w.contains("ignoreList") && w.contains("out of bounds"))
-        );
+        assert!(warnings.iter().any(|w| w.contains("ignoreList") && w.contains("out of bounds")));
     }
 
     #[test]
@@ -6611,13 +6376,7 @@ mod tests {
     #[test]
     fn range_mapping_encode_roundtrip() {
         let json = r#"{"version":3,"sources":["input.js"],"names":[],"mappings":"AAAA,CAAC,GAAG","rangeMappings":"A,C"}"#;
-        assert_eq!(
-            SourceMap::from_json(json)
-                .unwrap()
-                .encode_range_mappings()
-                .unwrap(),
-            "A,C"
-        );
+        assert_eq!(SourceMap::from_json(json).unwrap().encode_range_mappings().unwrap(), "A,C");
     }
 
     #[test]
@@ -6643,10 +6402,7 @@ mod tests {
         let sm = SourceMap::from_json(r#"{"version":3,"sources":["input.js"],"names":[],"mappings":"AAAA,CAAC,GAAG","rangeMappings":"A,C"}"#).unwrap();
         let output = sm.to_json();
         assert!(output.contains("rangeMappings"));
-        assert_eq!(
-            SourceMap::from_json(&output).unwrap().range_mapping_count(),
-            2
-        );
+        assert_eq!(SourceMap::from_json(&output).unwrap().range_mapping_count(), 2);
     }
 
     #[test]
@@ -6898,10 +6654,7 @@ mod tests {
             .build();
 
         assert_eq!(sm.ignore_list, vec![1]);
-        assert_eq!(
-            sm.debug_id.as_deref(),
-            Some("85314830-023f-4cf1-a267-535f4e37bb17")
-        );
+        assert_eq!(sm.debug_id.as_deref(), Some("85314830-023f-4cf1-a267-535f4e37bb17"));
     }
 
     #[test]
@@ -7119,10 +6872,7 @@ mod tests {
         // "AA" is 2 fields (generated column + source index, missing original line/column)
         let result: Result<Vec<_>, _> = MappingsIter::new("AA").collect();
         assert!(result.is_err());
-        assert!(matches!(
-            result.unwrap_err(),
-            DecodeError::InvalidSegmentLength { fields: 2, .. }
-        ));
+        assert!(matches!(result.unwrap_err(), DecodeError::InvalidSegmentLength { fields: 2, .. }));
     }
 
     #[test]
@@ -7130,10 +6880,7 @@ mod tests {
         // "AAA" is 3 fields (generated column + source index + original line, missing original column)
         let result: Result<Vec<_>, _> = MappingsIter::new("AAA").collect();
         assert!(result.is_err());
-        assert!(matches!(
-            result.unwrap_err(),
-            DecodeError::InvalidSegmentLength { fields: 3, .. }
-        ));
+        assert!(matches!(result.unwrap_err(), DecodeError::InvalidSegmentLength { fields: 3, .. }));
     }
 
     #[test]

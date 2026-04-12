@@ -4,8 +4,11 @@ on:
   push:
     branches: [main]
 
-permissions:
-  contents: write
+concurrency:
+  group: coverage-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions: {}
 
 env:
   CARGO_TERM_COLOR: always
@@ -14,19 +17,27 @@ jobs:
   coverage:
     name: Coverage
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7
+        with:
+          components: llvm-tools-preview
 
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
 
-      - uses: taiki-e/install-action@cargo-llvm-cov
+      - uses: taiki-e/install-action@2d15d02e710b40b6332201aba6af30d595b5cd96 # cargo-llvm-cov
 
       - name: Setup Node.js
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
         with:
           node-version: 22
+          cache: pnpm
+
+      - name: Install JS dependencies
+        run: corepack pnpm install --ignore-scripts --frozen-lockfile
 
       - name: Install wasm-pack
         run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
@@ -38,24 +49,14 @@ jobs:
           cargo llvm-cov --workspace --lcov --output-path coverage/rust.lcov
 
       # Build NAPI packages for JS tests
-      - name: Build NAPI codec
-        working-directory: packages/codec
+      - name: Build NAPI packages
         run: |
-          npm install
-          npm install detect-libc
-          npm run build
-
-      - name: Build NAPI sourcemap
-        working-directory: packages/sourcemap
-        run: |
-          npm install
-          npm install detect-libc
-          npm run build
+          corepack pnpm --filter @srcmap/codec build
+          corepack pnpm --filter @srcmap/sourcemap build
 
       # Build WASM package for JS tests
       - name: Build WASM sourcemap
-        working-directory: packages/sourcemap-wasm
-        run: wasm-pack build --target nodejs
+        run: corepack pnpm --filter @srcmap/sourcemap-wasm build:node
 
       # JS coverage (lcov)
       - name: JS coverage - codec
@@ -125,11 +126,21 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-          # Stash any working directory changes from npm install / build steps
-          git stash --include-untracked
+          if ! git ls-remote --heads origin badges | grep -q badges; then
+            git checkout --orphan badges
+            git rm -rf . 2>/dev/null || true
+            echo "{}" > coverage.json
+            echo "{}" > rust-coverage.json
+            git add coverage.json rust-coverage.json
+            git commit -m "chore: init badges branch"
+            git push origin badges
+            git checkout main
+          fi
 
           git fetch origin badges
-          git checkout badges
+          git worktree add /tmp/srcmap-badges --detach origin/badges
+          cd /tmp/srcmap-badges
+          git checkout -B badges origin/badges
 
           echo "{\"schemaVersion\":1,\"label\":\"coverage\",\"message\":\"${COVERAGE}%\",\"color\":\"${BADGE_COLOR}\"}" > coverage.json
           echo "{\"schemaVersion\":1,\"label\":\"rust coverage\",\"message\":\"${RUST_COVERAGE}%\",\"color\":\"${RUST_BADGE_COLOR}\"}" > rust-coverage.json
@@ -137,3 +148,6 @@ jobs:
           git add coverage.json rust-coverage.json
           git diff --cached --quiet || git commit -m "chore: update coverage badges to ${COVERAGE}%"
           git push origin badges
+
+          cd "$GITHUB_WORKSPACE"
+          git worktree remove /tmp/srcmap-badges

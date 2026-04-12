@@ -2,6 +2,7 @@
 name = "srcmap-symbolicate-wasm"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 description = "WebAssembly bindings for srcmap-symbolicate"
@@ -12,10 +13,13 @@ wasm-opt = ["-Os", "--enable-bulk-memory"]
 
 [lib]
 crate-type = ["cdylib"]
+test = false
+
+[lints]
+workspace = true
 
 [dependencies]
 srcmap-sourcemap = { workspace = true }
 srcmap-symbolicate = { workspace = true }
 wasm-bindgen = { workspace = true }
 js-sys = { workspace = true }
-serde-wasm-bindgen = { workspace = true }

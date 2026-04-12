@@ -1,0 +1,13 @@
+[files]
+extend-exclude = [
+    ".fallow/",
+    "coverage/",
+    "target/",
+    "benchmarks/node_modules/",
+    "packages/*/pkg/",
+    "packages/*/web/",
+    "packages/*/bundler/",
+]
+
+[default.extend-words]
+ba = "ba"

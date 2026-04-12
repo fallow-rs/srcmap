@@ -11,6 +11,8 @@
 //!
 //! Run with: `cargo run -p srcmap-generator --example streaming`
 
+#![allow(clippy::print_stdout, reason = "Examples are intended to print walkthrough output")]
+
 use srcmap_generator::{SourceMapGenerator, StreamingGenerator};
 
 fn main() {
@@ -133,11 +135,7 @@ fn main() {
     // 3. Get JSON output
     // ---------------------------------------------------------------
     let streaming_json = sg.to_json();
-    println!(
-        "Streaming JSON ({} bytes):\n{}\n",
-        streaming_json.len(),
-        streaming_json
-    );
+    println!("Streaming JSON ({} bytes):\n{}\n", streaming_json.len(), streaming_json);
 
     assert!(streaming_json.contains(r#""version":3"#));
     assert!(streaming_json.contains(r#""file":"dist/bundle.js""#));
@@ -197,11 +195,7 @@ fn main() {
     smg.add_range_mapping(1, 0, smg_math, 0, 7);
 
     let generator_json = smg.to_json();
-    println!(
-        "SourceMapGenerator JSON ({} bytes):\n{}\n",
-        generator_json.len(),
-        generator_json
-    );
+    println!("SourceMapGenerator JSON ({} bytes):\n{}\n", generator_json.len(), generator_json);
 
     // ---------------------------------------------------------------
     // 5. Parse both and verify they produce the same results
@@ -266,9 +260,7 @@ fn main() {
     // ---------------------------------------------------------------
     // 6. Also verify via to_decoded_map (avoids JSON round-trip)
     // ---------------------------------------------------------------
-    let decoded_streaming = sg
-        .to_decoded_map()
-        .expect("StreamingGenerator::to_decoded_map failed");
+    let decoded_streaming = sg.to_decoded_map().expect("StreamingGenerator::to_decoded_map failed");
     let decoded_generator = smg.to_decoded_map();
 
     // Spot-check a lookup on the decoded maps

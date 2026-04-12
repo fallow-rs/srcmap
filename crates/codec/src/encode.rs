@@ -3,7 +3,7 @@ use crate::vlq::vlq_encode_unchecked;
 
 /// Encode decoded source map mappings back into a VLQ-encoded string.
 ///
-/// This is the inverse of [`decode`](crate::decode). Values are delta-encoded:
+/// This is the inverse of [`decode()`](crate::decode()). Values are delta-encoded:
 /// generated column resets per line, all other fields are cumulative.
 ///
 /// Empty segments are silently skipped.
@@ -73,9 +73,9 @@ pub fn encode(mappings: &SourceMapMappings) -> String {
         }
     }
 
+    debug_assert!(buf.is_ascii());
     // SAFETY: vlq_encode only pushes bytes from BASE64_ENCODE (all ASCII),
     // and we only add b';' and b',' — all valid UTF-8.
-    debug_assert!(buf.is_ascii());
     unsafe { String::from_utf8_unchecked(buf) }
 }
 
@@ -164,12 +164,7 @@ pub fn encode_parallel(mappings: &SourceMapMappings) -> String {
     let mut prev_name: i64 = 0;
 
     for line in mappings.iter() {
-        states.push((
-            prev_source,
-            prev_original_line,
-            prev_original_column,
-            prev_name,
-        ));
+        states.push((prev_source, prev_original_line, prev_original_column, prev_name));
         for segment in line.iter() {
             if segment.len() >= 4 {
                 prev_source = segment[1];
@@ -200,8 +195,8 @@ pub fn encode_parallel(mappings: &SourceMapMappings) -> String {
         buf.extend_from_slice(line_bytes);
     }
 
+    debug_assert!(buf.is_ascii());
     // SAFETY: vlq_encode only pushes bytes from BASE64_ENCODE (all ASCII),
     // and we only add b';' — all valid UTF-8.
-    debug_assert!(buf.is_ascii());
     unsafe { String::from_utf8_unchecked(buf) }
 }

@@ -1,13 +1,45 @@
 {
   "private": true,
+  "workspaces": [
+    "benchmarks",
+    "packages/codec",
+    "packages/gen-mapping",
+    "packages/generator-wasm",
+    "packages/remapping",
+    "packages/remapping-wasm",
+    "packages/source-map",
+    "packages/sourcemap",
+    "packages/sourcemap-wasm",
+    "packages/symbolicate-wasm",
+    "packages/trace-mapping"
+  ],
   "scripts": {
-    "test": "npm run test:rust && npm run test:js",
+    "analyze:js": "pnpm run analyze:js:dupes && pnpm run analyze:js:health",
+    "analyze:js:dupes": "fallow dupes --format json --quiet",
+    "analyze:js:health": "fallow health --format json --quiet --top 20",
+    "check": "pnpm run fmt:check && pnpm run lint:rust && pnpm run lint:js && pnpm run typos && pnpm run deny",
+    "fmt:check": "cargo fmt --all --check && pnpm run fmt:js:check",
+    "fmt:js": "oxfmt --write --no-error-on-unmatched-pattern \"package.json\" \"benchmarks/**/*.mjs\" \"benchmarks/**/*.json\" \"packages/**/*.js\" \"packages/**/*.cjs\" \"packages/**/*.mjs\" \"packages/**/*.d.ts\" \"packages/**/*.json\"",
+    "fmt:js:check": "oxfmt --check --no-error-on-unmatched-pattern \"package.json\" \"benchmarks/**/*.mjs\" \"benchmarks/**/*.json\" \"packages/**/*.js\" \"packages/**/*.cjs\" \"packages/**/*.mjs\" \"packages/**/*.d.ts\" \"packages/**/*.json\"",
+    "lint:rust": "cargo clippy --workspace --all-targets -- -D warnings",
+    "lint:js": "pnpm run lint:js:oxlint && pnpm run lint:js:fallow",
+    "lint:js:oxlint": "oxlint --deny-warnings benchmarks packages",
+    "lint:js:fallow": "fallow check --format json --quiet",
+    "typos": "typos",
+    "deny": "cargo deny check",
+    "test": "pnpm run test:rust && pnpm run test:js",
     "test:js": "node --test packages/codec/__tests__/codec.test.mjs packages/sourcemap/__tests__/sourcemap.test.mjs packages/sourcemap-wasm/__tests__/sourcemap-wasm.test.mjs packages/generator-wasm/__tests__/generator-wasm.test.mjs packages/remapping-wasm/__tests__/remapping-wasm.test.mjs packages/trace-mapping/__tests__/trace-mapping.test.mjs packages/source-map/__tests__/source-map.test.mjs packages/gen-mapping/__tests__/gen-mapping.test.mjs packages/remapping/__tests__/remapping.test.mjs",
     "test:rust": "cargo test",
-    "coverage": "npm run coverage:rust && npm run coverage:js",
+    "coverage": "pnpm run coverage:rust && pnpm run coverage:js",
     "coverage:js": "mkdir -p coverage && node --test --experimental-test-coverage --test-reporter=lcov --test-reporter-destination=coverage/js-lcov.info --test-reporter=spec --test-reporter-destination=stdout packages/codec/__tests__/codec.test.mjs packages/sourcemap/__tests__/sourcemap.test.mjs packages/sourcemap-wasm/__tests__/sourcemap-wasm.test.mjs packages/generator-wasm/__tests__/generator-wasm.test.mjs packages/remapping-wasm/__tests__/remapping-wasm.test.mjs packages/trace-mapping/__tests__/trace-mapping.test.mjs packages/source-map/__tests__/source-map.test.mjs packages/gen-mapping/__tests__/gen-mapping.test.mjs packages/remapping/__tests__/remapping.test.mjs",
     "coverage:rust": "cargo llvm-cov --lcov --output-path coverage/rust-lcov.info",
-    "coverage:html": "npm run coverage:rust:html && npm run coverage:js",
+    "coverage:html": "pnpm run coverage:rust:html && pnpm run coverage:js",
     "coverage:rust:html": "cargo llvm-cov --html"
-  }
+  },
+  "devDependencies": {
+    "fallow": "^2.29.0",
+    "oxfmt": "0.44.0",
+    "oxlint": "1.59.0"
+  },
+  "packageManager": "pnpm@10.33.0"
 }

@@ -2,11 +2,32 @@
   "name": "@srcmap/generator-wasm",
   "version": "0.3.1",
   "description": "High-performance source map generator powered by Rust (WebAssembly)",
+  "keywords": [
+    "browser",
+    "builder",
+    "generator",
+    "performance",
+    "rust",
+    "source-map",
+    "sourcemap",
+    "wasm",
+    "webassembly"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/fallow-rs/srcmap.git"
+  },
+  "files": [
+    "pkg/",
+    "web/",
+    "README.md"
+  ],
   "type": "module",
   "main": "pkg/srcmap_generator_wasm.js",
-  "types": "pkg/srcmap_generator_wasm.d.ts",
-  "browser": "web/srcmap_generator_wasm.js",
   "module": "web/srcmap_generator_wasm.js",
+  "browser": "web/srcmap_generator_wasm.js",
+  "types": "pkg/srcmap_generator_wasm.d.ts",
   "exports": {
     ".": {
       "node": "./pkg/srcmap_generator_wasm.js",
@@ -14,32 +35,11 @@
       "default": "./pkg/srcmap_generator_wasm.js"
     }
   },
-  "license": "MIT",
-  "files": [
-    "pkg/",
-    "web/",
-    "README.md"
-  ],
   "scripts": {
     "build": "wasm-pack build --target nodejs --out-dir pkg",
     "build:web": "wasm-pack build --target web --out-dir web",
     "build:bundler": "wasm-pack build --target bundler --out-dir bundler",
-    "build:all": "npm run build && npm run build:web",
+    "build:all": "pnpm run build && pnpm run build:web",
     "test": "node --test __tests__/generator-wasm.test.mjs"
-  },
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/fallow-rs/srcmap.git"
-  },
-  "keywords": [
-    "sourcemap",
-    "source-map",
-    "generator",
-    "builder",
-    "rust",
-    "wasm",
-    "webassembly",
-    "performance",
-    "browser"
-  ]
+  }
 }

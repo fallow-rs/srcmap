@@ -2,11 +2,31 @@
   "name": "@srcmap/symbolicate-wasm",
   "version": "0.3.1",
   "description": "Stack trace symbolication using source maps, powered by Rust (WebAssembly)",
+  "keywords": [
+    "browser",
+    "rust",
+    "source-map",
+    "sourcemap",
+    "stack-trace",
+    "symbolication",
+    "wasm",
+    "webassembly"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/fallow-rs/srcmap.git"
+  },
+  "files": [
+    "pkg/",
+    "web/",
+    "README.md"
+  ],
   "type": "module",
   "main": "pkg/srcmap_symbolicate_wasm.js",
-  "types": "pkg/srcmap_symbolicate_wasm.d.ts",
-  "browser": "web/srcmap_symbolicate_wasm.js",
   "module": "web/srcmap_symbolicate_wasm.js",
+  "browser": "web/srcmap_symbolicate_wasm.js",
+  "types": "pkg/srcmap_symbolicate_wasm.d.ts",
   "exports": {
     ".": {
       "node": "./pkg/srcmap_symbolicate_wasm.js",
@@ -14,30 +34,10 @@
       "default": "./pkg/srcmap_symbolicate_wasm.js"
     }
   },
-  "license": "MIT",
-  "files": [
-    "pkg/",
-    "web/",
-    "README.md"
-  ],
   "scripts": {
     "build": "wasm-pack build --target nodejs --out-dir pkg",
     "build:web": "wasm-pack build --target web --out-dir web",
     "build:bundler": "wasm-pack build --target bundler --out-dir bundler",
-    "build:all": "npm run build && npm run build:web"
-  },
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/fallow-rs/srcmap.git"
-  },
-  "keywords": [
-    "sourcemap",
-    "source-map",
-    "symbolication",
-    "stack-trace",
-    "rust",
-    "wasm",
-    "webassembly",
-    "browser"
-  ]
+    "build:all": "pnpm run build && pnpm run build:web"
+  }
 }

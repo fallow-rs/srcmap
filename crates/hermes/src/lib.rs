@@ -283,11 +283,7 @@ fn parse_facebook_offsets(value: &serde_json::Value) -> Option<Vec<Option<u32>>>
 /// Parse `x_metro_module_paths` from the extensions map.
 fn parse_metro_module_paths(value: &serde_json::Value) -> Option<Vec<String>> {
     let arr = value.as_array()?;
-    Some(
-        arr.iter()
-            .map(|v| v.as_str().unwrap_or("").to_string())
-            .collect(),
-    )
+    Some(arr.iter().map(|v| v.as_str().unwrap_or("").to_string()).collect())
 }
 
 // ── SourceMapHermes impl ────────────────────────────────────────────
@@ -306,22 +302,13 @@ impl SourceMapHermes {
             None => Vec::new(),
         };
 
-        let x_facebook_offsets = sm
-            .extensions
-            .get("x_facebook_offsets")
-            .and_then(parse_facebook_offsets);
+        let x_facebook_offsets =
+            sm.extensions.get("x_facebook_offsets").and_then(parse_facebook_offsets);
 
-        let x_metro_module_paths = sm
-            .extensions
-            .get("x_metro_module_paths")
-            .and_then(parse_metro_module_paths);
+        let x_metro_module_paths =
+            sm.extensions.get("x_metro_module_paths").and_then(parse_metro_module_paths);
 
-        Ok(Self {
-            sm,
-            function_maps,
-            x_facebook_offsets,
-            x_metro_module_paths,
-        })
+        Ok(Self { sm, function_maps, x_facebook_offsets, x_metro_module_paths })
     }
 
     /// Get a reference to the inner SourceMap.
@@ -339,9 +326,7 @@ impl SourceMapHermes {
     /// Get the function map for a source by index.
     #[inline]
     pub fn get_function_map(&self, source_idx: u32) -> Option<&HermesFunctionMap> {
-        self.function_maps
-            .get(source_idx as usize)
-            .and_then(|fm| fm.as_ref())
+        self.function_maps.get(source_idx as usize).and_then(|fm| fm.as_ref())
     }
 
     /// Find the enclosing function scope for a position in the generated code.
@@ -360,10 +345,7 @@ impl SourceMapHermes {
 
         // Binary search for greatest lower bound using original coordinates
         let idx = match function_map.mappings.binary_search_by(|offset| {
-            offset
-                .line
-                .cmp(&loc.line)
-                .then(offset.column.cmp(&loc.column))
+            offset.line.cmp(&loc.line).then(offset.column.cmp(&loc.column))
         }) {
             Ok(i) => i,
             Err(0) => return None,
@@ -371,10 +353,7 @@ impl SourceMapHermes {
         };
 
         let scope = &function_map.mappings[idx];
-        function_map
-            .names
-            .get(scope.name_index as usize)
-            .map(|n| n.as_str())
+        function_map.names.get(scope.name_index as usize).map(|n| n.as_str())
     }
 
     /// Get the original function name for a position in the generated code.
@@ -392,10 +371,7 @@ impl SourceMapHermes {
 
         // Binary search for greatest lower bound using original coordinates
         let idx = match function_map.mappings.binary_search_by(|offset| {
-            offset
-                .line
-                .cmp(&loc.line)
-                .then(offset.column.cmp(&loc.column))
+            offset.line.cmp(&loc.line).then(offset.column.cmp(&loc.column))
         }) {
             Ok(i) => i,
             Err(0) => return None,
@@ -403,10 +379,7 @@ impl SourceMapHermes {
         };
 
         let scope = &function_map.mappings[idx];
-        function_map
-            .names
-            .get(scope.name_index as usize)
-            .map(|n| n.as_str())
+        function_map.names.get(scope.name_index as usize).map(|n| n.as_str())
     }
 
     /// Check if this source map is for a RAM (Random Access Module) bundle.
@@ -445,10 +418,7 @@ impl fmt::Debug for SourceMapHermes {
             .field("sources", &self.sm.sources)
             .field("function_maps_count", &self.function_maps.len())
             .field("has_facebook_offsets", &self.x_facebook_offsets.is_some())
-            .field(
-                "has_metro_module_paths",
-                &self.x_metro_module_paths.is_some(),
-            )
+            .field("has_metro_module_paths", &self.x_metro_module_paths.is_some())
             .finish()
     }
 }
@@ -491,25 +461,11 @@ mod tests {
         let fm = sm.get_function_map(0).unwrap();
 
         // "AAA" -> col=0, name=0, line=0
-        assert_eq!(
-            fm.mappings[0],
-            HermesScopeOffset {
-                line: 0,
-                column: 0,
-                name_index: 0
-            }
-        );
+        assert_eq!(fm.mappings[0], HermesScopeOffset { line: 0, column: 0, name_index: 0 });
 
         // "ECA" -> col delta=2, name delta=1, line delta=0
         // absolute: col=2, name=1, line=0
-        assert_eq!(
-            fm.mappings[1],
-            HermesScopeOffset {
-                line: 0,
-                column: 2,
-                name_index: 1
-            }
-        );
+        assert_eq!(fm.mappings[1], HermesScopeOffset { line: 0, column: 2, name_index: 1 });
 
         // "GGC" -> col delta=3, name delta=3, line delta=1
         // absolute: col=5, name=4, line=1
@@ -523,14 +479,7 @@ mod tests {
         // G = 3, G = 3, C = 1 for the third segment
         // Third segment absolute: col=2+3=5, name=1+3=4, line=0+1=1
         // name_index 4 is out of range (only 3 names), but that's just test data
-        assert_eq!(
-            fm.mappings[2],
-            HermesScopeOffset {
-                line: 1,
-                column: 5,
-                name_index: 4
-            }
-        );
+        assert_eq!(fm.mappings[2], HermesScopeOffset { line: 1, column: 5, name_index: 4 });
     }
 
     #[test]

@@ -1,0 +1,12 @@
+packages:
+  - benchmarks
+  - packages/codec
+  - packages/gen-mapping
+  - packages/generator-wasm
+  - packages/remapping
+  - packages/remapping-wasm
+  - packages/source-map
+  - packages/sourcemap
+  - packages/sourcemap-wasm
+  - packages/symbolicate-wasm
+  - packages/trace-mapping

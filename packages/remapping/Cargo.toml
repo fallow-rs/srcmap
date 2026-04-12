@@ -2,6 +2,7 @@
 name = "srcmap-remapping-napi"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 description = "N-API bindings for srcmap-remapping"
@@ -9,6 +10,10 @@ publish = false
 
 [lib]
 crate-type = ["cdylib"]
+test = false
+
+[lints]
+workspace = true
 
 [dependencies]
 srcmap-sourcemap = { workspace = true }

@@ -11,8 +11,8 @@
  * call init() before using any exports.
  */
 
-let initialized = false
-let initPromise = null
+let initialized = false;
+let initPromise = null;
 
 /**
  * Initialize the WASM module. Must be called before using any exports.
@@ -21,21 +21,21 @@ let initPromise = null
  * @returns {Promise<void>}
  */
 export default async function init(input) {
-  if (initialized) return
-  if (initPromise) return initPromise
+  if (initialized) return;
+  if (initPromise) return initPromise;
 
   initPromise = (async () => {
-    const wasm = await import('../web/srcmap_sourcemap_wasm.js')
-    await wasm.default(input)
-    initialized = true
+    const wasm = await import("../web/srcmap_sourcemap_wasm.js");
+    await wasm.default(input);
+    initialized = true;
 
     // Re-export all WASM exports
-    Object.assign(exports, wasm)
-  })()
+    Object.assign(exports, wasm);
+  })();
 
-  return initPromise
+  return initPromise;
 }
 
-const exports = {}
+const exports = {};
 
-export { exports as wasm }
+export { exports as wasm };

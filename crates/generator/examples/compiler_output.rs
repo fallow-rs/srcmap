@@ -6,6 +6,8 @@
 //!
 //! Run with: `cargo run -p srcmap-generator --example compiler_output`
 
+#![allow(clippy::print_stdout, reason = "Examples are intended to print walkthrough output")]
+
 use srcmap_generator::SourceMapGenerator;
 
 fn main() {

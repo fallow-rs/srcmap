@@ -8,18 +8,13 @@ use srcmap_codec::{Segment, SourceMapMappings};
 pub fn decode(mappings: String) -> napi::Result<Vec<Vec<Vec<i64>>>> {
     let decoded =
         srcmap_codec::decode(&mappings).map_err(|e| napi::Error::from_reason(e.to_string()))?;
-    Ok(decoded
-        .into_iter()
-        .map(|line| line.into_iter().map(|seg| seg.to_vec()).collect())
-        .collect())
+    Ok(decoded.into_iter().map(|line| line.into_iter().map(|seg| seg.to_vec()).collect()).collect())
 }
 
 #[napi]
 pub fn encode(mappings: Vec<Vec<Vec<i64>>>) -> String {
-    let converted: SourceMapMappings = mappings
-        .into_iter()
-        .map(|line| line.into_iter().map(Segment::from).collect())
-        .collect();
+    let converted: SourceMapMappings =
+        mappings.into_iter().map(|line| line.into_iter().map(Segment::from).collect()).collect();
     srcmap_codec::encode(&converted)
 }
 
@@ -59,11 +54,7 @@ pub fn encode_buf(buf: Buffer) -> String {
 
 fn to_json(mappings: &SourceMapMappings) -> String {
     // Estimate: ~6 chars per field value on average
-    let total_fields: usize = mappings
-        .iter()
-        .flat_map(|l| l.iter())
-        .map(|s| s.len())
-        .sum();
+    let total_fields: usize = mappings.iter().flat_map(|l| l.iter()).map(|s| s.len()).sum();
     let mut buf: Vec<u8> = Vec::with_capacity(total_fields * 6 + mappings.len() * 4);
 
     buf.push(b'[');
@@ -100,11 +91,7 @@ fn write_i64(buf: &mut Vec<u8>, value: i64) {
     }
 
     let negative = value < 0;
-    let mut v: u64 = if negative {
-        (!(value as u64)).wrapping_add(1)
-    } else {
-        value as u64
-    };
+    let mut v: u64 = if negative { (!(value as u64)).wrapping_add(1) } else { value as u64 };
 
     let start = buf.len();
     while v > 0 {
@@ -152,9 +139,7 @@ fn from_json(bytes: &[u8]) -> napi::Result<SourceMapMappings> {
             *pos += 1;
         }
         if *pos == start {
-            return Err(napi::Error::from_reason(format!(
-                "expected number at position {start}"
-            )));
+            return Err(napi::Error::from_reason(format!("expected number at position {start}")));
         }
         Ok(if negative { -val } else { val })
     };
@@ -225,11 +210,7 @@ fn from_json(bytes: &[u8]) -> napi::Result<SourceMapMappings> {
 fn to_packed_buffer(mappings: &SourceMapMappings) -> Vec<u8> {
     let n_lines = mappings.len();
     let total_segments: usize = mappings.iter().map(|l| l.len()).sum();
-    let total_fields: usize = mappings
-        .iter()
-        .flat_map(|l| l.iter())
-        .map(|s| s.len())
-        .sum();
+    let total_fields: usize = mappings.iter().flat_map(|l| l.iter()).map(|s| s.len()).sum();
 
     // 4 bytes per: n_lines header + segment counts + field counts + values
     let capacity = (1 + n_lines + total_segments + total_fields) * 4;

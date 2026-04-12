@@ -6,6 +6,8 @@
 //!
 //! Run with: cargo run -p srcmap-codec --example roundtrip
 
+#![allow(clippy::print_stdout, reason = "Examples are intended to print walkthrough output")]
+
 use srcmap_codec::{DecodeError, Segment, decode, encode};
 
 fn main() {
@@ -118,10 +120,7 @@ fn main() {
     println!("Shifted  re-encoded: {encoded_shifted:?}\n");
 
     // Verify the original roundtrips exactly
-    assert_eq!(
-        encoded_original, mappings_str,
-        "roundtrip must produce identical output"
-    );
+    assert_eq!(encoded_original, mappings_str, "roundtrip must produce identical output");
     println!("Roundtrip verified: original encodes back to the same string.");
 
     // Verify the shifted version decodes correctly
@@ -129,11 +128,7 @@ fn main() {
 
     for (line_idx, (orig_line, shifted_line)) in mappings.iter().zip(re_decoded.iter()).enumerate()
     {
-        assert_eq!(
-            orig_line.len(),
-            shifted_line.len(),
-            "line {line_idx} segment count must match"
-        );
+        assert_eq!(orig_line.len(), shifted_line.len(), "line {line_idx} segment count must match");
         for (seg_idx, (orig_seg, shifted_seg)) in
             orig_line.iter().zip(shifted_line.iter()).enumerate()
         {

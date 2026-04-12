@@ -96,10 +96,7 @@ pub fn decode_scopes(
 ) -> Result<ScopeInfo, ScopesError> {
     if input.is_empty() {
         let scopes = vec![None; num_sources];
-        return Ok(ScopeInfo {
-            scopes,
-            ranges: vec![],
-        });
+        return Ok(ScopeInfo { scopes, ranges: vec![] });
     }
 
     let mut tok = Tokenizer::new(input.as_bytes());
@@ -149,11 +146,7 @@ pub fn decode_scopes(
                 let line_delta = tok.read_unsigned()? as u32;
                 os_line += line_delta;
                 let col_raw = tok.read_unsigned()? as u32;
-                os_col = if line_delta != 0 {
-                    col_raw
-                } else {
-                    os_col + col_raw
-                };
+                os_col = if line_delta != 0 { col_raw } else { os_col + col_raw };
 
                 let name = if flags & crate::OS_FLAG_HAS_NAME != 0 {
                     let d = tok.read_signed()?;
@@ -174,10 +167,7 @@ pub fn decode_scopes(
                 let is_stack_frame = flags & crate::OS_FLAG_IS_STACK_FRAME != 0;
 
                 scope_stack.push(BuildingScope {
-                    start: Position {
-                        line: os_line,
-                        column: os_col,
-                    },
+                    start: Position { line: os_line, column: os_col },
                     name,
                     kind,
                     is_stack_frame,
@@ -194,20 +184,13 @@ pub fn decode_scopes(
                 let line_delta = tok.read_unsigned()? as u32;
                 os_line += line_delta;
                 let col_raw = tok.read_unsigned()? as u32;
-                os_col = if line_delta != 0 {
-                    col_raw
-                } else {
-                    os_col + col_raw
-                };
+                os_col = if line_delta != 0 { col_raw } else { os_col + col_raw };
 
                 // Safe: scope_stack.is_empty() checked above
                 let building = scope_stack.pop().expect("non-empty: checked above");
                 let finished = OriginalScope {
                     start: building.start,
-                    end: Position {
-                        line: os_line,
-                        column: os_col,
-                    },
+                    end: Position { line: os_line, column: os_col },
                     name: building.name,
                     kind: building.kind,
                     is_stack_frame: building.is_stack_frame,
@@ -262,11 +245,7 @@ pub fn decode_scopes(
                 gr_line += line_delta;
 
                 let col_raw = tok.read_unsigned()? as u32;
-                gr_col = if line_delta != 0 {
-                    col_raw
-                } else {
-                    gr_col + col_raw
-                };
+                gr_col = if line_delta != 0 { col_raw } else { gr_col + col_raw };
 
                 let definition = if flags & crate::GR_FLAG_HAS_DEFINITION != 0 {
                     let d = tok.read_signed()?;
@@ -283,10 +262,7 @@ pub fn decode_scopes(
                 h_var_acc = 0;
 
                 range_stack.push(BuildingRange {
-                    start: Position {
-                        line: gr_line,
-                        column: gr_col,
-                    },
+                    start: Position { line: gr_line, column: gr_col },
                     is_stack_frame,
                     is_hidden,
                     definition,
@@ -311,28 +287,18 @@ pub fn decode_scopes(
                     (0, first)
                 };
                 gr_line += line_delta;
-                gr_col = if line_delta != 0 {
-                    col_raw
-                } else {
-                    gr_col + col_raw
-                };
+                gr_col = if line_delta != 0 { col_raw } else { gr_col + col_raw };
 
                 // Safe: range_stack.is_empty() checked above
                 let building = range_stack.pop().expect("non-empty: checked above");
 
                 // Merge sub-range bindings into final bindings
-                let final_bindings = merge_bindings(
-                    building.bindings,
-                    &building.sub_range_bindings,
-                    building.start,
-                );
+                let final_bindings =
+                    merge_bindings(building.bindings, &building.sub_range_bindings, building.start);
 
                 let finished = GeneratedRange {
                     start: building.start,
-                    end: Position {
-                        line: gr_line,
-                        column: gr_col,
-                    },
+                    end: Position { line: gr_line, column: gr_col },
                     is_stack_frame: building.is_stack_frame,
                     is_hidden: building.is_hidden,
                     definition: building.definition,
@@ -387,19 +353,12 @@ pub fn decode_scopes(
                         h_line += line_delta;
 
                         let col_raw = tok.read_unsigned()? as u32;
-                        h_col = if line_delta != 0 {
-                            col_raw
-                        } else {
-                            h_col + col_raw
-                        };
+                        h_col = if line_delta != 0 { col_raw } else { h_col + col_raw };
 
                         let expression = resolve_binding(names, binding_raw)?;
                         sub_ranges.push(SubRangeBinding {
                             expression,
-                            from: Position {
-                                line: h_line,
-                                column: h_col,
-                            },
+                            from: Position { line: h_line, column: h_col },
                         });
                     }
 
@@ -416,11 +375,7 @@ pub fn decode_scopes(
                     let source_index = tok.read_unsigned()? as u32;
                     let line = tok.read_unsigned()? as u32;
                     let column = tok.read_unsigned()? as u32;
-                    current.call_site = Some(CallSite {
-                        source_index,
-                        line,
-                        column,
-                    });
+                    current.call_site = Some(CallSite { source_index, line, column });
                 } else {
                     while !tok.at_item_end() {
                         let _ = tok.read_unsigned()?;
@@ -471,14 +426,11 @@ fn merge_bindings(
             // Get the initial binding expression to use as first sub-range
             let initial_expr = match &result[*var_idx] {
                 Binding::Expression(e) => Some(e.clone()),
-                Binding::Unavailable => None,
-                Binding::SubRanges(_) => None, // shouldn't happen
+                Binding::Unavailable | Binding::SubRanges(_) => None, // shouldn't happen
             };
 
-            let mut all_subs = vec![SubRangeBinding {
-                expression: initial_expr,
-                from: range_start,
-            }];
+            let mut all_subs =
+                vec![SubRangeBinding { expression: initial_expr, from: range_start }];
             all_subs.extend(sub_ranges.iter().cloned());
 
             result[*var_idx] = Binding::SubRanges(all_subs);

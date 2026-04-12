@@ -32,6 +32,8 @@
 //!
 //! Run with: cargo run -p srcmap-scopes --example debug_scopes
 
+#![allow(clippy::print_stdout, reason = "Examples are intended to print walkthrough output")]
+
 use srcmap_scopes::{
     Binding, CallSite, GeneratedRange, OriginalScope, Position, ScopeInfo, decode_scopes,
     encode_scopes,
@@ -66,10 +68,7 @@ fn main() {
 
     let module_scope = OriginalScope {
         start: Position { line: 0, column: 0 },
-        end: Position {
-            line: 5,
-            column: 27,
-        },
+        end: Position { line: 5, column: 27 },
         name: None,
         kind: Some("module".to_string()),
         is_stack_frame: false,
@@ -95,10 +94,7 @@ fn main() {
 
     let inlined_range = GeneratedRange {
         start: Position { line: 1, column: 0 },
-        end: Position {
-            line: 3,
-            column: 22,
-        },
+        end: Position { line: 3, column: 22 },
         is_stack_frame: true,
         is_hidden: false,
         // definition=1 points to the `add` function scope (pre-order index 1)
@@ -107,11 +103,7 @@ fn main() {
         // The debugger uses this to reconstruct a synthetic call stack:
         //   add @ math.ts:2:2  (current position in the inlined body)
         //   <module> @ math.ts:5:14  (the call site)
-        call_site: Some(CallSite {
-            source_index: 0,
-            line: 5,
-            column: 14,
-        }),
+        call_site: Some(CallSite { source_index: 0, line: 5, column: 14 }),
         // Bindings map the original scope's variables to generated expressions.
         // The `add` scope has variables ["a", "b"] (in that order), so:
         //   bindings[0] = Expression("_a")  → original `a` is `_a` in generated code
@@ -145,10 +137,7 @@ fn main() {
     // generated ranges. The `scopes` vec is indexed by source index — None
     // means no scope info for that source file.
 
-    let scope_info = ScopeInfo {
-        scopes: vec![Some(module_scope)],
-        ranges: vec![wrapper_range],
-    };
+    let scope_info = ScopeInfo { scopes: vec![Some(module_scope)], ranges: vec![wrapper_range] };
 
     // Encoding produces a compact VLQ string (stored in the source map's
     // "scopes" field) and populates the names array with any new name strings.
@@ -160,10 +149,7 @@ fn main() {
     println!("Names array:    {names:?}\n");
 
     assert!(!encoded.is_empty(), "encoded string must not be empty");
-    assert!(
-        !names.is_empty(),
-        "names array must contain scope/variable names"
-    );
+    assert!(!names.is_empty(), "names array must contain scope/variable names");
 
     // -----------------------------------------------------------------------
     // 4. Decode back and verify roundtrip
@@ -175,36 +161,18 @@ fn main() {
     let decoded = decode_scopes(&encoded, &names, 1).expect("decoding must succeed");
 
     // Verify the original scope tree roundtrips correctly
-    assert_eq!(
-        decoded.scopes.len(),
-        1,
-        "must have exactly one source file's scopes"
-    );
+    assert_eq!(decoded.scopes.len(), 1, "must have exactly one source file's scopes");
 
-    let root_scope = decoded.scopes[0]
-        .as_ref()
-        .expect("source 0 must have scope info");
+    let root_scope = decoded.scopes[0].as_ref().expect("source 0 must have scope info");
 
     assert_eq!(root_scope.kind.as_deref(), Some("module"));
-    assert!(
-        !root_scope.is_stack_frame,
-        "module scope is not a stack frame"
-    );
+    assert!(!root_scope.is_stack_frame, "module scope is not a stack frame");
     assert_eq!(root_scope.variables, vec!["result"]);
     assert_eq!(root_scope.start, Position { line: 0, column: 0 });
-    assert_eq!(
-        root_scope.end,
-        Position {
-            line: 5,
-            column: 27
-        }
-    );
+    assert_eq!(root_scope.end, Position { line: 5, column: 27 });
 
     println!("Original scope tree (source 0):");
-    println!(
-        "  Root: kind={:?}, variables={:?}",
-        root_scope.kind, root_scope.variables
-    );
+    println!("  Root: kind={:?}, variables={:?}", root_scope.kind, root_scope.variables);
 
     assert_eq!(root_scope.children.len(), 1, "module has one child scope");
 
@@ -222,21 +190,14 @@ fn main() {
     );
 
     // Verify the generated ranges roundtrip correctly
-    assert_eq!(
-        decoded.ranges.len(),
-        1,
-        "must have one top-level generated range"
-    );
+    assert_eq!(decoded.ranges.len(), 1, "must have one top-level generated range");
 
     let wrapper = &decoded.ranges[0];
     assert_eq!(wrapper.definition, Some(0));
     assert!(!wrapper.is_stack_frame);
     assert!(!wrapper.is_hidden);
     assert!(wrapper.call_site.is_none());
-    assert_eq!(
-        wrapper.bindings,
-        vec![Binding::Expression("result".to_string())]
-    );
+    assert_eq!(wrapper.bindings, vec![Binding::Expression("result".to_string())]);
 
     println!("\nGenerated ranges:");
     println!(
@@ -250,20 +211,10 @@ fn main() {
     assert_eq!(inlined.definition, Some(1));
     assert!(inlined.is_stack_frame, "inlined range is a stack frame");
     assert!(!inlined.is_hidden);
-    assert_eq!(
-        inlined.call_site,
-        Some(CallSite {
-            source_index: 0,
-            line: 5,
-            column: 14,
-        })
-    );
+    assert_eq!(inlined.call_site, Some(CallSite { source_index: 0, line: 5, column: 14 }));
     assert_eq!(
         inlined.bindings,
-        vec![
-            Binding::Expression("_a".to_string()),
-            Binding::Expression("_b".to_string()),
-        ]
+        vec![Binding::Expression("_a".to_string()), Binding::Expression("_b".to_string()),]
     );
 
     println!(
@@ -276,10 +227,7 @@ fn main() {
     );
 
     // Full structural equality check
-    assert_eq!(
-        decoded, scope_info,
-        "decoded scope info must match the original"
-    );
+    assert_eq!(decoded, scope_info, "decoded scope info must match the original");
 
     println!("\nRoundtrip verified: decoded structure matches original.\n");
 
@@ -293,24 +241,14 @@ fn main() {
 
     println!("--- Definition index lookups ---\n");
 
-    let scope_0 = decoded
-        .original_scope_for_definition(0)
-        .expect("definition 0 must exist");
+    let scope_0 = decoded.original_scope_for_definition(0).expect("definition 0 must exist");
     assert_eq!(scope_0.kind.as_deref(), Some("module"));
-    println!(
-        "  definition 0: kind={:?}, name={:?}",
-        scope_0.kind, scope_0.name
-    );
+    println!("  definition 0: kind={:?}, name={:?}", scope_0.kind, scope_0.name);
 
-    let scope_1 = decoded
-        .original_scope_for_definition(1)
-        .expect("definition 1 must exist");
+    let scope_1 = decoded.original_scope_for_definition(1).expect("definition 1 must exist");
     assert_eq!(scope_1.name.as_deref(), Some("add"));
     assert_eq!(scope_1.variables, vec!["a", "b"]);
-    println!(
-        "  definition 1: kind={:?}, name={:?}",
-        scope_1.kind, scope_1.name
-    );
+    println!("  definition 1: kind={:?}, name={:?}", scope_1.kind, scope_1.name);
 
     // Out-of-bounds definition index returns None
     assert!(

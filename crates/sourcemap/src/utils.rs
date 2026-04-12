@@ -95,11 +95,7 @@ pub fn make_relative_path(base: &str, target: &str) -> String {
 
     result.push_str(target_file);
 
-    if result.is_empty() {
-        ".".to_string()
-    } else {
-        result
-    }
+    if result.is_empty() { ".".to_string() } else { result }
 }
 
 // ── Source map validation (gap #6) ───────────────────────────────
@@ -309,11 +305,7 @@ pub struct RewriteOptions<'a> {
 
 impl Default for RewriteOptions<'_> {
     fn default() -> Self {
-        Self {
-            with_names: true,
-            with_source_contents: true,
-            strip_prefixes: &[],
-        }
+        Self { with_names: true, with_source_contents: true, strip_prefixes: &[] }
     }
 }
 
@@ -334,12 +326,8 @@ pub fn rewrite_sources(sm: &SourceMap, options: &RewriteOptions<'_>) -> SourceMa
         None
     };
 
-    let explicit_prefixes: Vec<&str> = options
-        .strip_prefixes
-        .iter()
-        .filter(|&&p| p != "~")
-        .copied()
-        .collect();
+    let explicit_prefixes: Vec<&str> =
+        options.strip_prefixes.iter().filter(|&&p| p != "~").copied().collect();
 
     // Rewrite sources
     let sources: Vec<String> = sm
@@ -378,14 +366,8 @@ pub fn rewrite_sources(sm: &SourceMap, options: &RewriteOptions<'_>) -> SourceMa
     let (names, mappings) = if options.with_names {
         (sm.names.clone(), sm.all_mappings().to_vec())
     } else {
-        let cleared_mappings: Vec<Mapping> = sm
-            .all_mappings()
-            .iter()
-            .map(|m| Mapping {
-                name: u32::MAX,
-                ..*m
-            })
-            .collect();
+        let cleared_mappings: Vec<Mapping> =
+            sm.all_mappings().iter().map(|m| Mapping { name: u32::MAX, ..*m }).collect();
         (Vec::new(), cleared_mappings)
     };
 
@@ -605,10 +587,7 @@ mod tests {
 
     #[test]
     fn relative_path_completely_different() {
-        assert_eq!(
-            make_relative_path("/a/b/c.js", "/x/y/z.js"),
-            "../../x/y/z.js"
-        );
+        assert_eq!(make_relative_path("/a/b/c.js", "/x/y/z.js"), "../../x/y/z.js");
     }
 
     // ── is_sourcemap ────────────────────────────────────────────
@@ -669,19 +648,13 @@ mod tests {
     #[test]
     fn resolve_url_relative() {
         let result = resolve_source_map_url("https://example.com/js/app.js", "app.js.map");
-        assert_eq!(
-            result,
-            Some("https://example.com/js/app.js.map".to_string())
-        );
+        assert_eq!(result, Some("https://example.com/js/app.js.map".to_string()));
     }
 
     #[test]
     fn resolve_url_parent_traversal() {
         let result = resolve_source_map_url("https://example.com/js/app.js", "../maps/app.js.map");
-        assert_eq!(
-            result,
-            Some("https://example.com/maps/app.js.map".to_string())
-        );
+        assert_eq!(result, Some("https://example.com/maps/app.js.map".to_string()));
     }
 
     #[test]
@@ -690,10 +663,7 @@ mod tests {
             "https://example.com/js/app.js",
             "https://cdn.example.com/maps/app.js.map",
         );
-        assert_eq!(
-            result,
-            Some("https://cdn.example.com/maps/app.js.map".to_string())
-        );
+        assert_eq!(result, Some("https://cdn.example.com/maps/app.js.map".to_string()));
     }
 
     #[test]
@@ -728,10 +698,7 @@ mod tests {
         // `..` should not traverse past the URL root
         let result =
             resolve_source_map_url("https://example.com/js/app.js", "../../../maps/app.js.map");
-        assert_eq!(
-            result,
-            Some("https://example.com/maps/app.js.map".to_string())
-        );
+        assert_eq!(result, Some("https://example.com/maps/app.js.map".to_string()));
     }
 
     // ── resolve_source_map_path ─────────────────────────────────
@@ -855,10 +822,7 @@ mod tests {
     #[test]
     fn rewrite_strip_explicit_prefix() {
         let sm = make_test_sourcemap();
-        let opts = RewriteOptions {
-            strip_prefixes: &["/src/app/"],
-            ..Default::default()
-        };
+        let opts = RewriteOptions { strip_prefixes: &["/src/app/"], ..Default::default() };
         let rewritten = rewrite_sources(&sm, &opts);
         assert_eq!(rewritten.sources, vec!["main.js", "utils.js"]);
     }
@@ -866,10 +830,7 @@ mod tests {
     #[test]
     fn rewrite_strip_auto_prefix() {
         let sm = make_test_sourcemap();
-        let opts = RewriteOptions {
-            strip_prefixes: &["~"],
-            ..Default::default()
-        };
+        let opts = RewriteOptions { strip_prefixes: &["~"], ..Default::default() };
         let rewritten = rewrite_sources(&sm, &opts);
         assert_eq!(rewritten.sources, vec!["main.js", "utils.js"]);
     }
@@ -877,10 +838,7 @@ mod tests {
     #[test]
     fn rewrite_without_names() {
         let sm = make_test_sourcemap();
-        let opts = RewriteOptions {
-            with_names: false,
-            ..Default::default()
-        };
+        let opts = RewriteOptions { with_names: false, ..Default::default() };
         let rewritten = rewrite_sources(&sm, &opts);
         // All mappings should have name = u32::MAX
         for m in rewritten.all_mappings() {
@@ -891,10 +849,7 @@ mod tests {
     #[test]
     fn rewrite_without_sources_content() {
         let sm = make_test_sourcemap();
-        let opts = RewriteOptions {
-            with_source_contents: false,
-            ..Default::default()
-        };
+        let opts = RewriteOptions { with_source_contents: false, ..Default::default() };
         let rewritten = rewrite_sources(&sm, &opts);
         for content in &rewritten.sources_content {
             assert!(content.is_none());
@@ -942,19 +897,13 @@ mod tests {
         let opts = RewriteOptions::default();
         let rewritten = rewrite_sources(&sm, &opts);
         assert!(rewritten.extensions.contains_key("x_facebook_sources"));
-        assert_eq!(
-            sm.extensions["x_facebook_sources"],
-            rewritten.extensions["x_facebook_sources"]
-        );
+        assert_eq!(sm.extensions["x_facebook_sources"], rewritten.extensions["x_facebook_sources"]);
     }
 
     #[test]
     fn rewrite_without_names_clears_names_vec() {
         let sm = make_test_sourcemap();
-        let opts = RewriteOptions {
-            with_names: false,
-            ..Default::default()
-        };
+        let opts = RewriteOptions { with_names: false, ..Default::default() };
         let rewritten = rewrite_sources(&sm, &opts);
         assert!(rewritten.names.is_empty());
     }
@@ -962,10 +911,7 @@ mod tests {
     #[test]
     fn rewrite_strip_no_match() {
         let sm = make_test_sourcemap();
-        let opts = RewriteOptions {
-            strip_prefixes: &["/other/"],
-            ..Default::default()
-        };
+        let opts = RewriteOptions { strip_prefixes: &["/other/"], ..Default::default() };
         let rewritten = rewrite_sources(&sm, &opts);
         assert_eq!(rewritten.sources, sm.sources);
     }

@@ -1,33 +1,33 @@
 {
   "name": "@srcmap/sourcemap-linux-x64-gnu",
   "version": "0.2.0",
-  "cpu": [
-    "x64"
-  ],
-  "main": "srcmap-sourcemap.linux-x64-gnu.node",
-  "files": [
-    "srcmap-sourcemap.linux-x64-gnu.node"
-  ],
   "description": "High-performance source map parser and consumer powered by Rust",
   "keywords": [
-    "sourcemap",
-    "source-map",
-    "parser",
     "consumer",
     "lookup",
-    "rust",
     "napi",
-    "performance"
+    "parser",
+    "performance",
+    "rust",
+    "source-map",
+    "sourcemap"
   ],
   "license": "MIT",
   "repository": {
     "type": "git",
     "url": "https://github.com/fallow-rs/srcmap"
   },
+  "files": [
+    "srcmap-sourcemap.linux-x64-gnu.node"
+  ],
   "os": [
     "linux"
   ],
+  "cpu": [
+    "x64"
+  ],
   "libc": [
     "glibc"
-  ]
+  ],
+  "main": "srcmap-sourcemap.linux-x64-gnu.node"
 }

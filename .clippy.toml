@@ -1,0 +1,9 @@
+# Maximum nesting depth before clippy::excessive_nesting fires.
+excessive-nesting-threshold = 7
+
+too-many-lines-threshold = 150
+too-many-arguments-threshold = 7
+cognitive-complexity-threshold = 25
+
+# Keep exported API churn from blocking stricter linting while the workspace is pre-1.0.
+avoid-breaking-exported-api = false

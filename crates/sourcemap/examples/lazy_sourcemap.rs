@@ -7,6 +7,8 @@
 //!
 //! Run with: `cargo run -p srcmap-sourcemap --example lazy_sourcemap`
 
+#![allow(clippy::print_stdout, reason = "Examples are intended to print walkthrough output")]
+
 use srcmap_sourcemap::{LazySourceMap, SourceMap};
 
 /// Same source map as the consumer example — a two-file TypeScript bundle.
@@ -35,10 +37,7 @@ fn main() {
     // decoding happens yet.
     let lazy = LazySourceMap::from_json(SOURCE_MAP_JSON).expect("valid source map");
 
-    println!(
-        "Lazy-parsed source map for {:?}",
-        lazy.file.as_deref().unwrap_or("<unknown>")
-    );
+    println!("Lazy-parsed source map for {:?}", lazy.file.as_deref().unwrap_or("<unknown>"));
     println!("  Sources: {:?}", lazy.sources);
     println!("  Names:   {:?}", lazy.names);
     println!("  Lines:   {}", lazy.line_count());
@@ -53,9 +52,7 @@ fn main() {
     // Only the requested line's VLQ segment is decoded.
     // Scenario: resolve a stack frame at bundle.js line 1, col 9.
     println!("Lazy lookup: generated(1, 9) → original");
-    let loc = lazy
-        .original_position_for(1, 9)
-        .expect("mapping should exist");
+    let loc = lazy.original_position_for(1, 9).expect("mapping should exist");
 
     println!(
         "  → {}:{}:{} (name: {:?})",
@@ -72,16 +69,9 @@ fn main() {
 
     // A second lookup on the same line hits the cache — no re-decoding.
     println!("Cached lookup: generated(1, 0) → original");
-    let loc2 = lazy
-        .original_position_for(1, 0)
-        .expect("mapping should exist");
+    let loc2 = lazy.original_position_for(1, 0).expect("mapping should exist");
 
-    println!(
-        "  → {}:{}:{}",
-        lazy.source(loc2.source),
-        loc2.line,
-        loc2.column,
-    );
+    println!("  → {}:{}:{}", lazy.source(loc2.source), loc2.line, loc2.column,);
     assert_eq!(lazy.source(loc2.source), "src/app.ts");
     assert_eq!(loc2.line, 1);
     assert_eq!(loc2.column, 0);
@@ -89,9 +79,7 @@ fn main() {
 
     // Lookup on a different line — decodes only that line.
     println!("Lazy lookup: generated(3, 2) → original");
-    let loc3 = lazy
-        .original_position_for(3, 2)
-        .expect("mapping should exist");
+    let loc3 = lazy.original_position_for(3, 2).expect("mapping should exist");
 
     println!(
         "  → {}:{}:{} (name: {:?})",
@@ -112,11 +100,7 @@ fn main() {
     let line2_mappings = lazy.decode_line(2).expect("line 2 should decode");
     for m in &line2_mappings {
         if m.source != u32::MAX {
-            let name_str = if m.name != u32::MAX {
-                lazy.name(m.name)
-            } else {
-                "(none)"
-            };
+            let name_str = if m.name != u32::MAX { lazy.name(m.name) } else { "(none)" };
             println!(
                 "  gen_col={} → {}:{}:{} name={}",
                 m.generated_column,
@@ -177,9 +161,7 @@ fn main() {
 
     // ── 7. Verify the full SourceMap matches lazy results ───────
     // The same lookups should produce identical results.
-    let full_loc = sm
-        .original_position_for(1, 9)
-        .expect("full map lookup should work");
+    let full_loc = sm.original_position_for(1, 9).expect("full map lookup should work");
 
     assert_eq!(sm.source(full_loc.source), "src/app.ts");
     assert_eq!(full_loc.line, 1);
@@ -187,9 +169,8 @@ fn main() {
     assert_eq!(full_loc.name.map(|n| sm.name(n)), Some("greet"));
 
     // Reverse lookup is only available on the full SourceMap
-    let gen_loc = sm
-        .generated_position_for("src/app.ts", 3, 4)
-        .expect("reverse lookup should work");
+    let gen_loc =
+        sm.generated_position_for("src/app.ts", 3, 4).expect("reverse lookup should work");
     assert_eq!(gen_loc.line, 3);
     assert_eq!(gen_loc.column, 2);
     println!("Full SourceMap lookups verified — results match lazy lookups.");

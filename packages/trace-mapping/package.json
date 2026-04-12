@@ -2,6 +2,27 @@
   "name": "@srcmap/trace-mapping",
   "version": "0.3.1",
   "description": "Drop-in replacement for @jridgewell/trace-mapping powered by Rust via WebAssembly",
+  "keywords": [
+    "consumer",
+    "drop-in",
+    "lookup",
+    "performance",
+    "source-map",
+    "sourcemap",
+    "trace-mapping",
+    "wasm",
+    "webassembly"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/fallow-rs/srcmap.git"
+  },
+  "files": [
+    "src/",
+    "index.d.ts",
+    "README.md"
+  ],
   "type": "module",
   "main": "src/trace-mapping.cjs",
   "module": "src/trace-mapping.mjs",
@@ -14,33 +35,17 @@
       "default": "./src/trace-mapping.mjs"
     }
   },
-  "license": "MIT",
-  "files": [
-    "src/",
-    "index.d.ts",
-    "README.md"
-  ],
   "scripts": {
     "test": "node --test __tests__/trace-mapping.test.mjs",
     "test:cjs": "node --test __tests__/trace-mapping.cjs.test.cjs",
+    "test:compat": "node --test __tests__/compat.test.mjs",
     "test:coverage": "mkdir -p coverage && node --test --experimental-test-coverage --test-reporter=lcov --test-reporter-destination=coverage/lcov.info --test-reporter=spec --test-reporter-destination=stdout __tests__/trace-mapping.test.mjs"
   },
   "dependencies": {
     "@srcmap/sourcemap-wasm": "0.3.1"
   },
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/fallow-rs/srcmap.git"
-  },
-  "keywords": [
-    "sourcemap",
-    "source-map",
-    "trace-mapping",
-    "consumer",
-    "lookup",
-    "wasm",
-    "webassembly",
-    "performance",
-    "drop-in"
-  ]
+  "devDependencies": {
+    "@jridgewell/sourcemap-codec": "^1.5.0",
+    "@jridgewell/trace-mapping": "^0.3.25"
+  }
 }

@@ -76,9 +76,7 @@ pub struct ConcatBuilder {
 impl ConcatBuilder {
     /// Create a new concatenation builder.
     pub fn new(file: Option<String>) -> Self {
-        Self {
-            builder: SourceMapGenerator::new(file),
-        }
+        Self { builder: SourceMapGenerator::new(file) }
     }
 
     /// Add a source map to the concatenated output.
@@ -114,8 +112,7 @@ impl ConcatBuilder {
             let gen_line = m.generated_line + line_offset;
 
             if m.source == NO_SOURCE {
-                self.builder
-                    .add_generated_mapping(gen_line, m.generated_column);
+                self.builder.add_generated_mapping(gen_line, m.generated_column);
             } else {
                 let src = source_indices[m.source as usize];
                 let has_name = m.name != NO_NAME;
@@ -342,7 +339,10 @@ fn fallback_to_full_lookup(
 /// Emit a mapping to the builder using pre-built index remap tables.
 /// Uses indices directly, avoiding per-mapping string hashing.
 #[inline]
-#[allow(clippy::too_many_arguments)]
+#[allow(
+    clippy::too_many_arguments,
+    reason = "passing remapped indices avoids per-mapping hashing in the hot path"
+)]
 fn emit_remapped_mapping(
     builder: &mut SourceMapGenerator,
     gen_line: u32,
@@ -371,7 +371,7 @@ fn emit_remapped_mapping(
 
 /// Emit a mapping to the streaming builder using pre-built index remap tables.
 #[inline]
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, reason = "streaming path mirrors the indexed hot-path API")]
 fn emit_remapped_mapping_streaming(
     builder: &mut StreamingGenerator,
     gen_line: u32,
@@ -402,10 +402,7 @@ fn emit_remapped_mapping_streaming(
 /// Using an enum avoids two separate HashMap lookups per mapping.
 enum SourceEntry {
     /// Has an upstream map: trace mappings through it.
-    Upstream {
-        map: Box<SourceMap>,
-        cache: UpstreamCache,
-    },
+    Upstream { map: Box<SourceMap>, cache: UpstreamCache },
     /// No upstream map: pass through with builder source index.
     Passthrough { builder_src: u32 },
     /// Empty-string source (from JSON `null`): emit as generated-only.
@@ -529,7 +526,7 @@ where
 
     // Flat Vec indexed by outer source index — avoids HashMap per mapping.
     let mut source_entries: Vec<SourceEntry> =
-        (0..source_count).map(|_| SourceEntry::Unloaded).collect();
+        std::iter::repeat_with(|| SourceEntry::Unloaded).take(source_count).collect();
 
     let mut ignored_sources: HashSet<u32> = HashSet::new();
 
@@ -563,10 +560,8 @@ where
                 match loader(source_name) {
                     Some(upstream_sm) => {
                         let cache = build_upstream_cache(&upstream_sm);
-                        source_entries[si] = SourceEntry::Upstream {
-                            map: Box::new(upstream_sm),
-                            cache,
-                        };
+                        source_entries[si] =
+                            SourceEntry::Upstream { map: Box::new(upstream_sm), cache };
                     }
                     None => {
                         let idx = builder.add_source(source_name);
@@ -596,12 +591,7 @@ where
 
                         // Resolve name: prefer upstream name, fall back to outer name
                         let builder_name = if upstream_m.name != NO_NAME {
-                            Some(resolve_upstream_name(
-                                cache,
-                                map,
-                                upstream_m.name,
-                                &mut builder,
-                            ))
+                            Some(resolve_upstream_name(cache, map, upstream_m.name, &mut builder))
                         } else if m.name != NO_NAME {
                             let name_idx = *outer_name_remap[m.name as usize]
                                 .get_or_insert_with(|| builder.add_name(outer.name(m.name)));
@@ -762,10 +752,7 @@ fn compose_pair(outer: &SourceMap, inner: &SourceMap) -> SourceMap {
 /// Per-source entry for streaming variant.
 enum StreamingSourceEntry {
     /// Has an upstream map: trace mappings through it.
-    Upstream {
-        map: Box<SourceMap>,
-        cache: UpstreamCache,
-    },
+    Upstream { map: Box<SourceMap>, cache: UpstreamCache },
     /// No upstream map: pass through with builder source index.
     Passthrough { builder_src: u32 },
     /// Empty-string source (from JSON `null`): emit as generated-only.
@@ -801,9 +788,8 @@ where
     let mut builder = StreamingGenerator::with_capacity(file, 4096);
 
     // Flat Vec indexed by outer source index — avoids HashMap per mapping
-    let mut source_entries: Vec<StreamingSourceEntry> = (0..sources.len())
-        .map(|_| StreamingSourceEntry::Unloaded)
-        .collect();
+    let mut source_entries: Vec<StreamingSourceEntry> =
+        std::iter::repeat_with(|| StreamingSourceEntry::Unloaded).take(sources.len()).collect();
 
     let mut ignored_sources: HashSet<u32> = HashSet::new();
 
@@ -843,10 +829,8 @@ where
                 match loader(source_name) {
                     Some(upstream_sm) => {
                         let cache = build_upstream_cache(&upstream_sm);
-                        source_entries[si] = StreamingSourceEntry::Upstream {
-                            map: Box::new(upstream_sm),
-                            cache,
-                        };
+                        source_entries[si] =
+                            StreamingSourceEntry::Upstream { map: Box::new(upstream_sm), cache };
                     }
                     None => {
                         let idx = builder.add_source(source_name);
@@ -959,9 +943,7 @@ where
         }
     }
 
-    builder
-        .to_decoded_map()
-        .expect("streaming VLQ should be valid")
+    builder.to_decoded_map().expect("streaming VLQ should be valid")
 }
 
 /// Resolve an outer name index to a builder name index, caching the result.
@@ -1124,13 +1106,13 @@ mod tests {
         )
         .unwrap();
 
-        let result = remap(&outer, |source| {
-            if source == "intermediate.js" {
-                Some(inner.clone())
-            } else {
-                None
-            }
-        });
+        let result =
+            remap(
+                &outer,
+                |source| {
+                    if source == "intermediate.js" { Some(inner.clone()) } else { None }
+                },
+            );
 
         assert!(result.sources.contains(&"original.js".to_string()));
         // other.js passes through since loader returns None
@@ -1172,13 +1154,13 @@ mod tests {
         )
         .unwrap();
 
-        let result = remap(&outer, |source| {
-            if source == "compiled.js" {
-                Some(inner.clone())
-            } else {
-                None
-            }
-        });
+        let result =
+            remap(
+                &outer,
+                |source| {
+                    if source == "compiled.js" { Some(inner.clone()) } else { None }
+                },
+            );
 
         // Should have both the remapped source and the passthrough source
         assert!(result.sources.contains(&"original.ts".to_string()));
@@ -1239,10 +1221,7 @@ mod tests {
 
         let result = remap(&outer, |_| Some(inner.clone()));
 
-        assert_eq!(
-            result.sources_content,
-            vec![Some("const x = 1;".to_string())]
-        );
+        assert_eq!(result.sources_content, vec![Some("const x = 1;".to_string())]);
     }
 
     // ── Clone needed for SourceMap in tests ──────────────────────
@@ -1335,13 +1314,8 @@ mod tests {
         )
         .unwrap();
 
-        let result = remap(&outer, |source| {
-            if source == "a.js" {
-                Some(inner.clone())
-            } else {
-                None
-            }
-        });
+        let result =
+            remap(&outer, |source| if source == "a.js" { Some(inner.clone()) } else { None });
 
         // Result should have mappings for the generated-only, remapped, and passthrough
         assert!(result.mapping_count() >= 2);
@@ -1550,11 +1524,7 @@ mod tests {
         .unwrap();
 
         let result = streaming_from_sm(&outer, |source| {
-            if source == "intermediate.js" {
-                Some(inner.clone())
-            } else {
-                None
-            }
+            if source == "intermediate.js" { Some(inner.clone()) } else { None }
         });
 
         assert!(result.sources.contains(&"original.js".to_string()));
@@ -1633,10 +1603,7 @@ mod tests {
 
         let result = streaming_from_sm(&outer, |_| Some(inner.clone()));
 
-        assert_eq!(
-            result.sources_content,
-            vec![Some("const x = 1;".to_string())]
-        );
+        assert_eq!(result.sources_content, vec![Some("const x = 1;".to_string())]);
     }
 
     #[test]
@@ -1667,13 +1634,13 @@ mod tests {
         )
         .unwrap();
 
-        let result = streaming_from_sm(&outer, |source| {
-            if source == "a.js" {
-                Some(inner.clone())
-            } else {
-                None
-            }
-        });
+        let result =
+            streaming_from_sm(
+                &outer,
+                |source| {
+                    if source == "a.js" { Some(inner.clone()) } else { None }
+                },
+            );
 
         assert!(result.mapping_count() >= 2);
         assert!(result.sources.contains(&"original.js".to_string()));
@@ -1694,11 +1661,7 @@ mod tests {
         .unwrap();
 
         let loader = |source: &str| -> Option<SourceMap> {
-            if source == "intermediate.js" {
-                Some(inner.clone())
-            } else {
-                None
-            }
+            if source == "intermediate.js" { Some(inner.clone()) } else { None }
         };
 
         let result_normal = remap(&outer, loader);
@@ -1715,10 +1678,7 @@ mod tests {
             let loc_s = result_stream.original_position_for(m.generated_line, m.generated_column);
             assert_eq!(loc_n.is_some(), loc_s.is_some());
             if let (Some(ln), Some(ls)) = (loc_n, loc_s) {
-                assert_eq!(
-                    result_normal.source(ln.source),
-                    result_stream.source(ls.source)
-                );
+                assert_eq!(result_normal.source(ln.source), result_stream.source(ls.source));
                 assert_eq!(ln.line, ls.line);
                 assert_eq!(ln.column, ls.column);
             }

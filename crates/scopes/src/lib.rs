@@ -305,10 +305,7 @@ mod tests {
         let info = ScopeInfo {
             scopes: vec![Some(OriginalScope {
                 start: Position { line: 0, column: 0 },
-                end: Position {
-                    line: 10,
-                    column: 0,
-                },
+                end: Position { line: 10, column: 0 },
                 name: None,
                 kind: Some("global".to_string()),
                 is_stack_frame: false,
@@ -325,13 +322,7 @@ mod tests {
         assert_eq!(decoded.scopes.len(), 1);
         let scope = decoded.scopes[0].as_ref().unwrap();
         assert_eq!(scope.start, Position { line: 0, column: 0 });
-        assert_eq!(
-            scope.end,
-            Position {
-                line: 10,
-                column: 0
-            }
-        );
+        assert_eq!(scope.end, Position { line: 10, column: 0 });
         assert_eq!(scope.kind.as_deref(), Some("global"));
         assert_eq!(scope.name, None);
         assert!(!scope.is_stack_frame);
@@ -343,10 +334,7 @@ mod tests {
         let info = ScopeInfo {
             scopes: vec![Some(OriginalScope {
                 start: Position { line: 0, column: 0 },
-                end: Position {
-                    line: 10,
-                    column: 1,
-                },
+                end: Position { line: 10, column: 1 },
                 name: None,
                 kind: Some("global".to_string()),
                 is_stack_frame: false,
@@ -421,10 +409,7 @@ mod tests {
         let info = ScopeInfo {
             scopes: vec![Some(OriginalScope {
                 start: Position { line: 0, column: 0 },
-                end: Position {
-                    line: 10,
-                    column: 0,
-                },
+                end: Position { line: 10, column: 0 },
                 name: None,
                 kind: Some("global".to_string()),
                 is_stack_frame: false,
@@ -433,10 +418,7 @@ mod tests {
             })],
             ranges: vec![GeneratedRange {
                 start: Position { line: 0, column: 0 },
-                end: Position {
-                    line: 10,
-                    column: 0,
-                },
+                end: Position { line: 10, column: 0 },
                 is_stack_frame: false,
                 is_hidden: false,
                 definition: Some(0),
@@ -453,13 +435,7 @@ mod tests {
         assert_eq!(decoded.ranges.len(), 1);
         let range = &decoded.ranges[0];
         assert_eq!(range.start, Position { line: 0, column: 0 });
-        assert_eq!(
-            range.end,
-            Position {
-                line: 10,
-                column: 0
-            }
-        );
+        assert_eq!(range.end, Position { line: 10, column: 0 });
         assert_eq!(range.definition, Some(0));
         assert_eq!(range.bindings, vec![Binding::Expression("_x".to_string())]);
     }
@@ -469,10 +445,7 @@ mod tests {
         let info = ScopeInfo {
             scopes: vec![Some(OriginalScope {
                 start: Position { line: 0, column: 0 },
-                end: Position {
-                    line: 10,
-                    column: 0,
-                },
+                end: Position { line: 10, column: 0 },
                 name: None,
                 kind: Some("global".to_string()),
                 is_stack_frame: false,
@@ -489,10 +462,7 @@ mod tests {
             })],
             ranges: vec![GeneratedRange {
                 start: Position { line: 0, column: 0 },
-                end: Position {
-                    line: 10,
-                    column: 0,
-                },
+                end: Position { line: 10, column: 0 },
                 is_stack_frame: false,
                 is_hidden: false,
                 definition: Some(0),
@@ -500,18 +470,11 @@ mod tests {
                 bindings: vec![Binding::Expression("_x".to_string())],
                 children: vec![GeneratedRange {
                     start: Position { line: 6, column: 0 },
-                    end: Position {
-                        line: 8,
-                        column: 20,
-                    },
+                    end: Position { line: 8, column: 20 },
                     is_stack_frame: true,
                     is_hidden: false,
                     definition: Some(1),
-                    call_site: Some(CallSite {
-                        source_index: 0,
-                        line: 7,
-                        column: 0,
-                    }),
+                    call_site: Some(CallSite { source_index: 0, line: 7, column: 0 }),
                     bindings: vec![Binding::Expression("\"hello\"".to_string())],
                     children: vec![],
                 }],
@@ -528,18 +491,8 @@ mod tests {
         let inner = &outer.children[0];
         assert!(inner.is_stack_frame);
         assert_eq!(inner.definition, Some(1));
-        assert_eq!(
-            inner.call_site,
-            Some(CallSite {
-                source_index: 0,
-                line: 7,
-                column: 0,
-            })
-        );
-        assert_eq!(
-            inner.bindings,
-            vec![Binding::Expression("\"hello\"".to_string())]
-        );
+        assert_eq!(inner.call_site, Some(CallSite { source_index: 0, line: 7, column: 0 }));
+        assert_eq!(inner.bindings, vec![Binding::Expression("\"hello\"".to_string())]);
     }
 
     #[test]
@@ -581,10 +534,7 @@ mod tests {
         let info = ScopeInfo {
             scopes: vec![Some(OriginalScope {
                 start: Position { line: 0, column: 0 },
-                end: Position {
-                    line: 20,
-                    column: 0,
-                },
+                end: Position { line: 20, column: 0 },
                 name: None,
                 kind: None,
                 is_stack_frame: false,
@@ -593,10 +543,7 @@ mod tests {
             })],
             ranges: vec![GeneratedRange {
                 start: Position { line: 0, column: 0 },
-                end: Position {
-                    line: 20,
-                    column: 0,
-                },
+                end: Position { line: 20, column: 0 },
                 is_stack_frame: false,
                 is_hidden: false,
                 definition: Some(0),
@@ -613,10 +560,7 @@ mod tests {
                         },
                         SubRangeBinding {
                             expression: None,
-                            from: Position {
-                                line: 10,
-                                column: 0,
-                            },
+                            from: Position { line: 10, column: 0 },
                         },
                     ]),
                     Binding::Expression("_y".to_string()),
@@ -640,13 +584,7 @@ mod tests {
                 assert_eq!(subs[1].expression.as_deref(), Some("b"));
                 assert_eq!(subs[1].from, Position { line: 5, column: 0 });
                 assert_eq!(subs[2].expression, None);
-                assert_eq!(
-                    subs[2].from,
-                    Position {
-                        line: 10,
-                        column: 0,
-                    }
-                );
+                assert_eq!(subs[2].from, Position { line: 10, column: 0 });
             }
             other => panic!("expected SubRanges, got {other:?}"),
         }
@@ -690,10 +628,7 @@ mod tests {
         let info = ScopeInfo {
             scopes: vec![Some(OriginalScope {
                 start: Position { line: 0, column: 0 },
-                end: Position {
-                    line: 10,
-                    column: 0,
-                },
+                end: Position { line: 10, column: 0 },
                 name: None,
                 kind: Some("global".to_string()),
                 is_stack_frame: false,
@@ -901,14 +836,8 @@ mod tests {
         // Scope that starts and ends on the same line (column relative)
         let info = ScopeInfo {
             scopes: vec![Some(OriginalScope {
-                start: Position {
-                    line: 5,
-                    column: 10,
-                },
-                end: Position {
-                    line: 5,
-                    column: 30,
-                },
+                start: Position { line: 5, column: 10 },
+                end: Position { line: 5, column: 30 },
                 name: None,
                 kind: None,
                 is_stack_frame: false,
@@ -923,20 +852,8 @@ mod tests {
         let decoded = decode_scopes(&encoded, &names, 1).unwrap();
 
         let scope = decoded.scopes[0].as_ref().unwrap();
-        assert_eq!(
-            scope.start,
-            Position {
-                line: 5,
-                column: 10
-            }
-        );
-        assert_eq!(
-            scope.end,
-            Position {
-                line: 5,
-                column: 30
-            }
-        );
+        assert_eq!(scope.start, Position { line: 5, column: 10 });
+        assert_eq!(scope.end, Position { line: 5, column: 30 });
     }
 
     #[test]
@@ -945,10 +862,7 @@ mod tests {
         let info = ScopeInfo {
             scopes: vec![Some(OriginalScope {
                 start: Position { line: 0, column: 0 },
-                end: Position {
-                    line: 10,
-                    column: 0,
-                },
+                end: Position { line: 10, column: 0 },
                 name: None,
                 kind: None,
                 is_stack_frame: false,
@@ -957,10 +871,7 @@ mod tests {
             })],
             ranges: vec![GeneratedRange {
                 start: Position { line: 3, column: 5 },
-                end: Position {
-                    line: 3,
-                    column: 25,
-                },
+                end: Position { line: 3, column: 25 },
                 is_stack_frame: false,
                 is_hidden: false,
                 definition: Some(0),
@@ -976,13 +887,7 @@ mod tests {
 
         let range = &decoded.ranges[0];
         assert_eq!(range.start, Position { line: 3, column: 5 });
-        assert_eq!(
-            range.end,
-            Position {
-                line: 3,
-                column: 25
-            }
-        );
+        assert_eq!(range.end, Position { line: 3, column: 25 });
     }
 
     #[test]
@@ -1066,10 +971,7 @@ mod tests {
         let info = ScopeInfo {
             scopes: vec![Some(OriginalScope {
                 start: Position { line: 0, column: 0 },
-                end: Position {
-                    line: 10,
-                    column: 0,
-                },
+                end: Position { line: 10, column: 0 },
                 name: None,
                 kind: None,
                 is_stack_frame: false,
@@ -1078,10 +980,7 @@ mod tests {
             })],
             ranges: vec![GeneratedRange {
                 start: Position { line: 0, column: 0 },
-                end: Position {
-                    line: 10,
-                    column: 0,
-                },
+                end: Position { line: 10, column: 0 },
                 is_stack_frame: false,
                 is_hidden: false,
                 definition: Some(0),
@@ -1093,10 +992,7 @@ mod tests {
                     },
                     SubRangeBinding {
                         expression: Some("b".to_string()),
-                        from: Position {
-                            line: 0,
-                            column: 15,
-                        },
+                        from: Position { line: 0, column: 15 },
                     },
                 ])],
                 children: vec![],
@@ -1111,13 +1007,7 @@ mod tests {
             Binding::SubRanges(subs) => {
                 assert_eq!(subs.len(), 2);
                 assert_eq!(subs[0].from, Position { line: 0, column: 0 });
-                assert_eq!(
-                    subs[1].from,
-                    Position {
-                        line: 0,
-                        column: 15
-                    }
-                );
+                assert_eq!(subs[1].from, Position { line: 0, column: 15 });
             }
             other => panic!("expected SubRanges, got {other:?}"),
         }
@@ -1128,10 +1018,7 @@ mod tests {
         let info = ScopeInfo {
             scopes: vec![Some(OriginalScope {
                 start: Position { line: 0, column: 0 },
-                end: Position {
-                    line: 20,
-                    column: 0,
-                },
+                end: Position { line: 20, column: 0 },
                 name: None,
                 kind: None,
                 is_stack_frame: false,
@@ -1140,18 +1027,11 @@ mod tests {
             })],
             ranges: vec![GeneratedRange {
                 start: Position { line: 0, column: 0 },
-                end: Position {
-                    line: 20,
-                    column: 0,
-                },
+                end: Position { line: 20, column: 0 },
                 is_stack_frame: false,
                 is_hidden: false,
                 definition: Some(0),
-                call_site: Some(CallSite {
-                    source_index: 2,
-                    line: 15,
-                    column: 8,
-                }),
+                call_site: Some(CallSite { source_index: 2, line: 15, column: 8 }),
                 bindings: vec![],
                 children: vec![],
             }],
@@ -1176,20 +1056,14 @@ mod tests {
         let info = ScopeInfo {
             scopes: vec![Some(OriginalScope {
                 start: Position { line: 2, column: 4 },
-                end: Position {
-                    line: 15,
-                    column: 1,
-                },
+                end: Position { line: 15, column: 1 },
                 name: Some("myFunc".to_string()),
                 kind: Some("function".to_string()),
                 is_stack_frame: true,
                 variables: vec!["arg1".to_string(), "arg2".to_string()],
                 children: vec![OriginalScope {
                     start: Position { line: 3, column: 8 },
-                    end: Position {
-                        line: 14,
-                        column: 5,
-                    },
+                    end: Position { line: 14, column: 5 },
                     name: Some("innerBlock".to_string()),
                     kind: Some("block".to_string()),
                     is_stack_frame: false,
@@ -1226,10 +1100,7 @@ mod tests {
             scopes: vec![],
             ranges: vec![GeneratedRange {
                 start: Position { line: 0, column: 0 },
-                end: Position {
-                    line: 7,
-                    column: 15,
-                },
+                end: Position { line: 7, column: 15 },
                 is_stack_frame: false,
                 is_hidden: false,
                 definition: None,
@@ -1237,10 +1108,7 @@ mod tests {
                 bindings: vec![],
                 children: vec![GeneratedRange {
                     start: Position { line: 1, column: 5 },
-                    end: Position {
-                        line: 4,
-                        column: 10,
-                    },
+                    end: Position { line: 4, column: 10 },
                     is_stack_frame: false,
                     is_hidden: false,
                     definition: None,
@@ -1256,22 +1124,10 @@ mod tests {
         let decoded = decode_scopes(&encoded, &names, 0).unwrap();
 
         let outer = &decoded.ranges[0];
-        assert_eq!(
-            outer.end,
-            Position {
-                line: 7,
-                column: 15
-            }
-        );
+        assert_eq!(outer.end, Position { line: 7, column: 15 });
         let inner = &outer.children[0];
         assert_eq!(inner.start, Position { line: 1, column: 5 });
-        assert_eq!(
-            inner.end,
-            Position {
-                line: 4,
-                column: 10
-            }
-        );
+        assert_eq!(inner.end, Position { line: 4, column: 10 });
     }
 
     #[test]
@@ -1281,10 +1137,7 @@ mod tests {
         let info = ScopeInfo {
             scopes: vec![Some(OriginalScope {
                 start: Position { line: 0, column: 0 },
-                end: Position {
-                    line: 10,
-                    column: 0,
-                },
+                end: Position { line: 10, column: 0 },
                 name: None,
                 kind: None,
                 is_stack_frame: false,
@@ -1293,10 +1146,7 @@ mod tests {
             })],
             ranges: vec![GeneratedRange {
                 start: Position { line: 0, column: 0 },
-                end: Position {
-                    line: 10,
-                    column: 0,
-                },
+                end: Position { line: 10, column: 0 },
                 is_stack_frame: false,
                 is_hidden: false,
                 definition: Some(0),
@@ -1316,10 +1166,7 @@ mod tests {
 
         assert_eq!(decoded.ranges[0].bindings.len(), 3);
         assert_eq!(decoded.ranges[0].bindings[0], Binding::Unavailable);
-        assert_eq!(
-            decoded.ranges[0].bindings[1],
-            Binding::Expression("_b".to_string())
-        );
+        assert_eq!(decoded.ranges[0].bindings[1], Binding::Expression("_b".to_string()));
         assert_eq!(decoded.ranges[0].bindings[2], Binding::Unavailable);
     }
 
@@ -1331,10 +1178,7 @@ mod tests {
         let info = ScopeInfo {
             scopes: vec![Some(OriginalScope {
                 start: Position { line: 0, column: 0 },
-                end: Position {
-                    line: 20,
-                    column: 0,
-                },
+                end: Position { line: 20, column: 0 },
                 name: None,
                 kind: None,
                 is_stack_frame: false,
@@ -1343,10 +1187,7 @@ mod tests {
             })],
             ranges: vec![GeneratedRange {
                 start: Position { line: 0, column: 0 },
-                end: Position {
-                    line: 20,
-                    column: 0,
-                },
+                end: Position { line: 20, column: 0 },
                 is_stack_frame: false,
                 is_hidden: false,
                 definition: Some(0),
@@ -1356,16 +1197,10 @@ mod tests {
                         expression: Some("a".to_string()),
                         from: Position { line: 0, column: 0 },
                     },
-                    SubRangeBinding {
-                        expression: None,
-                        from: Position { line: 5, column: 0 },
-                    },
+                    SubRangeBinding { expression: None, from: Position { line: 5, column: 0 } },
                     SubRangeBinding {
                         expression: Some("c".to_string()),
-                        from: Position {
-                            line: 10,
-                            column: 0,
-                        },
+                        from: Position { line: 10, column: 0 },
                     },
                 ])],
                 children: vec![],
@@ -1395,10 +1230,7 @@ mod tests {
         let info = ScopeInfo {
             scopes: vec![Some(OriginalScope {
                 start: Position { line: 0, column: 0 },
-                end: Position {
-                    line: 30,
-                    column: 0,
-                },
+                end: Position { line: 30, column: 0 },
                 name: None,
                 kind: None,
                 is_stack_frame: false,
@@ -1407,10 +1239,7 @@ mod tests {
             })],
             ranges: vec![GeneratedRange {
                 start: Position { line: 0, column: 0 },
-                end: Position {
-                    line: 30,
-                    column: 0,
-                },
+                end: Position { line: 30, column: 0 },
                 is_stack_frame: false,
                 is_hidden: false,
                 definition: Some(0),
@@ -1424,10 +1253,7 @@ mod tests {
                         },
                         SubRangeBinding {
                             expression: Some("_x2".to_string()),
-                            from: Position {
-                                line: 10,
-                                column: 0,
-                            },
+                            from: Position { line: 10, column: 0 },
                         },
                     ]),
                     // Variable 1 (y): simple binding
@@ -1440,17 +1266,11 @@ mod tests {
                         },
                         SubRangeBinding {
                             expression: None,
-                            from: Position {
-                                line: 15,
-                                column: 5,
-                            },
+                            from: Position { line: 15, column: 5 },
                         },
                         SubRangeBinding {
                             expression: Some("_z3".to_string()),
-                            from: Position {
-                                line: 20,
-                                column: 0,
-                            },
+                            from: Position { line: 20, column: 0 },
                         },
                     ]),
                 ],
@@ -1471,13 +1291,7 @@ mod tests {
                 assert_eq!(subs.len(), 2);
                 assert_eq!(subs[0].expression.as_deref(), Some("_x1"));
                 assert_eq!(subs[1].expression.as_deref(), Some("_x2"));
-                assert_eq!(
-                    subs[1].from,
-                    Position {
-                        line: 10,
-                        column: 0
-                    }
-                );
+                assert_eq!(subs[1].from, Position { line: 10, column: 0 });
             }
             other => panic!("expected SubRanges for x, got {other:?}"),
         }
@@ -1491,13 +1305,7 @@ mod tests {
                 assert_eq!(subs.len(), 3);
                 assert_eq!(subs[0].expression.as_deref(), Some("_z1"));
                 assert_eq!(subs[1].expression, None);
-                assert_eq!(
-                    subs[1].from,
-                    Position {
-                        line: 15,
-                        column: 5
-                    }
-                );
+                assert_eq!(subs[1].from, Position { line: 15, column: 5 });
                 assert_eq!(subs[2].expression.as_deref(), Some("_z3"));
             }
             other => panic!("expected SubRanges for z, got {other:?}"),
@@ -1511,20 +1319,14 @@ mod tests {
         let info = ScopeInfo {
             scopes: vec![Some(OriginalScope {
                 start: Position { line: 0, column: 0 },
-                end: Position {
-                    line: 30,
-                    column: 0,
-                },
+                end: Position { line: 30, column: 0 },
                 name: None,
                 kind: Some("global".to_string()),
                 is_stack_frame: false,
                 variables: vec![],
                 children: vec![OriginalScope {
                     start: Position { line: 5, column: 0 },
-                    end: Position {
-                        line: 10,
-                        column: 1,
-                    },
+                    end: Position { line: 10, column: 1 },
                     name: Some("inlined".to_string()),
                     kind: Some("function".to_string()),
                     is_stack_frame: true,
@@ -1534,32 +1336,19 @@ mod tests {
             })],
             ranges: vec![GeneratedRange {
                 start: Position { line: 0, column: 0 },
-                end: Position {
-                    line: 30,
-                    column: 0,
-                },
+                end: Position { line: 30, column: 0 },
                 is_stack_frame: false,
                 is_hidden: false,
                 definition: Some(0),
                 call_site: None,
                 bindings: vec![],
                 children: vec![GeneratedRange {
-                    start: Position {
-                        line: 12,
-                        column: 0,
-                    },
-                    end: Position {
-                        line: 18,
-                        column: 0,
-                    },
+                    start: Position { line: 12, column: 0 },
+                    end: Position { line: 18, column: 0 },
                     is_stack_frame: true,
                     is_hidden: false,
                     definition: Some(1),
-                    call_site: Some(CallSite {
-                        source_index: 0,
-                        line: 20,
-                        column: 4,
-                    }),
+                    call_site: Some(CallSite { source_index: 0, line: 20, column: 4 }),
                     bindings: vec![Binding::Expression("arg0".to_string())],
                     children: vec![],
                 }],
@@ -1577,10 +1366,7 @@ mod tests {
         assert_eq!(cs.source_index, 0);
         assert_eq!(cs.line, 20);
         assert_eq!(cs.column, 4);
-        assert_eq!(
-            inner.bindings,
-            vec![Binding::Expression("arg0".to_string())]
-        );
+        assert_eq!(inner.bindings, vec![Binding::Expression("arg0".to_string())]);
     }
 
     #[test]
@@ -1665,20 +1451,14 @@ mod tests {
         let info = ScopeInfo {
             scopes: vec![Some(OriginalScope {
                 start: Position { line: 0, column: 0 },
-                end: Position {
-                    line: 10,
-                    column: 20,
-                },
+                end: Position { line: 10, column: 20 },
                 name: None,
                 kind: None,
                 is_stack_frame: false,
                 variables: vec![],
                 children: vec![OriginalScope {
                     start: Position { line: 5, column: 0 },
-                    end: Position {
-                        line: 10,
-                        column: 10,
-                    },
+                    end: Position { line: 10, column: 10 },
                     name: None,
                     kind: None,
                     is_stack_frame: false,
@@ -1694,20 +1474,8 @@ mod tests {
         let decoded = decode_scopes(&encoded, &names, 1).unwrap();
 
         let scope = decoded.scopes[0].as_ref().unwrap();
-        assert_eq!(
-            scope.end,
-            Position {
-                line: 10,
-                column: 20
-            }
-        );
-        assert_eq!(
-            scope.children[0].end,
-            Position {
-                line: 10,
-                column: 10
-            }
-        );
+        assert_eq!(scope.end, Position { line: 10, column: 20 });
+        assert_eq!(scope.children[0].end, Position { line: 10, column: 10 });
     }
 
     #[test]
@@ -1720,10 +1488,7 @@ mod tests {
             ranges: vec![
                 GeneratedRange {
                     start: Position { line: 0, column: 5 },
-                    end: Position {
-                        line: 0,
-                        column: 50,
-                    },
+                    end: Position { line: 0, column: 50 },
                     is_stack_frame: false,
                     is_hidden: false,
                     definition: None,
@@ -1732,14 +1497,8 @@ mod tests {
                     children: vec![],
                 },
                 GeneratedRange {
-                    start: Position {
-                        line: 3,
-                        column: 10,
-                    },
-                    end: Position {
-                        line: 8,
-                        column: 20,
-                    },
+                    start: Position { line: 3, column: 10 },
+                    end: Position { line: 8, column: 20 },
                     is_stack_frame: false,
                     is_hidden: false,
                     definition: None,
@@ -1756,27 +1515,9 @@ mod tests {
 
         assert_eq!(decoded.ranges.len(), 2);
         assert_eq!(decoded.ranges[0].start, Position { line: 0, column: 5 });
-        assert_eq!(
-            decoded.ranges[0].end,
-            Position {
-                line: 0,
-                column: 50
-            }
-        );
-        assert_eq!(
-            decoded.ranges[1].start,
-            Position {
-                line: 3,
-                column: 10
-            }
-        );
-        assert_eq!(
-            decoded.ranges[1].end,
-            Position {
-                line: 8,
-                column: 20
-            }
-        );
+        assert_eq!(decoded.ranges[0].end, Position { line: 0, column: 50 });
+        assert_eq!(decoded.ranges[1].start, Position { line: 3, column: 10 });
+        assert_eq!(decoded.ranges[1].end, Position { line: 8, column: 20 });
     }
 
     #[test]
@@ -1786,20 +1527,14 @@ mod tests {
         let info = ScopeInfo {
             scopes: vec![Some(OriginalScope {
                 start: Position { line: 0, column: 0 },
-                end: Position {
-                    line: 20,
-                    column: 0,
-                },
+                end: Position { line: 20, column: 0 },
                 name: None,
                 kind: None,
                 is_stack_frame: false,
                 variables: vec!["alpha".to_string(), "beta".to_string(), "gamma".to_string()],
                 children: vec![OriginalScope {
                     start: Position { line: 2, column: 0 },
-                    end: Position {
-                        line: 18,
-                        column: 0,
-                    },
+                    end: Position { line: 18, column: 0 },
                     name: None,
                     kind: None,
                     is_stack_frame: false,
@@ -1826,10 +1561,7 @@ mod tests {
         let info = ScopeInfo {
             scopes: vec![Some(OriginalScope {
                 start: Position { line: 0, column: 0 },
-                end: Position {
-                    line: 20,
-                    column: 0,
-                },
+                end: Position { line: 20, column: 0 },
                 name: None,
                 kind: None,
                 is_stack_frame: false,
@@ -1838,19 +1570,13 @@ mod tests {
             })],
             ranges: vec![GeneratedRange {
                 start: Position { line: 0, column: 0 },
-                end: Position {
-                    line: 20,
-                    column: 0,
-                },
+                end: Position { line: 20, column: 0 },
                 is_stack_frame: false,
                 is_hidden: false,
                 definition: Some(0),
                 call_site: None,
                 bindings: vec![Binding::SubRanges(vec![
-                    SubRangeBinding {
-                        expression: None,
-                        from: Position { line: 0, column: 0 },
-                    },
+                    SubRangeBinding { expression: None, from: Position { line: 0, column: 0 } },
                     SubRangeBinding {
                         expression: Some("_v".to_string()),
                         from: Position { line: 8, column: 0 },
@@ -1884,10 +1610,7 @@ mod tests {
             scopes: vec![
                 Some(OriginalScope {
                     start: Position { line: 0, column: 0 },
-                    end: Position {
-                        line: 50,
-                        column: 0,
-                    },
+                    end: Position { line: 50, column: 0 },
                     name: None,
                     kind: Some("module".to_string()),
                     is_stack_frame: false,
@@ -1895,10 +1618,7 @@ mod tests {
                     children: vec![
                         OriginalScope {
                             start: Position { line: 2, column: 0 },
-                            end: Position {
-                                line: 20,
-                                column: 1,
-                            },
+                            end: Position { line: 20, column: 1 },
                             name: Some("add".to_string()),
                             kind: Some("function".to_string()),
                             is_stack_frame: true,
@@ -1906,14 +1626,8 @@ mod tests {
                             children: vec![],
                         },
                         OriginalScope {
-                            start: Position {
-                                line: 22,
-                                column: 0,
-                            },
-                            end: Position {
-                                line: 40,
-                                column: 1,
-                            },
+                            start: Position { line: 22, column: 0 },
+                            end: Position { line: 40, column: 1 },
                             name: Some("multiply".to_string()),
                             kind: Some("function".to_string()),
                             is_stack_frame: true,
@@ -1926,10 +1640,7 @@ mod tests {
             ],
             ranges: vec![GeneratedRange {
                 start: Position { line: 0, column: 0 },
-                end: Position {
-                    line: 25,
-                    column: 0,
-                },
+                end: Position { line: 25, column: 0 },
                 is_stack_frame: false,
                 is_hidden: false,
                 definition: Some(0),
@@ -1938,53 +1649,30 @@ mod tests {
                 children: vec![
                     GeneratedRange {
                         start: Position { line: 1, column: 0 },
-                        end: Position {
-                            line: 10,
-                            column: 0,
-                        },
+                        end: Position { line: 10, column: 0 },
                         is_stack_frame: true,
                         is_hidden: false,
                         definition: Some(1),
-                        call_site: Some(CallSite {
-                            source_index: 0,
-                            line: 45,
-                            column: 2,
-                        }),
+                        call_site: Some(CallSite { source_index: 0, line: 45, column: 2 }),
                         bindings: vec![Binding::Expression("_a".to_string()), Binding::Unavailable],
                         children: vec![],
                     },
                     GeneratedRange {
-                        start: Position {
-                            line: 12,
-                            column: 0,
-                        },
-                        end: Position {
-                            line: 20,
-                            column: 0,
-                        },
+                        start: Position { line: 12, column: 0 },
+                        end: Position { line: 20, column: 0 },
                         is_stack_frame: true,
                         is_hidden: true,
                         definition: Some(2),
-                        call_site: Some(CallSite {
-                            source_index: 0,
-                            line: 46,
-                            column: 0,
-                        }),
+                        call_site: Some(CallSite { source_index: 0, line: 46, column: 0 }),
                         bindings: vec![
                             Binding::SubRanges(vec![
                                 SubRangeBinding {
                                     expression: Some("p1".to_string()),
-                                    from: Position {
-                                        line: 12,
-                                        column: 0,
-                                    },
+                                    from: Position { line: 12, column: 0 },
                                 },
                                 SubRangeBinding {
                                     expression: Some("p2".to_string()),
-                                    from: Position {
-                                        line: 16,
-                                        column: 0,
-                                    },
+                                    from: Position { line: 16, column: 0 },
                                 },
                             ]),
                             Binding::Expression("_y".to_string()),
@@ -2018,14 +1706,7 @@ mod tests {
         assert!(add_range.is_stack_frame);
         assert!(!add_range.is_hidden);
         assert_eq!(add_range.definition, Some(1));
-        assert_eq!(
-            add_range.call_site,
-            Some(CallSite {
-                source_index: 0,
-                line: 45,
-                column: 2
-            })
-        );
+        assert_eq!(add_range.call_site, Some(CallSite { source_index: 0, line: 45, column: 2 }));
         assert_eq!(add_range.bindings[0], Binding::Expression("_a".to_string()));
         assert_eq!(add_range.bindings[1], Binding::Unavailable);
 
@@ -2054,10 +1735,7 @@ mod tests {
             scopes: vec![],
             ranges: vec![GeneratedRange {
                 start: Position { line: 0, column: 0 },
-                end: Position {
-                    line: 5,
-                    column: 50,
-                },
+                end: Position { line: 5, column: 50 },
                 is_stack_frame: false,
                 is_hidden: false,
                 definition: None,
@@ -2065,10 +1743,7 @@ mod tests {
                 bindings: vec![],
                 children: vec![GeneratedRange {
                     start: Position { line: 2, column: 0 },
-                    end: Position {
-                        line: 5,
-                        column: 30,
-                    },
+                    end: Position { line: 5, column: 30 },
                     is_stack_frame: false,
                     is_hidden: false,
                     definition: None,
@@ -2084,21 +1759,9 @@ mod tests {
         let decoded = decode_scopes(&encoded, &names, 0).unwrap();
 
         let outer = &decoded.ranges[0];
-        assert_eq!(
-            outer.end,
-            Position {
-                line: 5,
-                column: 50
-            }
-        );
+        assert_eq!(outer.end, Position { line: 5, column: 50 });
         let inner = &outer.children[0];
-        assert_eq!(
-            inner.end,
-            Position {
-                line: 5,
-                column: 30
-            }
-        );
+        assert_eq!(inner.end, Position { line: 5, column: 30 });
     }
 
     #[test]
@@ -2109,10 +1772,7 @@ mod tests {
             scopes: vec![None, None, None],
             ranges: vec![GeneratedRange {
                 start: Position { line: 0, column: 0 },
-                end: Position {
-                    line: 10,
-                    column: 0,
-                },
+                end: Position { line: 10, column: 0 },
                 is_stack_frame: false,
                 is_hidden: false,
                 definition: None,
@@ -2163,10 +1823,7 @@ mod tests {
         let info = ScopeInfo {
             scopes: vec![Some(OriginalScope {
                 start: Position { line: 0, column: 0 },
-                end: Position {
-                    line: 50,
-                    column: 0,
-                },
+                end: Position { line: 50, column: 0 },
                 name: None,
                 kind: None,
                 is_stack_frame: false,
@@ -2174,14 +1831,8 @@ mod tests {
                 children: vec![],
             })],
             ranges: vec![GeneratedRange {
-                start: Position {
-                    line: 10,
-                    column: 5,
-                },
-                end: Position {
-                    line: 40,
-                    column: 0,
-                },
+                start: Position { line: 10, column: 5 },
+                end: Position { line: 40, column: 0 },
                 is_stack_frame: true,
                 is_hidden: false,
                 definition: Some(0),
@@ -2196,20 +1847,8 @@ mod tests {
         let decoded = decode_scopes(&encoded, &names, 1).unwrap();
 
         let range = &decoded.ranges[0];
-        assert_eq!(
-            range.start,
-            Position {
-                line: 10,
-                column: 5
-            }
-        );
-        assert_eq!(
-            range.end,
-            Position {
-                line: 40,
-                column: 0
-            }
-        );
+        assert_eq!(range.start, Position { line: 10, column: 5 });
+        assert_eq!(range.end, Position { line: 40, column: 0 });
         assert!(range.is_stack_frame);
         assert_eq!(range.definition, Some(0));
     }

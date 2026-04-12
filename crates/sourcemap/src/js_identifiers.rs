@@ -102,9 +102,7 @@ mod tests {
         // Accented characters
         assert!(is_valid_javascript_identifier("\u{00e9}l\u{00e8}ve"));
         // Cyrillic
-        assert!(is_valid_javascript_identifier(
-            "\u{0442}\u{0435}\u{0441}\u{0442}"
-        ));
+        assert!(is_valid_javascript_identifier("\u{0442}\u{0435}\u{0441}\u{0442}"));
     }
 
     #[test]
@@ -151,9 +149,6 @@ mod tests {
 
     #[test]
     fn test_get_javascript_token_unicode() {
-        assert_eq!(
-            get_javascript_token("  \u{4e16}\u{754c}!"),
-            Some("\u{4e16}\u{754c}")
-        );
+        assert_eq!(get_javascript_token("  \u{4e16}\u{754c}!"), Some("\u{4e16}\u{754c}"));
     }
 }

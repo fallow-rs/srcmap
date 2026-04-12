@@ -7,19 +7,14 @@ fn srcmap() -> Command {
 }
 
 fn fixture(name: &str) -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("tests/fixtures")
-        .join(name)
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures").join(name)
 }
 
 // ── info ─────────────────────────────────────────────────────────
 
 #[test]
 fn info_human() {
-    let out = srcmap()
-        .args(["info", fixture("simple.js.map").to_str().unwrap()])
-        .output()
-        .unwrap();
+    let out = srcmap().args(["info", fixture("simple.js.map").to_str().unwrap()]).output().unwrap();
     let stdout = String::from_utf8(out.stdout).unwrap();
     assert!(out.status.success());
     assert!(stdout.contains("File:         simple.js"));
@@ -47,10 +42,8 @@ fn info_json() {
 
 #[test]
 fn validate_valid() {
-    let out = srcmap()
-        .args(["validate", fixture("simple.js.map").to_str().unwrap()])
-        .output()
-        .unwrap();
+    let out =
+        srcmap().args(["validate", fixture("simple.js.map").to_str().unwrap()]).output().unwrap();
     assert!(out.status.success());
     let stdout = String::from_utf8(out.stdout).unwrap();
     assert!(stdout.contains("Valid source map v3"));
@@ -59,11 +52,7 @@ fn validate_valid() {
 #[test]
 fn validate_valid_json() {
     let out = srcmap()
-        .args([
-            "validate",
-            fixture("simple.js.map").to_str().unwrap(),
-            "--json",
-        ])
+        .args(["validate", fixture("simple.js.map").to_str().unwrap(), "--json"])
         .output()
         .unwrap();
     assert!(out.status.success());
@@ -73,10 +62,8 @@ fn validate_valid_json() {
 
 #[test]
 fn validate_invalid() {
-    let out = srcmap()
-        .args(["validate", fixture("invalid.js.map").to_str().unwrap()])
-        .output()
-        .unwrap();
+    let out =
+        srcmap().args(["validate", fixture("invalid.js.map").to_str().unwrap()]).output().unwrap();
     assert!(!out.status.success());
     let stderr = String::from_utf8(out.stderr).unwrap();
     assert!(stderr.contains("Invalid source map"));
@@ -85,11 +72,7 @@ fn validate_invalid() {
 #[test]
 fn validate_invalid_json() {
     let out = srcmap()
-        .args([
-            "validate",
-            fixture("invalid.js.map").to_str().unwrap(),
-            "--json",
-        ])
+        .args(["validate", fixture("invalid.js.map").to_str().unwrap(), "--json"])
         .output()
         .unwrap();
     // validate exits with failure for invalid maps
@@ -104,13 +87,7 @@ fn validate_invalid_json() {
 #[test]
 fn lookup_found() {
     let out = srcmap()
-        .args([
-            "lookup",
-            fixture("simple.js.map").to_str().unwrap(),
-            "0",
-            "0",
-            "--json",
-        ])
+        .args(["lookup", fixture("simple.js.map").to_str().unwrap(), "0", "0", "--json"])
         .output()
         .unwrap();
     assert!(out.status.success());
@@ -123,12 +100,7 @@ fn lookup_found() {
 #[test]
 fn lookup_not_found() {
     let out = srcmap()
-        .args([
-            "lookup",
-            fixture("simple.js.map").to_str().unwrap(),
-            "999",
-            "0",
-        ])
+        .args(["lookup", fixture("simple.js.map").to_str().unwrap(), "999", "0"])
         .output()
         .unwrap();
     assert!(!out.status.success());
@@ -189,10 +161,7 @@ fn decode_inline() {
 
 #[test]
 fn decode_compact() {
-    let out = srcmap()
-        .args(["decode", "AAAA", "--compact"])
-        .output()
-        .unwrap();
+    let out = srcmap().args(["decode", "AAAA", "--compact"]).output().unwrap();
     assert!(out.status.success());
     let stdout = String::from_utf8(out.stdout).unwrap();
     // Compact output should be a single line
@@ -209,12 +178,7 @@ fn encode_from_stdin() {
         .spawn()
         .and_then(|mut child| {
             use std::io::Write;
-            child
-                .stdin
-                .take()
-                .unwrap()
-                .write_all(b"[[[0,0,0,0]],[[0,0,1,0]]]")
-                .unwrap();
+            child.stdin.take().unwrap().write_all(b"[[[0,0,0,0]],[[0,0,1,0]]]").unwrap();
             child.wait_with_output()
         })
         .unwrap();
@@ -233,12 +197,7 @@ fn encode_json_output() {
         .spawn()
         .and_then(|mut child| {
             use std::io::Write;
-            child
-                .stdin
-                .take()
-                .unwrap()
-                .write_all(b"[[[0,0,0,0]]]")
-                .unwrap();
+            child.stdin.take().unwrap().write_all(b"[[[0,0,0,0]]]").unwrap();
             child.wait_with_output()
         })
         .unwrap();
@@ -252,13 +211,7 @@ fn encode_json_output() {
 #[test]
 fn mappings_json() {
     let out = srcmap()
-        .args([
-            "mappings",
-            fixture("simple.js.map").to_str().unwrap(),
-            "--limit",
-            "3",
-            "--json",
-        ])
+        .args(["mappings", fixture("simple.js.map").to_str().unwrap(), "--limit", "3", "--json"])
         .output()
         .unwrap();
     assert!(out.status.success());
@@ -366,12 +319,7 @@ fn concat_to_file() {
 #[test]
 fn remap_dry_run() {
     let out = srcmap()
-        .args([
-            "remap",
-            fixture("simple.js.map").to_str().unwrap(),
-            "--dry-run",
-            "--json",
-        ])
+        .args(["remap", fixture("simple.js.map").to_str().unwrap(), "--dry-run", "--json"])
         .output()
         .unwrap();
     assert!(out.status.success());
@@ -383,10 +331,8 @@ fn remap_dry_run() {
 
 #[test]
 fn scopes_no_data() {
-    let out = srcmap()
-        .args(["scopes", fixture("simple.js.map").to_str().unwrap()])
-        .output()
-        .unwrap();
+    let out =
+        srcmap().args(["scopes", fixture("simple.js.map").to_str().unwrap()]).output().unwrap();
     assert!(!out.status.success());
     let stderr = String::from_utf8(out.stderr).unwrap();
     assert!(stderr.contains("does not contain scopes"));
@@ -395,11 +341,7 @@ fn scopes_no_data() {
 #[test]
 fn scopes_no_data_json() {
     let out = srcmap()
-        .args([
-            "scopes",
-            fixture("simple.js.map").to_str().unwrap(),
-            "--json",
-        ])
+        .args(["scopes", fixture("simple.js.map").to_str().unwrap(), "--json"])
         .output()
         .unwrap();
     assert!(!out.status.success());
@@ -423,12 +365,7 @@ fn symbolicate_json() {
         .unwrap();
     assert!(out.status.success());
     let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
-    assert!(
-        v["message"]
-            .as_str()
-            .unwrap()
-            .contains("something went wrong")
-    );
+    assert!(v["message"].as_str().unwrap().contains("something went wrong"));
     assert!(!v["frames"].as_array().unwrap().is_empty());
 }
 
@@ -461,10 +398,8 @@ fn symbolicate_from_stdin() {
 
 #[test]
 fn scopes_human() {
-    let out = srcmap()
-        .args(["scopes", fixture("scoped.js.map").to_str().unwrap()])
-        .output()
-        .unwrap();
+    let out =
+        srcmap().args(["scopes", fixture("scoped.js.map").to_str().unwrap()]).output().unwrap();
     assert!(out.status.success());
     let stdout = String::from_utf8(out.stdout).unwrap();
     assert!(stdout.contains("Original scopes"));
@@ -477,11 +412,7 @@ fn scopes_human() {
 #[test]
 fn scopes_json() {
     let out = srcmap()
-        .args([
-            "scopes",
-            fixture("scoped.js.map").to_str().unwrap(),
-            "--json",
-        ])
+        .args(["scopes", fixture("scoped.js.map").to_str().unwrap(), "--json"])
         .output()
         .unwrap();
     assert!(out.status.success());
@@ -491,12 +422,7 @@ fn scopes_json() {
     // Check original scope structure
     let scope = &v["originalScopes"][0]["scope"];
     assert_eq!(scope["kind"], "module");
-    assert!(
-        scope["variables"]
-            .as_array()
-            .unwrap()
-            .contains(&serde_json::json!("result"))
-    );
+    assert!(scope["variables"].as_array().unwrap().contains(&serde_json::json!("result")));
     // Check generated range bindings
     let range = &v["generatedRanges"][0];
     assert_eq!(range["definition"], 0);
@@ -515,10 +441,7 @@ fn schema_output() {
     let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
     assert_eq!(v["name"], "srcmap");
     let commands = v["commands"].as_array().unwrap();
-    let names: Vec<&str> = commands
-        .iter()
-        .map(|c| c["name"].as_str().unwrap())
-        .collect();
+    let names: Vec<&str> = commands.iter().map(|c| c["name"].as_str().unwrap()).collect();
     assert!(names.contains(&"info"));
     assert!(names.contains(&"validate"));
     assert!(names.contains(&"lookup"));
@@ -537,10 +460,8 @@ fn schema_output() {
 
 #[test]
 fn sources_list_human() {
-    let out = srcmap()
-        .args(["sources", fixture("simple.js.map").to_str().unwrap()])
-        .output()
-        .unwrap();
+    let out =
+        srcmap().args(["sources", fixture("simple.js.map").to_str().unwrap()]).output().unwrap();
     assert!(out.status.success());
     let stdout = String::from_utf8(out.stdout).unwrap();
     assert!(stdout.contains("src/app.ts"));
@@ -551,11 +472,7 @@ fn sources_list_human() {
 #[test]
 fn sources_list_json() {
     let out = srcmap()
-        .args([
-            "sources",
-            fixture("simple.js.map").to_str().unwrap(),
-            "--json",
-        ])
+        .args(["sources", fixture("simple.js.map").to_str().unwrap(), "--json"])
         .output()
         .unwrap();
     assert!(out.status.success());
@@ -601,14 +518,7 @@ fn sources_extract() {
 #[test]
 fn lookup_with_context_human() {
     let out = srcmap()
-        .args([
-            "lookup",
-            fixture("simple.js.map").to_str().unwrap(),
-            "0",
-            "0",
-            "--context",
-            "1",
-        ])
+        .args(["lookup", fixture("simple.js.map").to_str().unwrap(), "0", "0", "--context", "1"])
         .output()
         .unwrap();
     assert!(out.status.success());
@@ -734,10 +644,7 @@ fn fetch_invalid_url() {
 
 #[test]
 fn fetch_invalid_url_json() {
-    let out = srcmap()
-        .args(["fetch", "not-a-url", "--json"])
-        .output()
-        .unwrap();
+    let out = srcmap().args(["fetch", "not-a-url", "--json"]).output().unwrap();
     assert!(!out.status.success());
     let v: serde_json::Value = serde_json::from_slice(&out.stderr).unwrap();
     assert_eq!(v["code"], "INVALID_INPUT");
@@ -751,10 +658,7 @@ fn schema_includes_new_commands() {
     assert!(out.status.success());
     let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
     let commands = v["commands"].as_array().unwrap();
-    let names: Vec<&str> = commands
-        .iter()
-        .map(|c| c["name"].as_str().unwrap())
-        .collect();
+    let names: Vec<&str> = commands.iter().map(|c| c["name"].as_str().unwrap()).collect();
     assert!(names.contains(&"fetch"));
     assert!(names.contains(&"sources"));
 }
@@ -763,10 +667,7 @@ fn schema_includes_new_commands() {
 
 #[test]
 fn missing_file_error() {
-    let out = srcmap()
-        .args(["info", "/nonexistent/path/to/file.map"])
-        .output()
-        .unwrap();
+    let out = srcmap().args(["info", "/nonexistent/path/to/file.map"]).output().unwrap();
     assert!(!out.status.success());
     let stderr = String::from_utf8(out.stderr).unwrap();
     assert!(stderr.contains("error:"));
@@ -774,10 +675,7 @@ fn missing_file_error() {
 
 #[test]
 fn missing_file_json_error() {
-    let out = srcmap()
-        .args(["info", "/nonexistent/path/to/file.map", "--json"])
-        .output()
-        .unwrap();
+    let out = srcmap().args(["info", "/nonexistent/path/to/file.map", "--json"]).output().unwrap();
     assert!(!out.status.success());
     let v: serde_json::Value = serde_json::from_slice(&out.stderr).unwrap();
     assert_eq!(v["code"], "IO_ERROR");

@@ -2,6 +2,7 @@
 name = "srcmap-sourcemap"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 description = "High-performance source map parser and consumer"
@@ -12,12 +13,14 @@ categories = ["parser-implementations", "development-tools"]
 [lib]
 crate-type = ["lib"]
 
+[lints]
+workspace = true
+
 [dependencies]
 srcmap-codec = { workspace = true }
 srcmap-scopes = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-rustc-hash = { workspace = true }
 
 [dev-dependencies]
 criterion = { workspace = true }

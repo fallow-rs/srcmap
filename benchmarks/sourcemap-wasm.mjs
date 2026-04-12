@@ -1,33 +1,35 @@
-import { Bench } from 'tinybench';
-import { TraceMap, originalPositionFor } from '@jridgewell/trace-mapping';
-import { SourceMap, resultPtr, wasmMemory } from '../packages/sourcemap-wasm/pkg/srcmap_sourcemap_wasm.js';
-import { createRequire } from 'node:module';
+import { Bench } from "tinybench";
+import { TraceMap, originalPositionFor } from "@jridgewell/trace-mapping";
+import { SourceMap } from "../packages/sourcemap-wasm/pkg/srcmap_sourcemap_wasm.js";
+import { createRequire } from "node:module";
 const require = createRequire(import.meta.url);
-const { SourceMap: FastSourceMap } = require('../packages/sourcemap-wasm/pkg/fast.js');
-import { SourceMap as NapiSourceMap } from '../packages/sourcemap/index.js';
-import { encode } from '@jridgewell/sourcemap-codec';
-
-// Set up zero-allocation buffer for originalPositionBuf.
-// The Int32Array view must be refreshed after WASM memory grows (e.g. after new SourceMap()).
-const bufOffset = resultPtr();
-const getResultView = () => new Int32Array(wasmMemory().buffer, bufOffset, 4);
+const {
+  LazySourceMap: FastSourceMap,
+} = require("../packages/sourcemap-wasm/pkg/srcmap_sourcemap_wasm.js");
+import { SourceMap as NapiSourceMap } from "../packages/sourcemap/index.js";
+import { encode } from "@jridgewell/sourcemap-codec";
 
 // ── Generate realistic source maps ────────────────────────────────
 
 function generateSourceMap(lines, segsPerLine, numSources) {
   const sources = Array.from({ length: numSources }, (_, i) => `src/file${i}.js`);
   const names = Array.from({ length: 20 }, (_, i) => `var${i}`);
-  const sourcesContent = sources.map((_, i) => `// source file ${i}\n${'const x = 1;\n'.repeat(lines)}`);
+  const sourcesContent = sources.map(
+    (_, i) => `// source file ${i}\n${"const x = 1;\n".repeat(lines)}`,
+  );
 
   const mappings = [];
-  let src = 0, srcLine = 0, srcCol = 0, name = 0;
+  let src = 0,
+    srcLine = 0,
+    srcCol = 0,
+    name = 0;
 
   for (let line = 0; line < lines; line++) {
     const lineSegs = [];
     let genCol = 0;
 
     for (let s = 0; s < segsPerLine; s++) {
-      genCol += 2 + (s * 3) % 20;
+      genCol += 2 + ((s * 3) % 20);
       if (s % 7 === 0) src = (src + 1) % numSources;
       srcLine += 1;
       srcCol = (s * 5 + 1) % 30;
@@ -55,43 +57,52 @@ const MEDIUM_JSON = generateSourceMap(500, 20, 5);
 const LARGE_JSON = generateSourceMap(2000, 50, 10);
 
 const maps = [
-  { name: 'medium (500 lines, 10K segs)', json: MEDIUM_JSON },
-  { name: 'large (2000 lines, 100K segs)', json: LARGE_JSON },
+  { name: "medium (500 lines, 10K segs)", json: MEDIUM_JSON },
+  { name: "large (2000 lines, 100K segs)", json: LARGE_JSON },
 ];
 
-console.log('=== WASM vs NAPI vs trace-mapping ===\n');
+console.log("=== WASM vs NAPI vs trace-mapping ===\n");
 
 // ── Correctness check ──────────────────────────────────────────────
 
-console.log('Verifying WASM correctness...');
+console.log("Verifying WASM correctness...");
 for (const { name, json } of maps) {
   const trace = new TraceMap(json);
   const wasm = new SourceMap(json);
   let pass = true;
   let checked = 0;
 
-  for (let line = 0; line < wasm.lineCount && checked < 50; line += Math.max(1, Math.floor(wasm.lineCount / 25))) {
+  for (
+    let line = 0;
+    line < wasm.lineCount && checked < 50;
+    line += Math.max(1, Math.floor(wasm.lineCount / 25))
+  ) {
     for (let col = 0; col < 100; col += 20) {
       const expected = originalPositionFor(trace, { line: line + 1, column: col });
       const actual = wasm.originalPositionFor(line, col);
       const expectedNull = !expected.source;
       const actualNull = actual === null;
 
-      if (expectedNull !== actualNull) { pass = false; }
-      else if (!expectedNull && !actualNull) {
-        if (expected.source !== actual.source || expected.line !== actual.line + 1 || expected.column !== actual.column) {
+      if (expectedNull !== actualNull) {
+        pass = false;
+      } else if (!expectedNull && !actualNull) {
+        if (
+          expected.source !== actual.source ||
+          expected.line !== actual.line + 1 ||
+          expected.column !== actual.column
+        ) {
           pass = false;
         }
       }
       checked++;
     }
   }
-  console.log(`  ${name}: ${pass ? 'PASS' : 'FAIL'} (${checked} lookups)`);
+  console.log(`  ${name}: ${pass ? "PASS" : "FAIL"} (${checked} lookups)`);
 }
 
 // ── Parse benchmarks ──────────────────────────────────────────────
 
-console.log('\n--- Parse Benchmarks ---\n');
+console.log("\n--- Parse Benchmarks ---\n");
 
 for (const { name, json } of maps) {
   console.log(`\n### ${name}\n`);
@@ -99,25 +110,25 @@ for (const { name, json } of maps) {
   const bench = new Bench({ warmupIterations: 20, iterations: 200 });
 
   bench
-    .add('trace-mapping', () => new TraceMap(json))
-    .add('srcmap WASM', () => new SourceMap(json))
-    .add('srcmap WASM (fast)', () => new FastSourceMap(json))
-    .add('srcmap NAPI', () => new NapiSourceMap(json));
+    .add("trace-mapping", () => new TraceMap(json))
+    .add("srcmap WASM", () => new SourceMap(json))
+    .add("srcmap WASM (fast)", () => new FastSourceMap(json))
+    .add("srcmap NAPI", () => new NapiSourceMap(json));
 
   await bench.run();
 
   console.table(
     bench.tasks.map((task) => ({
       Name: task.name,
-      'ops/sec': Math.round(task.result.hz).toLocaleString(),
-      'avg (μs)': (task.result.mean * 1000).toFixed(1),
-    }))
+      "ops/sec": Math.round(task.result.hz).toLocaleString(),
+      "avg (μs)": (task.result.mean * 1000).toFixed(1),
+    })),
   );
 }
 
 // ── Single lookup benchmarks ──────────────────────────────────────
 
-console.log('\n--- Single Lookup ---\n');
+console.log("\n--- Single Lookup ---\n");
 
 {
   const json = MEDIUM_JSON;
@@ -128,30 +139,30 @@ console.log('\n--- Single Lookup ---\n');
   const bench = new Bench({ warmupIterations: 1000, iterations: 5000 });
 
   bench
-    .add('trace-mapping', () => originalPositionFor(trace, { line: 251, column: 30 }))
-    .add('srcmap WASM', () => wasm.originalPositionFor(250, 30))
-    .add('srcmap WASM (flat)', () => wasm.originalPositionFlat(250, 30))
-    .add('srcmap WASM (buf)', () => {
+    .add("trace-mapping", () => originalPositionFor(trace, { line: 251, column: 30 }))
+    .add("srcmap WASM", () => wasm.originalPositionFor(250, 30))
+    .add("srcmap WASM (flat)", () => wasm.originalPositionFlat(250, 30))
+    .add("srcmap WASM (buf)", () => {
       wasm.originalPositionBuf(250, 30);
       // resultView[0..3] contains: sourceIdx, line, column, nameIdx
     })
-    .add('srcmap NAPI', () => napi.originalPositionFor(250, 30));
+    .add("srcmap NAPI", () => napi.originalPositionFor(250, 30));
 
   await bench.run();
 
   console.table(
     bench.tasks.map((task) => ({
       Name: task.name,
-      'ops/sec': Math.round(task.result.hz).toLocaleString(),
-      'avg (ns)': Math.round(task.result.mean * 1_000_000).toLocaleString(),
-      'p99 (ns)': Math.round(task.result.p99 * 1_000_000).toLocaleString(),
-    }))
+      "ops/sec": Math.round(task.result.hz).toLocaleString(),
+      "avg (ns)": Math.round(task.result.mean * 1_000_000).toLocaleString(),
+      "p99 (ns)": Math.round(task.result.p99 * 1_000_000).toLocaleString(),
+    })),
   );
 }
 
 // ── 1000x lookup benchmarks ──────────────────────────────────────
 
-console.log('\n--- 1000x Lookup ---\n');
+console.log("\n--- 1000x Lookup ---\n");
 
 for (const { name, json } of maps) {
   console.log(`\n### ${name}\n`);
@@ -174,20 +185,20 @@ for (const { name, json } of maps) {
   const bench = new Bench({ warmupIterations: 50, iterations: 500 });
 
   bench
-    .add('trace-mapping 1000x', () => {
+    .add("trace-mapping 1000x", () => {
       for (const { line, column } of lookups) {
         originalPositionFor(trace, { line: line + 1, column });
       }
     })
-    .add('srcmap WASM 1000x individual', () => {
+    .add("srcmap WASM 1000x individual", () => {
       for (const { line, column } of lookups) {
         wasm.originalPositionFor(line, column);
       }
     })
-    .add('srcmap WASM batch 1000x', () => {
+    .add("srcmap WASM batch 1000x", () => {
       wasm.originalPositionsFor(posArray);
     })
-    .add('srcmap NAPI batch 1000x', () => {
+    .add("srcmap NAPI batch 1000x", () => {
       napi.originalPositionsFor(flatPositions);
     });
 
@@ -196,9 +207,9 @@ for (const { name, json } of maps) {
   console.table(
     bench.tasks.map((task) => ({
       Name: task.name,
-      'ops/sec': Math.round(task.result.hz).toLocaleString(),
-      'avg (μs)': (task.result.mean * 1000).toFixed(1),
-      'per lookup (ns)': Math.round(task.result.mean * 1_000_000).toLocaleString(),
-    }))
+      "ops/sec": Math.round(task.result.hz).toLocaleString(),
+      "avg (μs)": (task.result.mean * 1000).toFixed(1),
+      "per lookup (ns)": Math.round(task.result.mean * 1_000_000).toLocaleString(),
+    })),
   );
 }

@@ -36,11 +36,8 @@ struct ScopesEncoder<'a> {
 
 impl<'a> ScopesEncoder<'a> {
     fn new(names: &'a mut Vec<String>) -> Self {
-        let name_map: HashMap<String, u32> = names
-            .iter()
-            .enumerate()
-            .map(|(i, n)| (n.clone(), i as u32))
-            .collect();
+        let name_map: HashMap<String, u32> =
+            names.iter().enumerate().map(|(i, n)| (n.clone(), i as u32)).collect();
 
         Self {
             output: Vec::with_capacity(256),
@@ -108,9 +105,9 @@ impl<'a> ScopesEncoder<'a> {
             self.encode_generated_range(range);
         }
 
+        debug_assert!(self.output.is_ascii());
         // SAFETY: vlq_encode/vlq_encode_unsigned only push bytes from
         // BASE64_ENCODE (all ASCII), and we only add b',' — all valid UTF-8.
-        debug_assert!(self.output.is_ascii());
         unsafe { String::from_utf8_unchecked(self.output) }
     }
 
@@ -137,11 +134,8 @@ impl<'a> ScopesEncoder<'a> {
         self.os_line = scope.start.line;
 
         // Column (absolute if line changed, relative if same line)
-        let col = if line_delta != 0 {
-            scope.start.column
-        } else {
-            scope.start.column - self.os_col
-        };
+        let col =
+            if line_delta != 0 { scope.start.column } else { scope.start.column - self.os_col };
         self.emit_unsigned(col as u64);
         self.os_col = scope.start.column;
 
@@ -183,11 +177,7 @@ impl<'a> ScopesEncoder<'a> {
         self.emit_unsigned(line_delta as u64);
         self.os_line = scope.end.line;
 
-        let col = if line_delta != 0 {
-            scope.end.column
-        } else {
-            scope.end.column - self.os_col
-        };
+        let col = if line_delta != 0 { scope.end.column } else { scope.end.column - self.os_col };
         self.emit_unsigned(col as u64);
         self.os_col = scope.end.column;
     }
@@ -219,11 +209,8 @@ impl<'a> ScopesEncoder<'a> {
         }
         self.gr_line = range.start.line;
 
-        let col = if line_delta != 0 {
-            range.start.column
-        } else {
-            range.start.column - self.gr_col
-        };
+        let col =
+            if line_delta != 0 { range.start.column } else { range.start.column - self.gr_col };
         self.emit_unsigned(col as u64);
         self.gr_col = range.start.column;
 
@@ -301,11 +288,8 @@ impl<'a> ScopesEncoder<'a> {
                     self.emit_unsigned(sub_line_delta as u64);
                     h_line = sub.from.line;
 
-                    let sub_col = if sub_line_delta != 0 {
-                        sub.from.column
-                    } else {
-                        sub.from.column - h_col
-                    };
+                    let sub_col =
+                        if sub_line_delta != 0 { sub.from.column } else { sub.from.column - h_col };
                     self.emit_unsigned(sub_col as u64);
                     h_col = sub.from.column;
                 }
@@ -336,11 +320,7 @@ impl<'a> ScopesEncoder<'a> {
         }
         self.gr_line = range.end.line;
 
-        let col = if line_delta != 0 {
-            range.end.column
-        } else {
-            range.end.column - self.gr_col
-        };
+        let col = if line_delta != 0 { range.end.column } else { range.end.column - self.gr_col };
         self.emit_unsigned(col as u64);
         self.gr_col = range.end.column;
     }

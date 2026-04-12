@@ -2,11 +2,17 @@
 name = "srcmap-symbolicate"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 description = "Stack trace symbolication using source maps"
+readme = "README.md"
+keywords = ["sourcemap", "source-map", "symbolication", "stacktrace", "debugging"]
+categories = ["development-tools", "development-tools::debugging"]
+
+[lints]
+workspace = true
 
 [dependencies]
 srcmap-sourcemap = { workspace = true }
-serde = { workspace = true }
 serde_json = { workspace = true }

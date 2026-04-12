@@ -2,6 +2,7 @@
 name = "srcmap-generator"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 description = "High-performance source map generator"
@@ -16,6 +17,9 @@ parallel = ["rayon"]
 [lib]
 crate-type = ["lib"]
 
+[lints]
+workspace = true
+
 [dependencies]
 srcmap-codec = { workspace = true }
 srcmap-sourcemap = { workspace = true }
@@ -24,7 +28,6 @@ rayon = { workspace = true, optional = true }
 rustc-hash = { workspace = true }
 
 [dev-dependencies]
-serde = { workspace = true }
 serde_json = { workspace = true }
 criterion = { workspace = true }
 

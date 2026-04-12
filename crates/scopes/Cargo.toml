@@ -2,12 +2,16 @@
 name = "srcmap-scopes"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 description = "Scopes and variables decoder/encoder for source maps (ECMA-426)"
 readme = "README.md"
 keywords = ["sourcemap", "source-map", "scopes", "ecma-426", "debug"]
 categories = ["development-tools"]
+
+[lints]
+workspace = true
 
 [dependencies]
 srcmap-codec = { workspace = true }

@@ -74,7 +74,7 @@ pub unsafe fn vlq_encode_unchecked(out: &mut Vec<u8>, value: i64) {
         // For i64::MIN (-2^63), abs = 2^63, and (2^63 << 1) wraps to 0 in u64.
         // This produces an incorrect encoding for i64::MIN, but that value
         // is unreachable in valid source maps (max ~4 billion lines/columns).
-        ((!(value as u64)) + 1) << 1 | 1
+        (((!(value as u64)) + 1) << 1) | 1
     };
 
     let table = &BASE64_TABLE.0;
@@ -128,17 +128,11 @@ pub fn vlq_decode(input: &[u8], pos: usize) -> Result<(i64, usize), DecodeError>
 
     let b0 = input[pos];
     if b0 >= 128 {
-        return Err(DecodeError::InvalidBase64 {
-            byte: b0,
-            offset: pos,
-        });
+        return Err(DecodeError::InvalidBase64 { byte: b0, offset: pos });
     }
     let d0 = BASE64_DECODE[b0 as usize];
     if d0 == 255 {
-        return Err(DecodeError::InvalidBase64 {
-            byte: b0,
-            offset: pos,
-        });
+        return Err(DecodeError::InvalidBase64 { byte: b0, offset: pos });
     }
 
     // Fast path: single character VLQ (values -15..15, ~60-70% of real data)
@@ -184,11 +178,7 @@ pub fn vlq_decode(input: &[u8], pos: usize) -> Result<(i64, usize), DecodeError>
     }
 
     // Extract sign from LSB
-    let value = if (result & 1) == 1 {
-        -((result >> 1) as i64)
-    } else {
-        (result >> 1) as i64
-    };
+    let value = if (result & 1) == 1 { -((result >> 1) as i64) } else { (result >> 1) as i64 };
 
     Ok((value, i - pos))
 }
@@ -254,17 +244,11 @@ pub fn vlq_decode_unsigned(input: &[u8], pos: usize) -> Result<(u64, usize), Dec
 
     let b0 = input[pos];
     if b0 >= 128 {
-        return Err(DecodeError::InvalidBase64 {
-            byte: b0,
-            offset: pos,
-        });
+        return Err(DecodeError::InvalidBase64 { byte: b0, offset: pos });
     }
     let d0 = BASE64_DECODE[b0 as usize];
     if d0 == 255 {
-        return Err(DecodeError::InvalidBase64 {
-            byte: b0,
-            offset: pos,
-        });
+        return Err(DecodeError::InvalidBase64 { byte: b0, offset: pos });
     }
 
     // Fast path: single character (value fits in 5 bits, no continuation)
@@ -386,26 +370,14 @@ mod tests {
     fn decode_non_ascii_byte() {
         let input = [0xC0u8];
         let err = vlq_decode(&input, 0).unwrap_err();
-        assert_eq!(
-            err,
-            DecodeError::InvalidBase64 {
-                byte: 0xC0,
-                offset: 0
-            }
-        );
+        assert_eq!(err, DecodeError::InvalidBase64 { byte: 0xC0, offset: 0 });
     }
 
     #[test]
     fn decode_invalid_base64_char() {
         let input = b"!";
         let err = vlq_decode(input, 0).unwrap_err();
-        assert_eq!(
-            err,
-            DecodeError::InvalidBase64 {
-                byte: b'!',
-                offset: 0
-            }
-        );
+        assert_eq!(err, DecodeError::InvalidBase64 { byte: b'!', offset: 0 });
     }
 
     #[test]
@@ -481,25 +453,13 @@ mod tests {
     #[test]
     fn unsigned_decode_non_ascii() {
         let err = vlq_decode_unsigned(&[0xC3, 0x80], 0).unwrap_err();
-        assert_eq!(
-            err,
-            DecodeError::InvalidBase64 {
-                byte: 0xC3,
-                offset: 0
-            }
-        );
+        assert_eq!(err, DecodeError::InvalidBase64 { byte: 0xC3, offset: 0 });
     }
 
     #[test]
     fn unsigned_decode_invalid_base64_char() {
         let err = vlq_decode_unsigned(b"!", 0).unwrap_err();
-        assert_eq!(
-            err,
-            DecodeError::InvalidBase64 {
-                byte: b'!',
-                offset: 0
-            }
-        );
+        assert_eq!(err, DecodeError::InvalidBase64 { byte: b'!', offset: 0 });
     }
 
     #[test]

@@ -5,13 +5,13 @@
  */
 export interface OriginalPosition {
   /** Original source filename (e.g. `"src/app.ts"`). */
-  source: string | null
+  source: string | null;
   /** 0-based line in the original source. */
-  line: number
+  line: number;
   /** 0-based column in the original source. */
-  column: number
+  column: number;
   /** Original identifier name, if available. */
-  name: string | null
+  name: string | null;
 }
 
 /**
@@ -21,9 +21,9 @@ export interface OriginalPosition {
  */
 export interface GeneratedPosition {
   /** 0-based line in the generated output. */
-  line: number
+  line: number;
   /** 0-based column in the generated output. */
-  column: number
+  column: number;
 }
 
 /**
@@ -57,7 +57,7 @@ export declare class SourceMap {
    * @param json - Source map JSON string (must have `"version": 3`)
    * @throws If the JSON is invalid or the source map version is unsupported
    */
-  constructor(json: string)
+  constructor(json: string);
 
   /**
    * Look up the original source position for a generated position.
@@ -68,7 +68,7 @@ export declare class SourceMap {
    * @param column - 0-based generated column
    * @returns The original position, or `null` if no mapping exists
    */
-  originalPositionFor(line: number, column: number): OriginalPosition | null
+  originalPositionFor(line: number, column: number): OriginalPosition | null;
 
   /**
    * Look up the original source position with a search bias.
@@ -78,7 +78,7 @@ export declare class SourceMap {
    * @param bias - `0` for greatest-lower-bound (default), `-1` for least-upper-bound
    * @returns The original position, or `null` if no mapping exists
    */
-  originalPositionForWithBias(line: number, column: number, bias: 0 | -1): OriginalPosition | null
+  originalPositionForWithBias(line: number, column: number, bias: 0 | -1): OriginalPosition | null;
 
   /**
    * Look up the generated position for an original source position.
@@ -90,7 +90,7 @@ export declare class SourceMap {
    * @param column - 0-based original column
    * @returns The generated position, or `null` if no mapping exists
    */
-  generatedPositionFor(source: string, line: number, column: number): GeneratedPosition | null
+  generatedPositionFor(source: string, line: number, column: number): GeneratedPosition | null;
 
   /**
    * Look up the generated position with a search bias.
@@ -101,7 +101,12 @@ export declare class SourceMap {
    * @param bias - `0` for default, `-1` for least-upper-bound, `1` for greatest-lower-bound
    * @returns The generated position, or `null` if no mapping exists
    */
-  generatedPositionForWithBias(source: string, line: number, column: number, bias: -1 | 0 | 1): GeneratedPosition | null
+  generatedPositionForWithBias(
+    source: string,
+    line: number,
+    column: number,
+    bias: -1 | 0 | 1,
+  ): GeneratedPosition | null;
 
   /**
    * Batch forward lookup for multiple generated positions.
@@ -122,7 +127,7 @@ export declare class SourceMap {
    * const source = results[0] >= 0 ? sm.source(results[0]) : null
    * ```
    */
-  originalPositionsFor(positions: number[]): number[]
+  originalPositionsFor(positions: number[]): number[];
 
   /**
    * Resolve a source index to a source filename.
@@ -130,7 +135,7 @@ export declare class SourceMap {
    * @param index - Source index from a lookup result
    * @returns The source filename
    */
-  source(index: number): string
+  source(index: number): string;
 
   /**
    * Resolve a name index to a name string.
@@ -138,29 +143,29 @@ export declare class SourceMap {
    * @param index - Name index from a lookup result
    * @returns The name string
    */
-  name(index: number): string
+  name(index: number): string;
 
   /** All source filenames in the source map. */
-  readonly sources: string[]
+  readonly sources: string[];
 
   /** All names in the source map. */
-  readonly names: string[]
+  readonly names: string[];
 
   /** Debug ID (UUID) for associating generated files with source maps (ECMA-426). */
-  readonly debugId: string | null
+  readonly debugId: string | null;
 
   /** Total number of decoded mappings. */
-  readonly mappingCount: number
+  readonly mappingCount: number;
 
   /** Number of generated lines covered by mappings. */
-  readonly lineCount: number
+  readonly lineCount: number;
 
   /** Whether the source map contains range mappings. */
-  readonly hasRangeMappings: boolean
+  readonly hasRangeMappings: boolean;
 
   /** Number of range mappings in the source map. */
-  readonly rangeMappingCount: number
+  readonly rangeMappingCount: number;
 
   /** Get the encoded range mappings string, or null if none. */
-  encodedRangeMappings(): string | null
+  encodedRangeMappings(): string | null;
 }

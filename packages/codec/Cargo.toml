@@ -2,6 +2,7 @@
 name = "srcmap-codec-napi"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 description = "N-API bindings for srcmap-codec"
@@ -9,6 +10,10 @@ publish = false
 
 [lib]
 crate-type = ["cdylib"]
+test = false
+
+[lints]
+workspace = true
 
 [dependencies]
 srcmap-codec = { workspace = true }

@@ -10,9 +10,7 @@ impl JsSourceMapGenerator {
     /// Create a new source map generator.
     #[napi(constructor)]
     pub fn new(file: Option<String>) -> Self {
-        Self {
-            inner: srcmap_generator::SourceMapGenerator::new(file),
-        }
+        Self { inner: srcmap_generator::SourceMapGenerator::new(file) }
     }
 
     /// Register a source file and return its index.
@@ -54,8 +52,7 @@ impl JsSourceMapGenerator {
     /// Add a mapping with no source information (generated-only).
     #[napi]
     pub fn add_generated_mapping(&mut self, generated_line: u32, generated_column: u32) {
-        self.inner
-            .add_generated_mapping(generated_line, generated_column);
+        self.inner.add_generated_mapping(generated_line, generated_column);
     }
 
     /// Add a mapping from generated position to original position.

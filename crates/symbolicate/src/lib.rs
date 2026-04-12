@@ -65,11 +65,7 @@ impl fmt::Display for SymbolicatedStack {
         }
         for frame in &self.frames {
             let name = frame.function_name.as_deref().unwrap_or("<anonymous>");
-            writeln!(
-                f,
-                "    at {name} ({}:{}:{})",
-                frame.file, frame.line, frame.column
-            )?;
+            writeln!(f, "    at {name} ({}:{}:{})", frame.file, frame.line, frame.column)?;
         }
         Ok(())
     }
@@ -113,10 +109,7 @@ pub fn parse_stack_trace_full(input: &str) -> ParsedStack {
     let first_line = match lines.next() {
         Some(l) => l,
         None => {
-            return ParsedStack {
-                message: None,
-                frames: Vec::new(),
-            };
+            return ParsedStack { message: None, frames: Vec::new() };
         }
     };
 
@@ -184,11 +177,7 @@ fn parse_v8_frame(line: &str) -> Option<StackFrame> {
         let (file, line_num, col) = parse_location(location)?;
 
         return Some(StackFrame {
-            function_name: if func.is_empty() {
-                None
-            } else {
-                Some(func.to_string())
-            },
+            function_name: if func.is_empty() { None } else { Some(func.to_string()) },
             file,
             line: line_num,
             column: col,
@@ -197,12 +186,7 @@ fn parse_v8_frame(line: &str) -> Option<StackFrame> {
 
     // Bare `file:line:column` format
     let (file, line_num, col) = parse_location(rest)?;
-    Some(StackFrame {
-        function_name: None,
-        file,
-        line: line_num,
-        column: col,
-    })
+    Some(StackFrame { function_name: None, file, line: line_num, column: col })
 }
 
 /// Parse a SpiderMonkey stack frame: `functionName@file:line:column`
@@ -211,11 +195,7 @@ fn parse_spidermonkey_frame(line: &str) -> Option<StackFrame> {
     let (file, line_num, col) = parse_location(location)?;
 
     Some(StackFrame {
-        function_name: if func.is_empty() {
-            None
-        } else {
-            Some(func.to_string())
-        },
+        function_name: if func.is_empty() { None } else { Some(func.to_string()) },
         file,
         line: line_num,
         column: col,
@@ -274,9 +254,7 @@ where
     let mut result_frames = Vec::with_capacity(frames.len());
 
     for frame in frames {
-        let sm = cache
-            .entry(frame.file.clone())
-            .or_insert_with(|| loader(&frame.file));
+        let sm = cache.entry(frame.file.clone()).or_insert_with(|| loader(&frame.file));
 
         let resolved = match sm {
             Some(sm) => {
@@ -316,10 +294,7 @@ where
         result_frames.push(resolved);
     }
 
-    SymbolicatedStack {
-        message,
-        frames: result_frames,
-    }
+    SymbolicatedStack { message, frames: result_frames }
 }
 
 /// Batch symbolicate multiple stack traces against pre-loaded source maps.
@@ -330,10 +305,7 @@ pub fn symbolicate_batch(
     stacks: &[&str],
     maps: &HashMap<String, SourceMap>,
 ) -> Vec<SymbolicatedStack> {
-    stacks
-        .iter()
-        .map(|stack| symbolicate(stack, |file| maps.get(file).cloned()))
-        .collect()
+    stacks.iter().map(|stack| symbolicate(stack, |file| maps.get(file).cloned())).collect()
 }
 
 /// Resolve a debug ID to a source map from a set of maps indexed by debug ID.
@@ -344,8 +316,7 @@ pub fn resolve_by_debug_id<'a>(
     debug_id: &str,
     maps: &'a HashMap<String, SourceMap>,
 ) -> Option<&'a SourceMap> {
-    maps.values()
-        .find(|sm| sm.debug_id.as_deref() == Some(debug_id))
+    maps.values().find(|sm| sm.debug_id.as_deref() == Some(debug_id))
 }
 
 /// Serialize a symbolicated stack to JSON.
@@ -445,21 +416,14 @@ mod tests {
         let stack = "Error: test\n    at foo (bundle.js:10:1)";
 
         let result = symbolicate(stack, |file| {
-            if file == "bundle.js" {
-                SourceMap::from_json(map_json).ok()
-            } else {
-                None
-            }
+            if file == "bundle.js" { SourceMap::from_json(map_json).ok() } else { None }
         });
 
         assert_eq!(result.message.as_deref(), Some("Error: test"));
         assert_eq!(result.frames.len(), 1);
         assert!(result.frames[0].symbolicated);
         assert_eq!(result.frames[0].file, "src/app.ts");
-        assert_eq!(
-            result.frames[0].function_name.as_deref(),
-            Some("handleClick")
-        );
+        assert_eq!(result.frames[0].function_name.as_deref(), Some("handleClick"));
     }
 
     #[test]
@@ -477,10 +441,7 @@ mod tests {
         let mut maps = HashMap::new();
         maps.insert("bundle.js".to_string(), sm);
 
-        let stacks = vec![
-            "Error\n    at foo (bundle.js:1:1)",
-            "Error\n    at bar (bundle.js:1:1)",
-        ];
+        let stacks = vec!["Error\n    at foo (bundle.js:1:1)", "Error\n    at bar (bundle.js:1:1)"];
         let results = symbolicate_batch(&stacks, &maps);
         assert_eq!(results.len(), 2);
         assert!(results[0].frames[0].symbolicated);
@@ -563,7 +524,7 @@ mod tests {
     }
 
     #[test]
-    fn parse_unparseable_lines() {
+    fn parse_unparsable_lines() {
         // Lines that don't match any frame format
         let input = "Error: boom\n  this is not a frame\n  neither is this";
         let parsed = parse_stack_trace_full(input);
@@ -625,11 +586,7 @@ mod tests {
 
         let stack = "Error: test\n    at foo (bundle.js:1:1)\n    at bar (unknown.js:5:3)";
         let result = symbolicate(stack, |file| {
-            if file == "bundle.js" {
-                SourceMap::from_json(map_json).ok()
-            } else {
-                None
-            }
+            if file == "bundle.js" { SourceMap::from_json(map_json).ok() } else { None }
         });
 
         assert_eq!(result.frames.len(), 2);
@@ -664,11 +621,7 @@ mod tests {
         let call_count = Cell::new(0u32);
         let result = symbolicate(stack, |file| {
             call_count.set(call_count.get() + 1);
-            if file == "bundle.js" {
-                SourceMap::from_json(map_json).ok()
-            } else {
-                None
-            }
+            if file == "bundle.js" { SourceMap::from_json(map_json).ok() } else { None }
         });
 
         assert_eq!(result.frames.len(), 2);
@@ -682,10 +635,7 @@ mod tests {
         // First line is just an error message, no frame indicators
         let input = "TypeError: Cannot read property 'x' of null";
         let parsed = parse_stack_trace_full(input);
-        assert_eq!(
-            parsed.message.as_deref(),
-            Some("TypeError: Cannot read property 'x' of null")
-        );
+        assert_eq!(parsed.message.as_deref(), Some("TypeError: Cannot read property 'x' of null"));
         assert!(parsed.frames.is_empty());
     }
 

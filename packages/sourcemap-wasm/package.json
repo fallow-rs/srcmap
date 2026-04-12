@@ -2,46 +2,50 @@
   "name": "@srcmap/sourcemap-wasm",
   "version": "0.3.1",
   "description": "High-performance source map parser and consumer powered by Rust (WebAssembly)",
+  "keywords": [
+    "browser",
+    "consumer",
+    "lookup",
+    "parser",
+    "performance",
+    "rust",
+    "source-map",
+    "sourcemap",
+    "wasm",
+    "webassembly"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/fallow-rs/srcmap.git"
+  },
+  "files": [
+    "browser/",
+    "pkg/",
+    "web/",
+    "README.md"
+  ],
   "type": "module",
   "main": "pkg/srcmap_sourcemap_wasm.js",
-  "types": "pkg/srcmap_sourcemap_wasm.d.ts",
-  "browser": "web/srcmap_sourcemap_wasm.js",
   "module": "web/srcmap_sourcemap_wasm.js",
+  "browser": "web/srcmap_sourcemap_wasm.js",
+  "types": "pkg/srcmap_sourcemap_wasm.d.ts",
   "exports": {
     ".": {
       "node": "./pkg/srcmap_sourcemap_wasm.js",
       "browser": "./web/srcmap_sourcemap_wasm.js",
       "default": "./pkg/srcmap_sourcemap_wasm.js"
+    },
+    "./browser": {
+      "default": "./browser/index.mjs"
     }
   },
-  "license": "MIT",
-  "files": [
-    "pkg/",
-    "web/",
-    "README.md"
-  ],
   "scripts": {
     "build": "wasm-pack build --target nodejs --out-dir pkg",
     "build:web": "wasm-pack build --target web --out-dir web",
     "build:bundler": "wasm-pack build --target bundler --out-dir bundler",
-    "build:all": "npm run build && npm run build:web",
+    "build:all": "pnpm run build && pnpm run build:web",
     "test": "node --test __tests__/sourcemap-wasm.test.mjs",
     "test:coverage": "mkdir -p coverage && node --test --experimental-test-coverage --test-reporter=lcov --test-reporter-destination=coverage/lcov.info --test-reporter=spec --test-reporter-destination=stdout __tests__/sourcemap-wasm.test.mjs"
-  },
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/fallow-rs/srcmap.git"
-  },
-  "keywords": [
-    "sourcemap",
-    "source-map",
-    "parser",
-    "consumer",
-    "lookup",
-    "rust",
-    "wasm",
-    "webassembly",
-    "performance",
-    "browser"
-  ]
+  }
 }

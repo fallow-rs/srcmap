@@ -90,28 +90,19 @@ impl Segment {
     /// Create a 1-field segment (generated column only).
     #[inline]
     pub fn one(a: i64) -> Self {
-        Self {
-            data: [a, 0, 0, 0, 0],
-            len: 1,
-        }
+        Self { data: [a, 0, 0, 0, 0], len: 1 }
     }
 
     /// Create a 4-field segment (with source info, no name).
     #[inline]
     pub fn four(a: i64, b: i64, c: i64, d: i64) -> Self {
-        Self {
-            data: [a, b, c, d, 0],
-            len: 4,
-        }
+        Self { data: [a, b, c, d, 0], len: 4 }
     }
 
     /// Create a 5-field segment (with source info and name).
     #[inline]
     pub fn five(a: i64, b: i64, c: i64, d: i64, e: i64) -> Self {
-        Self {
-            data: [a, b, c, d, e],
-            len: 5,
-        }
+        Self { data: [a, b, c, d, e], len: 5 }
     }
 
     /// Convert to a `Vec<i64>` (for interop with APIs that expect `Vec`).
@@ -164,10 +155,7 @@ impl From<Vec<i64>> for Segment {
         let mut data = [0i64; 5];
         let len = v.len().min(5);
         data[..len].copy_from_slice(&v[..len]);
-        Self {
-            data,
-            len: len as u8,
-        }
+        Self { data, len: len as u8 }
     }
 }
 
@@ -176,10 +164,7 @@ impl From<&[i64]> for Segment {
         let mut data = [0i64; 5];
         let len = s.len().min(5);
         data[..len].copy_from_slice(&s[..len]);
-        Self {
-            data,
-            len: len as u8,
-        }
+        Self { data, len: len as u8 }
     }
 }
 
@@ -206,10 +191,7 @@ impl fmt::Display for DecodeError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::InvalidBase64 { byte, offset } => {
-                write!(
-                    f,
-                    "invalid base64 character 0x{byte:02x} at offset {offset}"
-                )
+                write!(f, "invalid base64 character 0x{byte:02x} at offset {offset}")
             }
             Self::UnexpectedEof { offset } => {
                 write!(f, "unexpected end of input at offset {offset}")
@@ -268,10 +250,7 @@ mod tests {
 
     #[test]
     fn roundtrip_negative_deltas() {
-        let mappings = vec![vec![
-            Segment::four(10, 0, 10, 10),
-            Segment::four(20, 0, 5, 5),
-        ]];
+        let mappings = vec![vec![Segment::four(10, 0, 10, 10), Segment::four(20, 0, 5, 5)]];
         let encoded = encode(&mappings);
         let decoded = decode(&encoded).unwrap();
         assert_eq!(decoded, mappings);
@@ -346,26 +325,14 @@ mod tests {
     #[test]
     fn decode_invalid_ascii_char() {
         let err = decode("AA!A").unwrap_err();
-        assert_eq!(
-            err,
-            DecodeError::InvalidBase64 {
-                byte: b'!',
-                offset: 2
-            }
-        );
+        assert_eq!(err, DecodeError::InvalidBase64 { byte: b'!', offset: 2 });
     }
 
     #[test]
     fn decode_non_ascii_byte() {
         // 'À' is UTF-8 bytes [0xC3, 0x80] — both >= 128, caught by non-ASCII guard
         let err = decode("AAÀ").unwrap_err();
-        assert_eq!(
-            err,
-            DecodeError::InvalidBase64 {
-                byte: 0xC3,
-                offset: 2
-            }
-        );
+        assert_eq!(err, DecodeError::InvalidBase64 { byte: 0xC3, offset: 2 });
     }
 
     #[test]
@@ -387,40 +354,28 @@ mod tests {
     fn decode_truncated_segment_two_fields() {
         // "AC" = two VLQ values (0, 1) — 2-field segment is invalid per ECMA-426
         let err = decode("AC").unwrap_err();
-        assert!(matches!(
-            err,
-            DecodeError::InvalidSegmentLength { fields: 2, .. }
-        ));
+        assert!(matches!(err, DecodeError::InvalidSegmentLength { fields: 2, .. }));
     }
 
     #[test]
     fn decode_truncated_segment_three_fields() {
         // "ACA" = three VLQ values (0, 1, 0) — 3-field segment is invalid per ECMA-426
         let err = decode("ACA").unwrap_err();
-        assert!(matches!(
-            err,
-            DecodeError::InvalidSegmentLength { fields: 3, .. }
-        ));
+        assert!(matches!(err, DecodeError::InvalidSegmentLength { fields: 3, .. }));
     }
 
     #[test]
     fn decode_two_field_segment_followed_by_separator() {
         // "AC,AAAA" — first segment has 2 fields, invalid
         let err = decode("AC,AAAA").unwrap_err();
-        assert!(matches!(
-            err,
-            DecodeError::InvalidSegmentLength { fields: 2, .. }
-        ));
+        assert!(matches!(err, DecodeError::InvalidSegmentLength { fields: 2, .. }));
     }
 
     #[test]
     fn decode_three_field_segment_followed_by_separator() {
         // "ACA;AAAA" — first segment has 3 fields, invalid
         let err = decode("ACA;AAAA").unwrap_err();
-        assert!(matches!(
-            err,
-            DecodeError::InvalidSegmentLength { fields: 3, .. }
-        ));
+        assert!(matches!(err, DecodeError::InvalidSegmentLength { fields: 3, .. }));
     }
 
     // --- Encode edge cases ---
@@ -429,22 +384,12 @@ mod tests {
     fn encode_empty_segments_no_dangling_comma() {
         // Empty segments should be skipped without producing dangling commas
         let empty = Segment::from(&[] as &[i64]);
-        let mappings = vec![vec![
-            empty,
-            Segment::four(0, 0, 0, 0),
-            empty,
-            Segment::four(2, 0, 0, 1),
-        ]];
+        let mappings =
+            vec![vec![empty, Segment::four(0, 0, 0, 0), empty, Segment::four(2, 0, 0, 1)]];
         let encoded = encode(&mappings);
-        assert!(
-            !encoded.contains(",,"),
-            "should not contain dangling commas"
-        );
+        assert!(!encoded.contains(",,"), "should not contain dangling commas");
         // Should encode as if empty segments don't exist
-        let expected = encode(&vec![vec![
-            Segment::four(0, 0, 0, 0),
-            Segment::four(2, 0, 0, 1),
-        ]]);
+        let expected = encode(&vec![vec![Segment::four(0, 0, 0, 0), Segment::four(2, 0, 0, 1)]]);
         assert_eq!(encoded, expected);
     }
 
@@ -554,10 +499,7 @@ mod tests {
 
     #[test]
     fn decode_error_display_invalid_base64() {
-        let err = DecodeError::InvalidBase64 {
-            byte: b'!',
-            offset: 2,
-        };
+        let err = DecodeError::InvalidBase64 { byte: b'!', offset: 2 };
         assert_eq!(err.to_string(), "invalid base64 character 0x21 at offset 2");
     }
 
@@ -575,10 +517,7 @@ mod tests {
 
     #[test]
     fn decode_error_display_invalid_segment_length() {
-        let err = DecodeError::InvalidSegmentLength {
-            fields: 2,
-            offset: 3,
-        };
+        let err = DecodeError::InvalidSegmentLength { fields: 2, offset: 3 };
         assert_eq!(
             err.to_string(),
             "invalid segment with 2 fields at offset 3 (expected 1, 4, or 5)"

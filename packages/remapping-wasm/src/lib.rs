@@ -12,9 +12,7 @@ impl ConcatBuilder {
     /// Create a new concatenation builder.
     #[wasm_bindgen(constructor)]
     pub fn new(file: Option<String>) -> Self {
-        Self {
-            inner: srcmap_remapping::ConcatBuilder::new(file),
-        }
+        Self { inner: srcmap_remapping::ConcatBuilder::new(file) }
     }
 
     /// Add a source map (as JSON string) at the given line offset.

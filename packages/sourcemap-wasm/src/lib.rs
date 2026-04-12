@@ -3,7 +3,6 @@ use wasm_bindgen::prelude::*;
 
 /// Static result buffer for zero-allocation single lookups.
 /// Layout: [sourceIdx, line, column, nameIdx]. Values of -1 indicate no mapping/no name.
-/// SAFETY: WASM is single-threaded, so no data races are possible.
 static mut RESULT_BUF: [i32; 4] = [-1, -1, -1, -1];
 
 /// Get the pointer to the static result buffer in WASM linear memory.
@@ -12,7 +11,7 @@ static mut RESULT_BUF: [i32; 4] = [-1, -1, -1, -1];
 #[wasm_bindgen(js_name = "resultPtr")]
 pub fn result_ptr() -> *const i32 {
     // Use addr_of! to avoid creating a reference to static mut (Rust 2024)
-    addr_of!(RESULT_BUF) as *const i32
+    addr_of!(RESULT_BUF).cast::<i32>()
 }
 
 /// Expose WASM linear memory for direct buffer access from JS.
@@ -58,7 +57,10 @@ impl SourceMap {
     /// JS does JSON.parse() (V8-native speed), then only the VLQ mappings string
     /// is sent to WASM for decoding. sourcesContent is NOT copied — keep it JS-side.
     #[wasm_bindgen(js_name = "fromVlq")]
-    #[allow(clippy::too_many_arguments)]
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "JS passes parsed source map parts separately to avoid copying sourcesContent"
+    )]
     pub fn from_vlq(
         mappings: &str,
         sources: Vec<JsValue>,
@@ -68,14 +70,9 @@ impl SourceMap {
         ignore_list: Vec<u32>,
         debug_id: Option<String>,
     ) -> Result<SourceMap, JsError> {
-        let sources: Vec<String> = sources
-            .iter()
-            .map(|s| s.as_string().unwrap_or_default())
-            .collect();
-        let names: Vec<String> = names
-            .iter()
-            .map(|s| s.as_string().unwrap_or_default())
-            .collect();
+        let sources: Vec<String> =
+            sources.iter().map(|s| s.as_string().unwrap_or_default()).collect();
+        let names: Vec<String> = names.iter().map(|s| s.as_string().unwrap_or_default()).collect();
 
         let inner = srcmap_sourcemap::SourceMap::from_vlq(
             mappings,
@@ -112,10 +109,8 @@ impl SourceMap {
         match self.inner.original_position_for_with_bias(line, column, b) {
             Some(loc) => {
                 let obj = js_sys::Object::new();
-                let source: JsValue = self
-                    .inner
-                    .get_source(loc.source)
-                    .map_or(JsValue::NULL, |s| s.into());
+                let source: JsValue =
+                    self.inner.get_source(loc.source).map_or(JsValue::NULL, |s| s.into());
                 js_sys::Reflect::set(&obj, &"source".into(), &source).unwrap_or(false);
                 js_sys::Reflect::set(&obj, &"line".into(), &loc.line.into()).unwrap_or(false);
                 js_sys::Reflect::set(&obj, &"column".into(), &loc.column.into()).unwrap_or(false);
@@ -149,6 +144,8 @@ impl SourceMap {
     pub fn original_position_buf(&self, line: u32, column: u32) -> bool {
         match self.inner.original_position_for(line, column) {
             Some(loc) => {
+                // SAFETY: RESULT_BUF is a four-slot static buffer in single-threaded WASM,
+                // and this write stays entirely within that fixed allocation.
                 unsafe {
                     let buf = std::ptr::addr_of_mut!(RESULT_BUF);
                     (*buf)[0] = loc.source as i32;
@@ -183,10 +180,7 @@ impl SourceMap {
         } else {
             srcmap_sourcemap::Bias::GreatestLowerBound
         };
-        match self
-            .inner
-            .generated_position_for_with_bias(source, line, column, b)
-        {
+        match self.inner.generated_position_for_with_bias(source, line, column, b) {
             Some(loc) => {
                 let obj = js_sys::Object::new();
                 js_sys::Reflect::set(&obj, &"line".into(), &loc.line.into()).unwrap_or(false);
@@ -205,16 +199,11 @@ impl SourceMap {
         end_line: u32,
         end_column: u32,
     ) -> JsValue {
-        match self
-            .inner
-            .map_range(start_line, start_column, end_line, end_column)
-        {
+        match self.inner.map_range(start_line, start_column, end_line, end_column) {
             Some(range) => {
                 let obj = js_sys::Object::new();
-                let source: JsValue = self
-                    .inner
-                    .get_source(range.source)
-                    .map_or(JsValue::NULL, |s| s.into());
+                let source: JsValue =
+                    self.inner.get_source(range.source).map_or(JsValue::NULL, |s| s.into());
                 js_sys::Reflect::set(&obj, &"source".into(), &source).unwrap_or(false);
                 js_sys::Reflect::set(
                     &obj,
@@ -289,20 +278,12 @@ impl SourceMap {
 
     #[wasm_bindgen(getter)]
     pub fn sources(&self) -> Vec<JsValue> {
-        self.inner
-            .sources
-            .iter()
-            .map(|s| JsValue::from_str(s))
-            .collect()
+        self.inner.sources.iter().map(|s| JsValue::from_str(s)).collect()
     }
 
     #[wasm_bindgen(getter)]
     pub fn names(&self) -> Vec<JsValue> {
-        self.inner
-            .names
-            .iter()
-            .map(|s| JsValue::from_str(s))
-            .collect()
+        self.inner.names.iter().map(|s| JsValue::from_str(s)).collect()
     }
 
     #[wasm_bindgen(getter, js_name = "sourcesContent")]
@@ -410,18 +391,10 @@ impl SourceMap {
         for m in mappings {
             out.push(m.generated_line as i32);
             out.push(m.generated_column as i32);
-            out.push(if m.source == u32::MAX {
-                -1
-            } else {
-                m.source as i32
-            });
+            out.push(if m.source == u32::MAX { -1 } else { m.source as i32 });
             out.push(m.original_line as i32);
             out.push(m.original_column as i32);
-            out.push(if m.name == u32::MAX {
-                -1
-            } else {
-                m.name as i32
-            });
+            out.push(if m.name == u32::MAX { -1 } else { m.name as i32 });
             out.push(i32::from(m.is_range_mapping));
         }
         out
@@ -474,7 +447,7 @@ impl LazySourceMap {
     }
 
     /// Build from pre-parsed components. JS sends mappings + metadata JSON (no sourcesContent).
-    /// Only 2 strings cross the boundary — no per-element Vec<JsValue> overhead.
+    /// Only 2 strings cross the boundary — no per-element `Vec<JsValue>` overhead.
     #[wasm_bindgen(js_name = "fromParts")]
     pub fn from_parts(mappings: &str, metadata_json: &str) -> Result<LazySourceMap, JsError> {
         // Parse the small metadata JSON (no sourcesContent, no mappings — just arrays + strings)
@@ -509,10 +482,8 @@ impl LazySourceMap {
         match self.inner.original_position_for(line, column) {
             Some(loc) => {
                 let obj = js_sys::Object::new();
-                let source: JsValue = self
-                    .inner
-                    .get_source(loc.source)
-                    .map_or(JsValue::NULL, |s| s.into());
+                let source: JsValue =
+                    self.inner.get_source(loc.source).map_or(JsValue::NULL, |s| s.into());
                 js_sys::Reflect::set(&obj, &"source".into(), &source).unwrap_or(false);
                 js_sys::Reflect::set(&obj, &"line".into(), &loc.line.into()).unwrap_or(false);
                 js_sys::Reflect::set(&obj, &"column".into(), &loc.column.into()).unwrap_or(false);
@@ -544,6 +515,8 @@ impl LazySourceMap {
     pub fn original_position_buf(&self, line: u32, column: u32) -> bool {
         match self.inner.original_position_for(line, column) {
             Some(loc) => {
+                // SAFETY: RESULT_BUF is a four-slot static buffer in single-threaded WASM,
+                // and this write stays entirely within that fixed allocation.
                 unsafe {
                     let buf = std::ptr::addr_of_mut!(RESULT_BUF);
                     (*buf)[0] = loc.source as i32;
@@ -606,20 +579,12 @@ impl LazySourceMap {
 
     #[wasm_bindgen(getter)]
     pub fn sources(&self) -> Vec<JsValue> {
-        self.inner
-            .sources
-            .iter()
-            .map(|s| JsValue::from_str(s))
-            .collect()
+        self.inner.sources.iter().map(|s| JsValue::from_str(s)).collect()
     }
 
     #[wasm_bindgen(getter)]
     pub fn names(&self) -> Vec<JsValue> {
-        self.inner
-            .names
-            .iter()
-            .map(|s| JsValue::from_str(s))
-            .collect()
+        self.inner.names.iter().map(|s| JsValue::from_str(s)).collect()
     }
 
     #[wasm_bindgen(getter, js_name = "ignoreList")]

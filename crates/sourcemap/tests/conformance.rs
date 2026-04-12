@@ -105,10 +105,7 @@ fn conformance_ignore_list() {
 fn conformance_debug_id() {
     let json = r#"{"version":3,"sources":[],"names":[],"mappings":"","debugId":"12345678-1234-1234-1234-123456789abc"}"#;
     let sm = SourceMap::from_json(json).unwrap();
-    assert_eq!(
-        sm.debug_id.as_deref(),
-        Some("12345678-1234-1234-1234-123456789abc")
-    );
+    assert_eq!(sm.debug_id.as_deref(), Some("12345678-1234-1234-1234-123456789abc"));
 }
 
 // ── Indexed source maps ──────────────────────────────────────────
@@ -305,10 +302,7 @@ fn conformance_scopes_roundtrip_via_to_json() {
     let scopes_info = ScopeInfo {
         scopes: vec![Some(OriginalScope {
             start: Position { line: 0, column: 0 },
-            end: Position {
-                line: 10,
-                column: 0,
-            },
+            end: Position { line: 10, column: 0 },
             name: Some("global".to_string()),
             kind: None,
             is_stack_frame: false,
@@ -343,10 +337,7 @@ fn conformance_scopes_roundtrip_via_to_json() {
     assert!(sm.scopes.is_some());
 
     let output = sm.to_json();
-    assert!(
-        output.contains(r#""scopes":"#),
-        "to_json must emit scopes field"
-    );
+    assert!(output.contains(r#""scopes":"#), "to_json must emit scopes field");
 
     let sm2 = SourceMap::from_json(&output).unwrap();
     assert!(sm2.scopes.is_some());
@@ -385,10 +376,7 @@ fn conformance_roundtrip() {
                 assert_eq!(a.name, b.name);
             }
             (None, None) => {}
-            _ => panic!(
-                "roundtrip mismatch at {}:{}",
-                m.generated_line, m.generated_column
-            ),
+            _ => panic!("roundtrip mismatch at {}:{}", m.generated_line, m.generated_column),
         }
     }
 }

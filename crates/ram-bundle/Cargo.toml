@@ -2,12 +2,16 @@
 name = "srcmap-ram-bundle"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 description = "React Native RAM bundle parser for source map tooling"
 readme = "README.md"
 keywords = ["sourcemap", "ram-bundle", "react-native", "metro"]
 categories = ["parser-implementations"]
+
+[lints]
+workspace = true
 
 [dependencies]
 srcmap-sourcemap = { workspace = true }

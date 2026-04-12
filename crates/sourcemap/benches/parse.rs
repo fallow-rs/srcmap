@@ -85,9 +85,7 @@ fn parse_with_serde_json_minimal(json: &str) -> SourceMap {
 }
 
 fn generate_sourcemap_json(lines: usize, segs_per_line: usize, num_sources: usize) -> String {
-    let sources: Vec<String> = (0..num_sources)
-        .map(|i| format!("src/file{i}.js"))
-        .collect();
+    let sources: Vec<String> = (0..num_sources).map(|i| format!("src/file{i}.js")).collect();
     let names: Vec<String> = (0..20).map(|i| format!("var{i}")).collect();
     let sources_content: Vec<String> = (0..num_sources)
         .map(|i| format!("// source file {i}\n{}", "const x = 1;\n".repeat(lines)))
@@ -125,21 +123,13 @@ fn generate_sourcemap_json(lines: usize, segs_per_line: usize, num_sources: usiz
 
     format!(
         r#"{{"version":3,"sources":[{}],"sourcesContent":[{}],"names":[{}],"mappings":"{}"}}"#,
-        sources
-            .iter()
-            .map(|s| format!("\"{s}\""))
-            .collect::<Vec<_>>()
-            .join(","),
+        sources.iter().map(|s| format!("\"{s}\"")).collect::<Vec<_>>().join(","),
         sources_content
             .iter()
             .map(|s| serde_json::to_string(s).unwrap())
             .collect::<Vec<_>>()
             .join(","),
-        names
-            .iter()
-            .map(|n| format!("\"{n}\""))
-            .collect::<Vec<_>>()
-            .join(","),
+        names.iter().map(|n| format!("\"{n}\"")).collect::<Vec<_>>().join(","),
         encoded,
     )
 }
@@ -149,9 +139,7 @@ fn generate_sourcemap_json_no_content(
     segs_per_line: usize,
     num_sources: usize,
 ) -> String {
-    let sources: Vec<String> = (0..num_sources)
-        .map(|i| format!("src/file{i}.js"))
-        .collect();
+    let sources: Vec<String> = (0..num_sources).map(|i| format!("src/file{i}.js")).collect();
     let names: Vec<String> = (0..20).map(|i| format!("var{i}")).collect();
 
     let mut mappings_parts: Vec<Vec<Segment>> = Vec::with_capacity(lines);
@@ -186,16 +174,8 @@ fn generate_sourcemap_json_no_content(
 
     format!(
         r#"{{"version":3,"sources":[{}],"names":[{}],"mappings":"{}"}}"#,
-        sources
-            .iter()
-            .map(|s| format!("\"{s}\""))
-            .collect::<Vec<_>>()
-            .join(","),
-        names
-            .iter()
-            .map(|n| format!("\"{n}\""))
-            .collect::<Vec<_>>()
-            .join(","),
+        sources.iter().map(|s| format!("\"{s}\"")).collect::<Vec<_>>().join(","),
+        names.iter().map(|n| format!("\"{n}\"")).collect::<Vec<_>>().join(","),
         encoded,
     )
 }
@@ -359,7 +339,8 @@ fn bench_vlq_isolation(c: &mut Criterion) {
         .iter()
         .map(|(name, json)| {
             let jm: JustMappings = serde_json::from_str(json).unwrap();
-            let sources: Vec<String> = jm.sources.into_iter().map(|s| s.unwrap_or_default()).collect();
+            let sources: Vec<String> =
+                jm.sources.into_iter().map(|s| s.unwrap_or_default()).collect();
             (name.to_string(), jm.mappings, sources, jm.names)
         })
         .collect();

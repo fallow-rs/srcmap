@@ -1,0 +1,29 @@
+{
+  "$schema": "https://raw.githubusercontent.com/fallow-rs/fallow/main/schema.json",
+  "ignoreDependencies": [
+    "@napi-rs/cli",
+    "@srcmap/codec-darwin-arm64",
+    "@srcmap/codec-darwin-x64",
+    "@srcmap/codec-linux-arm64-gnu",
+    "@srcmap/codec-linux-arm64-musl",
+    "@srcmap/codec-linux-x64-gnu",
+    "@srcmap/codec-linux-x64-musl",
+    "@srcmap/codec-win32-x64-msvc",
+    "@srcmap/sourcemap-darwin-arm64",
+    "@srcmap/sourcemap-darwin-x64",
+    "@srcmap/sourcemap-linux-arm64-gnu",
+    "@srcmap/sourcemap-linux-arm64-musl",
+    "@srcmap/sourcemap-linux-x64-gnu",
+    "@srcmap/sourcemap-linux-x64-musl",
+    "@srcmap/sourcemap-win32-x64-msvc"
+  ],
+  "ignorePatterns": [
+    ".fallow/**",
+    "coverage/**",
+    "target/**",
+    "benchmarks/node_modules/**",
+    "packages/*/pkg/**",
+    "packages/*/web/**",
+    "packages/*/bundler/**"
+  ]
+}

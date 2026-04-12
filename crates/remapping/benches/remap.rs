@@ -81,10 +81,8 @@ fn bench_remap_bundler(c: &mut Criterion) {
 
     // Build outer map (bundler output referencing all intermediate files)
     let mut outer_gen = SourceMapGenerator::new(Some("bundle.js".to_string()));
-    let src_indices: Vec<u32> = inner_maps
-        .iter()
-        .map(|(name, _)| outer_gen.add_source(name))
-        .collect();
+    let src_indices: Vec<u32> =
+        inner_maps.iter().map(|(name, _)| outer_gen.add_source(name)).collect();
     for (s, &src) in src_indices.iter().enumerate() {
         let line_offset = (s as u32) * (mappings_per_source / 15);
         for i in 0..mappings_per_source {
@@ -99,10 +97,7 @@ fn bench_remap_bundler(c: &mut Criterion) {
     c.bench_function("remap_bundler_60k_20src", |b| {
         b.iter(|| {
             black_box(remap(&outer, |source| {
-                inner_maps
-                    .iter()
-                    .find(|(name, _)| name == source)
-                    .map(|(_, sm)| sm.clone())
+                inner_maps.iter().find(|(name, _)| name == source).map(|(_, sm)| sm.clone())
             }));
         })
     });
@@ -118,10 +113,7 @@ fn bench_remap_bundler(c: &mut Criterion) {
                 &outer.ignore_list,
                 outer.file.clone(),
                 |source| {
-                    inner_maps
-                        .iter()
-                        .find(|(name, _)| name == source)
-                        .map(|(_, sm)| sm.clone())
+                    inner_maps.iter().find(|(name, _)| name == source).map(|(_, sm)| sm.clone())
                 },
             ));
         })

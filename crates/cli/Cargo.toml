@@ -2,6 +2,7 @@
 name = "srcmap-cli"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 description = "CLI tool to inspect, validate, compose, and manipulate source maps"
@@ -12,6 +13,9 @@ categories = ["command-line-utilities", "development-tools"]
 [[bin]]
 name = "srcmap"
 path = "src/main.rs"
+
+[lints]
+workspace = true
 
 [dependencies]
 srcmap-codec = { workspace = true }

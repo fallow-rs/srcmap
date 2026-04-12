@@ -1,12 +1,14 @@
 [workspace]
-resolver = "2"
+resolver = "3"
 members = ["crates/*", "packages/codec", "packages/sourcemap", "packages/sourcemap-wasm", "packages/generator-wasm", "packages/remapping-wasm", "packages/symbolicate-wasm", "packages/scopes-wasm", "packages/generator", "packages/remapping"]
 
 [workspace.package]
 version = "0.3.1"
 edition = "2024"
+rust-version = "1.85"
 license = "MIT"
 repository = "https://github.com/fallow-rs/srcmap"
+homepage = "https://github.com/fallow-rs/srcmap"
 
 [workspace.dependencies]
 srcmap-codec = { version = "0.3.1", path = "crates/codec" }
@@ -15,8 +17,6 @@ srcmap-generator = { version = "0.3.1", path = "crates/generator" }
 srcmap-remapping = { version = "0.3.1", path = "crates/remapping" }
 srcmap-scopes = { version = "0.3.1", path = "crates/scopes" }
 srcmap-symbolicate = { version = "0.3.1", path = "crates/symbolicate" }
-srcmap-hermes = { version = "0.3.1", path = "crates/hermes" }
-srcmap-ram-bundle = { version = "0.3.1", path = "crates/ram-bundle" }
 criterion = { version = "0.5", features = ["html_reports"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["raw_value"] }
@@ -27,11 +27,94 @@ napi = { version = "2", default-features = false, features = ["napi6"] }
 napi-derive = "2"
 napi-build = "2"
 wasm-bindgen = "0.2"
-serde-wasm-bindgen = "0.6"
 js-sys = "0.3"
 clap = { version = "4", features = ["derive"] }
 rustc-hash = "2"
 ureq = "2"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+nursery = { level = "warn", priority = -1 }
+cargo = { level = "warn", priority = -1 }
+
+dbg_macro = "warn"
+todo = "warn"
+print_stdout = "warn"
+print_stderr = "warn"
+clone_on_ref_ptr = "warn"
+empty_drop = "warn"
+exit = "warn"
+get_unwrap = "warn"
+rc_buffer = "warn"
+rc_mutex = "warn"
+undocumented_unsafe_blocks = "warn"
+unnecessary_safety_comment = "warn"
+unused_result_ok = "warn"
+infinite_loop = "warn"
+unimplemented = "warn"
+excessive_nesting = "warn"
+self_named_module_files = "warn"
+allow_attributes_without_reason = "warn"
+filetype_is_file = "warn"
+rest_pat_in_fully_bound_structs = "warn"
+pub_underscore_fields = "warn"
+non_zero_suggestions = "warn"
+precedence_bits = "warn"
+empty_structs_with_brackets = "warn"
+pathbuf_init_then_push = "warn"
+map_with_unused_argument_over_ranges = "warn"
+
+module_name_repetitions = "allow"
+must_use_candidate = "allow"
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+cast_possible_truncation = "allow"
+cast_sign_loss = "allow"
+cast_precision_loss = "allow"
+cast_possible_wrap = "allow"
+cast_lossless = "allow"
+too_many_lines = "allow"
+items_after_statements = "allow"
+single_match_else = "allow"
+if_not_else = "allow"
+redundant_closure_for_method_calls = "allow"
+similar_names = "allow"
+wildcard_imports = "allow"
+unnested_or_patterns = "allow"
+doc_markdown = "allow"
+too_long_first_doc_paragraph = "allow"
+struct_excessive_bools = "allow"
+fn_params_excessive_bools = "allow"
+option_if_let_else = "allow"
+missing_const_for_fn = "allow"
+use_self = "allow"
+many_single_char_names = "allow"
+explicit_iter_loop = "allow"
+inline_always = "allow"
+wrong_self_convention = "allow"
+needless_pass_by_value = "allow"
+struct_field_names = "allow"
+uninlined_format_args = "allow"
+unnecessary_wraps = "allow"
+naive_bytecount = "allow"
+assigning_clones = "allow"
+match_same_arms = "allow"
+redundant_else = "allow"
+manual_let_else = "allow"
+implicit_hasher = "allow"
+semicolon_if_nothing_returned = "allow"
+elidable_lifetime_names = "allow"
+ref_option = "allow"
+map_unwrap_or = "allow"
+multiple_crate_versions = "allow"
+
+[workspace.lints.rust]
+unsafe_op_in_unsafe_fn = "warn"
+unused_unsafe = "warn"
+non_ascii_idents = "warn"
+unit_bindings = "warn"
+tail_expr_drop_order = "warn"
 
 [profile.release]
 lto = true

@@ -5,6 +5,8 @@
 //!
 //! Run with: `cargo run -p srcmap-sourcemap --example consumer`
 
+#![allow(clippy::print_stdout, reason = "Examples are intended to print walkthrough output")]
+
 use srcmap_sourcemap::{Bias, SourceMap};
 
 /// Source map JSON representing a two-file TypeScript bundle.
@@ -43,10 +45,7 @@ fn main() {
     // ── 1. Parse ──────────────────────────────────────────────────
     let sm = SourceMap::from_json(SOURCE_MAP_JSON).expect("valid source map");
 
-    println!(
-        "Parsed source map for {:?}",
-        sm.file.as_deref().unwrap_or("<unknown>")
-    );
+    println!("Parsed source map for {:?}", sm.file.as_deref().unwrap_or("<unknown>"));
     println!("  Sources: {:?}", sm.sources);
     println!("  Names:   {:?}", sm.names);
     println!("  Lines:   {}", sm.line_count());
@@ -63,9 +62,7 @@ fn main() {
     // Scenario: a stack trace says "bundle.js line 1, col 9".
     // We want to find the original position.
     println!("Forward lookup: generated(1, 9) → original");
-    let loc = sm
-        .original_position_for(1, 9)
-        .expect("mapping should exist");
+    let loc = sm.original_position_for(1, 9).expect("mapping should exist");
 
     println!(
         "  → {}:{}:{} (name: {:?})",
@@ -82,9 +79,7 @@ fn main() {
 
     // Another forward lookup: "console" at generated line 3, col 2
     println!("Forward lookup: generated(3, 2) → original");
-    let loc = sm
-        .original_position_for(3, 2)
-        .expect("mapping should exist");
+    let loc = sm.original_position_for(3, 2).expect("mapping should exist");
 
     println!(
         "  → {}:{}:{} (name: {:?})",
@@ -103,9 +98,8 @@ fn main() {
     // Scenario: set a breakpoint in src/app.ts at line 3, col 4.
     // Find the generated position for it.
     println!("Reverse lookup: src/app.ts:3:4 → generated");
-    let gen_loc = sm
-        .generated_position_for("src/app.ts", 3, 4)
-        .expect("reverse mapping should exist");
+    let gen_loc =
+        sm.generated_position_for("src/app.ts", 3, 4).expect("reverse mapping should exist");
 
     println!("  → bundle.js:{}:{}", gen_loc.line, gen_loc.column);
     assert_eq!(gen_loc.line, 3);
@@ -170,11 +164,7 @@ fn main() {
     let line_mappings = sm.mappings_for_line(2);
     for m in line_mappings {
         if m.source != u32::MAX {
-            let name_str = if m.name != u32::MAX {
-                sm.name(m.name)
-            } else {
-                "(none)"
-            };
+            let name_str = if m.name != u32::MAX { sm.name(m.name) } else { "(none)" };
             println!(
                 "  gen_col={} → {}:{}:{} name={}",
                 m.generated_column,
@@ -204,10 +194,7 @@ fn main() {
     assert!(sm.sources_content[0].is_some());
     assert!(sm.sources_content[1].is_some());
     println!("Source content for src/app.ts (first 40 chars):");
-    println!(
-        "  {:?}...",
-        &sm.sources_content[0].as_deref().unwrap_or("")[..40]
-    );
+    println!("  {:?}...", &sm.sources_content[0].as_deref().unwrap_or("")[..40]);
     println!();
 
     // ── 9. All mappings iteration ───────────────────────────────
@@ -221,9 +208,7 @@ fn main() {
 
     // Verify round-trip: parse the serialized output and check a lookup
     let sm2 = SourceMap::from_json(&output_json).expect("round-trip should parse");
-    let loc2 = sm2
-        .original_position_for(1, 9)
-        .expect("round-trip lookup should work");
+    let loc2 = sm2.original_position_for(1, 9).expect("round-trip lookup should work");
     assert_eq!(loc2.line, 1);
     assert_eq!(loc2.column, 9);
     assert_eq!(sm2.source(loc2.source), "src/app.ts");

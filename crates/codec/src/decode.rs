@@ -78,10 +78,7 @@ pub fn decode(input: &str) -> Result<SourceMapMappings, DecodeError> {
 
                 // Reject 2-field segments (only 1, 4, or 5 are valid per ECMA-426)
                 if pos >= len || bytes[pos] == b',' || bytes[pos] == b';' {
-                    return Err(DecodeError::InvalidSegmentLength {
-                        fields: 2,
-                        offset: pos,
-                    });
+                    return Err(DecodeError::InvalidSegmentLength { fields: 2, offset: pos });
                 }
 
                 // Field 3: original line
@@ -91,10 +88,7 @@ pub fn decode(input: &str) -> Result<SourceMapMappings, DecodeError> {
 
                 // Reject 3-field segments (only 1, 4, or 5 are valid per ECMA-426)
                 if pos >= len || bytes[pos] == b',' || bytes[pos] == b';' {
-                    return Err(DecodeError::InvalidSegmentLength {
-                        fields: 3,
-                        offset: pos,
-                    });
+                    return Err(DecodeError::InvalidSegmentLength { fields: 3, offset: pos });
                 }
 
                 // Field 4: original column
@@ -115,12 +109,7 @@ pub fn decode(input: &str) -> Result<SourceMapMappings, DecodeError> {
                         name_index,
                     )
                 } else {
-                    Segment::four(
-                        generated_column,
-                        source_index,
-                        original_line,
-                        original_column,
-                    )
+                    Segment::four(generated_column, source_index, original_line, original_column)
                 }
             } else {
                 Segment::one(generated_column)

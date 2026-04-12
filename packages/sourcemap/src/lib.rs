@@ -32,14 +32,12 @@ impl JsSourceMap {
     /// Both line and column are 0-based.
     #[napi]
     pub fn original_position_for(&self, line: u32, column: u32) -> Option<OriginalPosition> {
-        self.inner
-            .original_position_for(line, column)
-            .map(|loc| OriginalPosition {
-                source: Some(self.inner.source(loc.source).to_string()),
-                line: loc.line,
-                column: loc.column,
-                name: loc.name.map(|i| self.inner.name(i).to_string()),
-            })
+        self.inner.original_position_for(line, column).map(|loc| OriginalPosition {
+            source: Some(self.inner.source(loc.source).to_string()),
+            line: loc.line,
+            column: loc.column,
+            name: loc.name.map(|i| self.inner.name(i).to_string()),
+        })
     }
 
     /// Look up the original source position with a search bias.
@@ -56,14 +54,12 @@ impl JsSourceMap {
         } else {
             srcmap_sourcemap::Bias::GreatestLowerBound
         };
-        self.inner
-            .original_position_for_with_bias(line, column, b)
-            .map(|loc| OriginalPosition {
-                source: Some(self.inner.source(loc.source).to_string()),
-                line: loc.line,
-                column: loc.column,
-                name: loc.name.map(|i| self.inner.name(i).to_string()),
-            })
+        self.inner.original_position_for_with_bias(line, column, b).map(|loc| OriginalPosition {
+            source: Some(self.inner.source(loc.source).to_string()),
+            line: loc.line,
+            column: loc.column,
+            name: loc.name.map(|i| self.inner.name(i).to_string()),
+        })
     }
 
     /// Look up the generated position for an original source position.
@@ -77,10 +73,7 @@ impl JsSourceMap {
     ) -> Option<GeneratedPosition> {
         self.inner
             .generated_position_for(&source, line, column)
-            .map(|loc| GeneratedPosition {
-                line: loc.line,
-                column: loc.column,
-            })
+            .map(|loc| GeneratedPosition { line: loc.line, column: loc.column })
     }
 
     /// Look up the generated position with a search bias.
@@ -100,10 +93,7 @@ impl JsSourceMap {
         };
         self.inner
             .generated_position_for_with_bias(&source, line, column, b)
-            .map(|loc| GeneratedPosition {
-                line: loc.line,
-                column: loc.column,
-            })
+            .map(|loc| GeneratedPosition { line: loc.line, column: loc.column })
     }
 
     #[napi(getter)]

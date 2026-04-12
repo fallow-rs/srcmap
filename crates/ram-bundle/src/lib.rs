@@ -41,7 +41,7 @@ use std::fmt;
 use std::path::Path;
 
 /// Magic number for indexed RAM bundles (iOS format).
-const RAM_BUNDLE_MAGIC: u32 = 0xFB0BD1E5;
+const RAM_BUNDLE_MAGIC: u32 = 0xFB0B_D1E5;
 
 /// Size of the fixed header: magic (4) + module_count (4) + startup_code_size (4).
 const HEADER_SIZE: usize = 12;
@@ -156,9 +156,7 @@ impl IndexedRamBundle {
         let table_size = (module_count as usize)
             .checked_mul(MODULE_ENTRY_SIZE)
             .ok_or(RamBundleError::TooShort)?;
-        let table_end = HEADER_SIZE
-            .checked_add(table_size)
-            .ok_or(RamBundleError::TooShort)?;
+        let table_end = HEADER_SIZE.checked_add(table_size).ok_or(RamBundleError::TooShort)?;
 
         if data.len() < table_end {
             return Err(RamBundleError::TooShort);
@@ -166,9 +164,8 @@ impl IndexedRamBundle {
 
         // Startup code comes right after the module table
         let startup_start = table_end;
-        let startup_end = startup_start
-            .checked_add(startup_code_size)
-            .ok_or(RamBundleError::TooShort)?;
+        let startup_end =
+            startup_start.checked_add(startup_code_size).ok_or(RamBundleError::TooShort)?;
 
         if data.len() < startup_end {
             return Err(RamBundleError::TooShort);
@@ -217,17 +214,10 @@ impl IndexedRamBundle {
                 })?
                 .to_owned();
 
-            modules.push(Some(RamBundleModule {
-                id: i as u32,
-                source_code,
-            }));
+            modules.push(Some(RamBundleModule { id: i as u32, source_code }));
         }
 
-        Ok(Self {
-            module_count,
-            startup_code,
-            modules,
-        })
+        Ok(Self { module_count, startup_code, modules })
     }
 
     /// Returns the number of module slots in the bundle.
@@ -270,12 +260,7 @@ fn read_u32_le(data: &[u8], offset: usize) -> Option<u32> {
     if offset + 4 > data.len() {
         return None;
     }
-    Some(u32::from_le_bytes([
-        data[offset],
-        data[offset + 1],
-        data[offset + 2],
-        data[offset + 3],
-    ]))
+    Some(u32::from_le_bytes([data[offset], data[offset + 1], data[offset + 2], data[offset + 3]]))
 }
 
 #[cfg(test)]
@@ -385,21 +370,13 @@ mod tests {
 
         for (i, module) in bundle.modules().enumerate() {
             assert_eq!(module.id, i as u32);
-            assert!(
-                module
-                    .source_code
-                    .contains(&format!("'{}'", (b'a' + i as u8) as char))
-            );
+            assert!(module.source_code.contains(&format!("'{}'", (b'a' + i as u8) as char)));
         }
     }
 
     #[test]
     fn test_empty_module_slots() {
-        let modules = vec![
-            Some("__d(function(){},0);"),
-            None,
-            Some("__d(function(){},2);"),
-        ];
+        let modules = vec![Some("__d(function(){},0);"), None, Some("__d(function(){},2);")];
         let data = make_test_bundle(&modules, "");
         let bundle = IndexedRamBundle::from_bytes(&data).unwrap();
 
@@ -474,14 +451,8 @@ mod tests {
 
     #[test]
     fn test_display_errors() {
-        assert_eq!(
-            RamBundleError::InvalidMagic.to_string(),
-            "invalid RAM bundle magic number"
-        );
-        assert_eq!(
-            RamBundleError::TooShort.to_string(),
-            "data too short for RAM bundle header"
-        );
+        assert_eq!(RamBundleError::InvalidMagic.to_string(), "invalid RAM bundle magic number");
+        assert_eq!(RamBundleError::TooShort.to_string(), "data too short for RAM bundle header");
         assert_eq!(
             RamBundleError::InvalidEntry("bad".to_string()).to_string(),
             "invalid module entry: bad"

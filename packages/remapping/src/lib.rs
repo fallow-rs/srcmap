@@ -12,9 +12,7 @@ impl JsConcatBuilder {
     /// Create a new concatenation builder.
     #[napi(constructor)]
     pub fn new(file: Option<String>) -> Self {
-        Self {
-            inner: srcmap_remapping::ConcatBuilder::new(file),
-        }
+        Self { inner: srcmap_remapping::ConcatBuilder::new(file) }
     }
 
     /// Add a source map (as JSON string) at the given line offset.
@@ -59,22 +57,16 @@ pub fn remap(outer_json: String, loader_map: napi::JsObject) -> napi::Result<Str
                 if val_type == napi::ValueType::Null || val_type == napi::ValueType::Undefined {
                     return None;
                 }
-                let json_str: String = v
-                    .coerce_to_string()
-                    .ok()?
-                    .into_utf8()
-                    .ok()?
-                    .into_owned()
-                    .ok()?;
+                let json_str: String =
+                    v.coerce_to_string().ok()?.into_utf8().ok()?.into_owned().ok()?;
                 srcmap_sourcemap::SourceMap::from_json(&json_str).ok()
             });
             upstream_maps.insert(source.clone(), upstream);
         }
     }
 
-    let result = srcmap_remapping::remap(&outer, |source| {
-        upstream_maps.get(source).and_then(|v| v.clone())
-    });
+    let result =
+        srcmap_remapping::remap(&outer, |source| upstream_maps.get(source).and_then(|v| v.clone()));
 
     Ok(result.to_json())
 }

@@ -1,0 +1,23 @@
+rules:
+  # crates.io trusted publishing requires per-crate setup — using CARGO_REGISTRY_TOKEN for now
+  use-trusted-publishing:
+    ignore:
+      - release.yml
+  # dtolnay/rust-toolchain remains the standard Rust CI action here
+  superfluous-actions:
+    ignore:
+      - ci.yml
+      - coverage.yml
+      - release.yml
+  # Release workflow only runs on immutable tags; cache reuse there is acceptable
+  cache-poisoning:
+    ignore:
+      - release.yml
+  # Release publishing intentionally uses repository secrets without GitHub environments for now
+  secrets-outside-env:
+    ignore:
+      - release.yml
+  # pull_request_target is intentional here because release drafter does not check out PR code
+  dangerous-triggers:
+    ignore:
+      - release-drafter.yml

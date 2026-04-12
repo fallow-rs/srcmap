@@ -180,8 +180,8 @@ impl SourceMapGenerator {
 
     /// Assume mappings are already sorted by `(generated_line, generated_column)`.
     ///
-    /// When set to `true`, [`encode_mappings`](Self::encode_mappings) and
-    /// [`to_decoded_map`](Self::to_decoded_map) skip the sort step, avoiding
+    /// When set to `true`, the internal encoding path and [`to_decoded_map`](Self::to_decoded_map)
+    /// skip the sort step, avoiding
     /// both the `O(n log n)` sort and the `Vec<&Mapping>` allocation.
     /// Most bundlers add mappings in order, so this is a safe optimization
     /// in the common case.
@@ -348,13 +348,7 @@ impl SourceMapGenerator {
         {
             return false;
         }
-        self.add_mapping(
-            generated_line,
-            generated_column,
-            source,
-            original_line,
-            original_column,
-        );
+        self.add_mapping(generated_line, generated_column, source, original_line, original_column);
         true
     }
 
@@ -398,7 +392,7 @@ impl SourceMapGenerator {
     }
 
     /// Encode all mappings to a VLQ-encoded string.
-    #[allow(dead_code)] // Used in tests and parallel path
+    #[allow(dead_code, reason = "used by tests and the parallel encoding path")]
     fn encode_mappings(&self) -> String {
         if self.mappings.is_empty() {
             return String::new();
@@ -438,9 +432,7 @@ impl SourceMapGenerator {
     #[inline]
     fn encode_sequential_into<T: std::borrow::Borrow<Mapping>>(sorted: &[T], out: &mut Vec<u8>) {
         // Ensure enough capacity: 36 bytes per mapping + semicolons for line gaps
-        let max_line = sorted
-            .last()
-            .map_or(0, |m| m.borrow().generated_line as usize);
+        let max_line = sorted.last().map_or(0, |m| m.borrow().generated_line as usize);
         out.reserve(sorted.len() * 36 + max_line + 1);
 
         let mut prev_gen_col: i64 = 0;
@@ -493,17 +485,15 @@ impl SourceMapGenerator {
     }
 
     #[inline]
-    #[allow(dead_code)] // Used in tests and parallel path
+    #[allow(dead_code, reason = "used by tests and the parallel encoding path")]
     fn encode_sequential_impl<T: std::borrow::Borrow<Mapping>>(sorted: &[T]) -> String {
-        let max_line = sorted
-            .last()
-            .map_or(0, |m| m.borrow().generated_line as usize);
+        let max_line = sorted.last().map_or(0, |m| m.borrow().generated_line as usize);
         let mut out: Vec<u8> = Vec::with_capacity(sorted.len() * 36 + max_line + 1);
         Self::encode_sequential_into(sorted, &mut out);
 
+        debug_assert!(out.is_ascii());
         // SAFETY: vlq_encode only pushes bytes from BASE64_ENCODE (all ASCII),
         // and we only add b';' and b',' — all valid UTF-8.
-        debug_assert!(out.is_ascii());
         unsafe { String::from_utf8_unchecked(out) }
     }
 
@@ -632,9 +622,9 @@ impl SourceMapGenerator {
             return None;
         }
 
+        debug_assert!(out.is_ascii());
         // SAFETY: vlq_encode_unsigned only pushes ASCII base64 chars,
         // and we only add b';' and b',' — all valid UTF-8.
-        debug_assert!(out.is_ascii());
         Some(unsafe { String::from_utf8_unchecked(out) })
     }
 
@@ -654,11 +644,8 @@ impl SourceMapGenerator {
         // Estimate capacity for JSON output
         let sources_size: usize = self.sources.iter().map(|s| s.len() + 4).sum();
         let names_size: usize = names_for_json.iter().map(|n| n.len() + 4).sum();
-        let content_size: usize = self
-            .sources_content
-            .iter()
-            .map(|c| c.as_ref().map_or(5, |s| s.len() + 4))
-            .sum();
+        let content_size: usize =
+            self.sources_content.iter().map(|c| c.as_ref().map_or(5, |s| s.len() + 4)).sum();
         // Estimate mapping size: ~6 bytes per mapping on average
         let mappings_estimate = self.mappings.len() * 6;
         let capacity = 100 + sources_size + names_size + mappings_estimate + content_size;
@@ -694,11 +681,8 @@ impl SourceMapGenerator {
             {
                 use rayon::prelude::*;
 
-                let total_content: usize = self
-                    .sources_content
-                    .iter()
-                    .map(|c| c.as_ref().map_or(0, |s| s.len()))
-                    .sum();
+                let total_content: usize =
+                    self.sources_content.iter().map(|c| c.as_ref().map_or(0, |s| s.len())).sum();
 
                 if self.sources_content.len() >= 8 && total_content >= 8192 {
                     let quoted: Vec<String> = self
@@ -1155,10 +1139,7 @@ impl StreamingGenerator {
 
         // SAFETY: we just reserved 8 bytes, vlq_encode_unchecked needs at most 7.
         unsafe {
-            vlq_encode_unchecked(
-                &mut self.vlq_out,
-                generated_column as i64 - self.prev_gen_col,
-            );
+            vlq_encode_unchecked(&mut self.vlq_out, generated_column as i64 - self.prev_gen_col);
         }
         self.prev_gen_col = generated_column as i64;
         self.line_local_index += 1;
@@ -1189,25 +1170,16 @@ impl StreamingGenerator {
 
         // SAFETY: we reserved 29 bytes; 4 vlq_encode_unchecked calls use at most 28.
         unsafe {
-            vlq_encode_unchecked(
-                &mut self.vlq_out,
-                generated_column as i64 - self.prev_gen_col,
-            );
+            vlq_encode_unchecked(&mut self.vlq_out, generated_column as i64 - self.prev_gen_col);
             self.prev_gen_col = generated_column as i64;
 
             vlq_encode_unchecked(&mut self.vlq_out, source as i64 - self.prev_source);
             self.prev_source = source as i64;
 
-            vlq_encode_unchecked(
-                &mut self.vlq_out,
-                original_line as i64 - self.prev_orig_line,
-            );
+            vlq_encode_unchecked(&mut self.vlq_out, original_line as i64 - self.prev_orig_line);
             self.prev_orig_line = original_line as i64;
 
-            vlq_encode_unchecked(
-                &mut self.vlq_out,
-                original_column as i64 - self.prev_orig_col,
-            );
+            vlq_encode_unchecked(&mut self.vlq_out, original_column as i64 - self.prev_orig_col);
             self.prev_orig_col = original_column as i64;
         }
 
@@ -1229,8 +1201,7 @@ impl StreamingGenerator {
         original_column: u32,
     ) {
         self.advance_to_line(generated_line);
-        self.range_entries
-            .push((self.prev_gen_line, self.line_local_index));
+        self.range_entries.push((self.prev_gen_line, self.line_local_index));
 
         // Reserve enough for separator (1) + 4 VLQ values (4 × 7 = 28) = 29 bytes
         self.vlq_out.reserve(29);
@@ -1242,25 +1213,16 @@ impl StreamingGenerator {
 
         // SAFETY: we reserved 29 bytes; 4 vlq_encode_unchecked calls use at most 28.
         unsafe {
-            vlq_encode_unchecked(
-                &mut self.vlq_out,
-                generated_column as i64 - self.prev_gen_col,
-            );
+            vlq_encode_unchecked(&mut self.vlq_out, generated_column as i64 - self.prev_gen_col);
             self.prev_gen_col = generated_column as i64;
 
             vlq_encode_unchecked(&mut self.vlq_out, source as i64 - self.prev_source);
             self.prev_source = source as i64;
 
-            vlq_encode_unchecked(
-                &mut self.vlq_out,
-                original_line as i64 - self.prev_orig_line,
-            );
+            vlq_encode_unchecked(&mut self.vlq_out, original_line as i64 - self.prev_orig_line);
             self.prev_orig_line = original_line as i64;
 
-            vlq_encode_unchecked(
-                &mut self.vlq_out,
-                original_column as i64 - self.prev_orig_col,
-            );
+            vlq_encode_unchecked(&mut self.vlq_out, original_column as i64 - self.prev_orig_col);
             self.prev_orig_col = original_column as i64;
         }
 
@@ -1293,25 +1255,16 @@ impl StreamingGenerator {
 
         // SAFETY: we reserved 36 bytes; 5 vlq_encode_unchecked calls use at most 35.
         unsafe {
-            vlq_encode_unchecked(
-                &mut self.vlq_out,
-                generated_column as i64 - self.prev_gen_col,
-            );
+            vlq_encode_unchecked(&mut self.vlq_out, generated_column as i64 - self.prev_gen_col);
             self.prev_gen_col = generated_column as i64;
 
             vlq_encode_unchecked(&mut self.vlq_out, source as i64 - self.prev_source);
             self.prev_source = source as i64;
 
-            vlq_encode_unchecked(
-                &mut self.vlq_out,
-                original_line as i64 - self.prev_orig_line,
-            );
+            vlq_encode_unchecked(&mut self.vlq_out, original_line as i64 - self.prev_orig_line);
             self.prev_orig_line = original_line as i64;
 
-            vlq_encode_unchecked(
-                &mut self.vlq_out,
-                original_column as i64 - self.prev_orig_col,
-            );
+            vlq_encode_unchecked(&mut self.vlq_out, original_column as i64 - self.prev_orig_col);
             self.prev_orig_col = original_column as i64;
 
             vlq_encode_unchecked(&mut self.vlq_out, name as i64 - self.prev_name);
@@ -1338,8 +1291,7 @@ impl StreamingGenerator {
         name: u32,
     ) {
         self.advance_to_line(generated_line);
-        self.range_entries
-            .push((self.prev_gen_line, self.line_local_index));
+        self.range_entries.push((self.prev_gen_line, self.line_local_index));
 
         // Reserve enough for separator (1) + 5 VLQ values (5 × 7 = 35) = 36 bytes
         self.vlq_out.reserve(36);
@@ -1351,25 +1303,16 @@ impl StreamingGenerator {
 
         // SAFETY: we reserved 36 bytes; 5 vlq_encode_unchecked calls use at most 35.
         unsafe {
-            vlq_encode_unchecked(
-                &mut self.vlq_out,
-                generated_column as i64 - self.prev_gen_col,
-            );
+            vlq_encode_unchecked(&mut self.vlq_out, generated_column as i64 - self.prev_gen_col);
             self.prev_gen_col = generated_column as i64;
 
             vlq_encode_unchecked(&mut self.vlq_out, source as i64 - self.prev_source);
             self.prev_source = source as i64;
 
-            vlq_encode_unchecked(
-                &mut self.vlq_out,
-                original_line as i64 - self.prev_orig_line,
-            );
+            vlq_encode_unchecked(&mut self.vlq_out, original_line as i64 - self.prev_orig_line);
             self.prev_orig_line = original_line as i64;
 
-            vlq_encode_unchecked(
-                &mut self.vlq_out,
-                original_column as i64 - self.prev_orig_col,
-            );
+            vlq_encode_unchecked(&mut self.vlq_out, original_column as i64 - self.prev_orig_col);
             self.prev_orig_col = original_column as i64;
 
             vlq_encode_unchecked(&mut self.vlq_out, name as i64 - self.prev_name);
@@ -1406,11 +1349,8 @@ impl StreamingGenerator {
         // Better capacity estimate to avoid reallocs
         let sources_size: usize = self.sources.iter().map(|s| s.len() + 4).sum();
         let names_size: usize = self.names.iter().map(|n| n.len() + 4).sum();
-        let content_size: usize = self
-            .sources_content
-            .iter()
-            .map(|c| c.as_ref().map_or(5, |s| s.len() + 4))
-            .sum();
+        let content_size: usize =
+            self.sources_content.iter().map(|c| c.as_ref().map_or(5, |s| s.len() + 4)).sum();
         let capacity = 100 + sources_size + names_size + vlq.len() + content_size;
 
         let mut json: Vec<u8> = Vec::with_capacity(capacity);
@@ -1568,17 +1508,13 @@ impl StreamingGenerator {
             return None;
         }
 
-        // SAFETY: VLQ output is always valid ASCII/UTF-8
+        // SAFETY: VLQ output is always valid ASCII/UTF-8.
         Some(unsafe { String::from_utf8_unchecked(out) })
     }
 
     /// Get the VLQ mappings as a str slice, trimming trailing semicolons.
     fn vlq_str(&self) -> &str {
-        let end = self
-            .vlq_out
-            .iter()
-            .rposition(|&b| b != b';')
-            .map_or(0, |i| i + 1);
+        let end = self.vlq_out.iter().rposition(|&b| b != b';').map_or(0, |i| i + 1);
         // SAFETY: VLQ output is always valid ASCII/UTF-8
         unsafe { std::str::from_utf8_unchecked(&self.vlq_out[..end]) }
     }
@@ -1591,11 +1527,7 @@ impl StreamingGenerator {
     pub fn into_parts(self) -> SourceMapParts {
         let range_mappings = self.encode_range_mappings();
         // Trim trailing semicolons from VLQ output
-        let end = self
-            .vlq_out
-            .iter()
-            .rposition(|&b| b != b';')
-            .map_or(0, |i| i + 1);
+        let end = self.vlq_out.iter().rposition(|&b| b != b';').map_or(0, |i| i + 1);
         // SAFETY: VLQ output is always valid ASCII/UTF-8
         let mappings = unsafe { String::from_utf8_unchecked(self.vlq_out[..end].to_vec()) };
 
@@ -2127,10 +2059,7 @@ mod tests {
                     );
                 }
                 (None, None) => {}
-                _ => panic!(
-                    "lookup mismatch at ({}, {})",
-                    m.generated_line, m.generated_column
-                ),
+                _ => panic!("lookup mismatch at ({}, {})", m.generated_line, m.generated_column),
             }
         }
     }
@@ -2236,10 +2165,7 @@ mod tests {
         assert!(json.contains(r#""debugId":"85314830-023f-4cf1-a267-535f4e37bb17""#));
 
         let sm = srcmap_sourcemap::SourceMap::from_json(&json).unwrap();
-        assert_eq!(
-            sm.debug_id.as_deref(),
-            Some("85314830-023f-4cf1-a267-535f4e37bb17")
-        );
+        assert_eq!(sm.debug_id.as_deref(), Some("85314830-023f-4cf1-a267-535f4e37bb17"));
     }
 
     #[test]
@@ -2260,10 +2186,7 @@ mod tests {
         builder.set_scopes(ScopeInfo {
             scopes: vec![Some(OriginalScope {
                 start: Position { line: 0, column: 0 },
-                end: Position {
-                    line: 3,
-                    column: 14,
-                },
+                end: Position { line: 3, column: 14 },
                 name: None,
                 kind: Some("global".to_string()),
                 is_stack_frame: false,
@@ -2280,10 +2203,7 @@ mod tests {
             })],
             ranges: vec![GeneratedRange {
                 start: Position { line: 0, column: 0 },
-                end: Position {
-                    line: 3,
-                    column: 14,
-                },
+                end: Position { line: 3, column: 14 },
                 is_stack_frame: false,
                 is_hidden: false,
                 definition: Some(0),
@@ -2330,19 +2250,13 @@ mod tests {
         assert_eq!(scopes_info.ranges.len(), 1);
         let outer = &scopes_info.ranges[0];
         assert_eq!(outer.definition, Some(0));
-        assert_eq!(
-            outer.bindings,
-            vec![Binding::Expression("hello".to_string())]
-        );
+        assert_eq!(outer.bindings, vec![Binding::Expression("hello".to_string())]);
         assert_eq!(outer.children.len(), 1);
 
         let inner = &outer.children[0];
         assert_eq!(inner.definition, Some(1));
         assert!(inner.is_stack_frame);
-        assert_eq!(
-            inner.bindings,
-            vec![Binding::Expression("name".to_string())]
-        );
+        assert_eq!(inner.bindings, vec![Binding::Expression("name".to_string())]);
     }
 
     #[test]
@@ -2358,10 +2272,7 @@ mod tests {
         builder.set_scopes(ScopeInfo {
             scopes: vec![Some(OriginalScope {
                 start: Position { line: 0, column: 0 },
-                end: Position {
-                    line: 10,
-                    column: 0,
-                },
+                end: Position { line: 10, column: 0 },
                 name: None,
                 kind: None,
                 is_stack_frame: false,
@@ -2378,10 +2289,7 @@ mod tests {
             })],
             ranges: vec![GeneratedRange {
                 start: Position { line: 0, column: 0 },
-                end: Position {
-                    line: 10,
-                    column: 0,
-                },
+                end: Position { line: 10, column: 0 },
                 is_stack_frame: false,
                 is_hidden: false,
                 definition: Some(0),
@@ -2393,11 +2301,7 @@ mod tests {
                     is_stack_frame: true,
                     is_hidden: false,
                     definition: Some(1),
-                    call_site: Some(CallSite {
-                        source_index: 0,
-                        line: 8,
-                        column: 0,
-                    }),
+                    call_site: Some(CallSite { source_index: 0, line: 8, column: 0 }),
                     bindings: vec![Binding::Expression("\"Hello\"".to_string())],
                     children: vec![],
                 }],
@@ -2410,18 +2314,8 @@ mod tests {
 
         // Verify call site on inlined range
         let inlined = &info.ranges[0].children[0];
-        assert_eq!(
-            inlined.call_site,
-            Some(CallSite {
-                source_index: 0,
-                line: 8,
-                column: 0,
-            })
-        );
-        assert_eq!(
-            inlined.bindings,
-            vec![Binding::Expression("\"Hello\"".to_string())]
-        );
+        assert_eq!(inlined.call_site, Some(CallSite { source_index: 0, line: 8, column: 0 }));
+        assert_eq!(inlined.bindings, vec![Binding::Expression("\"Hello\"".to_string())]);
     }
 
     #[test]
@@ -2467,10 +2361,7 @@ mod tests {
         let json = builder.to_json();
         // Verify it's valid JSON by parsing
         let sm = srcmap_sourcemap::SourceMap::from_json(&json).unwrap();
-        assert_eq!(
-            sm.sources_content,
-            vec![Some("line1\nline2\r\ttab\\\"\x01end".to_string())]
-        );
+        assert_eq!(sm.sources_content, vec![Some("line1\nline2\r\ttab\\\"\x01end".to_string())]);
     }
 
     #[test]

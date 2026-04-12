@@ -13,6 +13,8 @@
 //!
 //! Run with: cargo run -p srcmap-symbolicate --example error_symbolication
 
+#![allow(clippy::print_stdout, reason = "Examples are intended to print walkthrough output")]
+
 use std::collections::HashMap;
 
 use srcmap_sourcemap::SourceMap;
@@ -97,22 +99,13 @@ TypeError: Cannot read property 'x' of null
         );
     }
 
-    assert_eq!(
-        v8_parsed.message.as_deref(),
-        Some("TypeError: Cannot read property 'x' of null")
-    );
+    assert_eq!(v8_parsed.message.as_deref(), Some("TypeError: Cannot read property 'x' of null"));
     assert_eq!(v8_parsed.frames.len(), 2);
-    assert_eq!(
-        v8_parsed.frames[0].function_name.as_deref(),
-        Some("processData")
-    );
+    assert_eq!(v8_parsed.frames[0].function_name.as_deref(), Some("processData"));
     assert_eq!(v8_parsed.frames[0].file, "bundle.js");
     assert_eq!(v8_parsed.frames[0].line, 3);
     assert_eq!(v8_parsed.frames[0].column, 10);
-    assert_eq!(
-        v8_parsed.frames[1].function_name.as_deref(),
-        Some("handleClick")
-    );
+    assert_eq!(v8_parsed.frames[1].function_name.as_deref(), Some("handleClick"));
     assert_eq!(v8_parsed.frames[1].line, 1);
     assert_eq!(v8_parsed.frames[1].column, 1);
 
@@ -175,21 +168,14 @@ handleClick@bundle.js:1:1";
     println!("\n--- Step 4: Symbolicate V8 stack trace ---\n");
 
     let v8_result = symbolicate(v8_stack, |file| {
-        if file == "bundle.js" {
-            SourceMap::from_json(&source_map_json).ok()
-        } else {
-            None
-        }
+        if file == "bundle.js" { SourceMap::from_json(&source_map_json).ok() } else { None }
     });
 
     println!("  Symbolicated stack (Display):\n");
     // SymbolicatedStack implements Display, printing a V8-style resolved trace
     print!("{v8_result}");
 
-    assert_eq!(
-        v8_result.message.as_deref(),
-        Some("TypeError: Cannot read property 'x' of null")
-    );
+    assert_eq!(v8_result.message.as_deref(), Some("TypeError: Cannot read property 'x' of null"));
     assert_eq!(v8_result.frames.len(), 2);
 
     // Frame 0: bundle.js:3:10 (1-based) -> 0-based (2, 9) -> src/app.ts (9, 4) -> 1-based (10, 5)
@@ -197,20 +183,14 @@ handleClick@bundle.js:1:1";
     assert_eq!(v8_result.frames[0].file, "src/app.ts");
     assert_eq!(v8_result.frames[0].line, 10);
     assert_eq!(v8_result.frames[0].column, 5);
-    assert_eq!(
-        v8_result.frames[0].function_name.as_deref(),
-        Some("processData")
-    );
+    assert_eq!(v8_result.frames[0].function_name.as_deref(), Some("processData"));
 
     // Frame 1: bundle.js:1:1 (1-based) -> 0-based (0, 0) -> src/app.ts (4, 0) -> 1-based (5, 1)
     assert!(v8_result.frames[1].symbolicated);
     assert_eq!(v8_result.frames[1].file, "src/app.ts");
     assert_eq!(v8_result.frames[1].line, 5);
     assert_eq!(v8_result.frames[1].column, 1);
-    assert_eq!(
-        v8_result.frames[1].function_name.as_deref(),
-        Some("handleClick")
-    );
+    assert_eq!(v8_result.frames[1].function_name.as_deref(), Some("handleClick"));
 
     // -----------------------------------------------------------------------
     // 5. Symbolicate the SpiderMonkey stack trace
@@ -219,11 +199,7 @@ handleClick@bundle.js:1:1";
     println!("\n--- Step 5: Symbolicate SpiderMonkey stack trace ---\n");
 
     let sm_result = symbolicate(sm_stack, |file| {
-        if file == "bundle.js" {
-            SourceMap::from_json(&source_map_json).ok()
-        } else {
-            None
-        }
+        if file == "bundle.js" { SourceMap::from_json(&source_map_json).ok() } else { None }
     });
 
     print!("{sm_result}");
@@ -281,16 +257,10 @@ ReferenceError: foo is not defined
     let batch_results = symbolicate_batch(&stacks, &maps);
 
     assert_eq!(batch_results.len(), 2);
-    println!(
-        "  Batch result 1 ({} frames):",
-        batch_results[0].frames.len()
-    );
+    println!("  Batch result 1 ({} frames):", batch_results[0].frames.len());
     print!("{}", batch_results[0]);
 
-    println!(
-        "  Batch result 2 ({} frames):",
-        batch_results[1].frames.len()
-    );
+    println!("  Batch result 2 ({} frames):", batch_results[1].frames.len());
     print!("{}", batch_results[1]);
 
     // First stack: same as individual symbolication
@@ -301,10 +271,7 @@ ReferenceError: foo is not defined
     // Second stack: single frame
     assert_eq!(batch_results[1].frames.len(), 1);
     assert!(batch_results[1].frames[0].symbolicated);
-    assert_eq!(
-        batch_results[1].message.as_deref(),
-        Some("ReferenceError: foo is not defined")
-    );
+    assert_eq!(batch_results[1].message.as_deref(), Some("ReferenceError: foo is not defined"));
 
     // -----------------------------------------------------------------------
     // 8. Debug ID resolution

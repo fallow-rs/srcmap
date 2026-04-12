@@ -6,11 +6,8 @@ use std::hint::black_box;
 
 /// Synthetic all-zero mappings (best case: single-char VLQ values).
 fn make_synthetic_mappings() -> String {
-    let line = (0..50).map(|_| "AAAA").collect::<Vec<_>>().join(",");
-    (0..1000)
-        .map(|_| line.as_str())
-        .collect::<Vec<_>>()
-        .join(";")
+    let line = std::iter::repeat_n("AAAA", 50).collect::<Vec<_>>().join(",");
+    std::iter::repeat_n(line.as_str(), 1000).collect::<Vec<_>>().join(";")
 }
 
 /// Realistic mappings with varied deltas and multi-byte VLQ sequences.

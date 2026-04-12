@@ -38,10 +38,7 @@ pub struct SourceView {
 impl SourceView {
     /// Create a new `SourceView` from a shared source string.
     pub fn new(source: Arc<str>) -> Self {
-        Self {
-            source,
-            line_cache: OnceLock::new(),
-        }
+        Self { source, line_cache: OnceLock::new() }
     }
 
     /// Create a new `SourceView` from an owned `String`.
@@ -143,8 +140,7 @@ impl SourceView {
 
     /// Compute or retrieve the cached line ranges.
     fn lines(&self) -> &[LineRange] {
-        self.line_cache
-            .get_or_init(|| compute_line_ranges(&self.source))
+        self.line_cache.get_or_init(|| compute_line_ranges(&self.source))
     }
 }
 
@@ -363,11 +359,7 @@ fn extract_trailing_identifier(s: &str) -> Option<&str> {
         return None;
     }
 
-    if is_valid_javascript_identifier(ident) {
-        Some(ident)
-    } else {
-        None
-    }
+    if is_valid_javascript_identifier(ident) { Some(ident) } else { None }
 }
 
 #[cfg(test)]
@@ -477,10 +469,7 @@ mod tests {
         // Each char here is 3 bytes in UTF-8 but 1 UTF-16 code unit
         let view = SourceView::from_string("\u{00e9}\u{00e8}\u{00ea}abc".into());
         // UTF-16 col 0 = \u{00e9}, col 1 = \u{00e8}, col 2 = \u{00ea}, col 3 = a, etc.
-        assert_eq!(
-            view.get_line_slice(0, 0, 3),
-            Some("\u{00e9}\u{00e8}\u{00ea}")
-        );
+        assert_eq!(view.get_line_slice(0, 0, 3), Some("\u{00e9}\u{00e8}\u{00ea}"));
         assert_eq!(view.get_line_slice(0, 3, 3), Some("abc"));
     }
 
@@ -571,10 +560,7 @@ mod tests {
     fn test_extract_function_call() {
         assert_eq!(extract_function_name_candidate("foo("), Some("foo"));
         assert_eq!(extract_function_name_candidate("  bar("), Some("bar"));
-        assert_eq!(
-            extract_function_name_candidate("obj.method("),
-            Some("method")
-        );
+        assert_eq!(extract_function_name_candidate("obj.method("), Some("method"));
     }
 
     #[test]
@@ -612,10 +598,7 @@ mod tests {
     fn test_extract_variable_declaration() {
         assert_eq!(extract_function_name_candidate("var x"), Some("x"));
         assert_eq!(extract_function_name_candidate("let myVar"), Some("myVar"));
-        assert_eq!(
-            extract_function_name_candidate("const CONSTANT"),
-            Some("CONSTANT")
-        );
+        assert_eq!(extract_function_name_candidate("const CONSTANT"), Some("CONSTANT"));
     }
 
     #[test]
@@ -635,7 +618,7 @@ mod tests {
     #[test]
     fn test_arc_construction() {
         let source: Arc<str> = Arc::from("test source");
-        let view = SourceView::new(source.clone());
+        let view = SourceView::new(Arc::clone(&source));
         assert_eq!(view.source(), "test source");
     }
 
@@ -651,6 +634,7 @@ mod tests {
         // Prime the cache
         assert_eq!(view.line_count(), 2);
         let view2 = view.clone();
+        assert_eq!(view.get_line(1), Some("line2"));
         assert_eq!(view2.line_count(), 2);
         assert_eq!(view2.get_line(0), Some("line1"));
     }
@@ -677,12 +661,7 @@ mod tests {
 
         // For now, verify that the function works without crashing when there's no match
         let view = SourceView::from_string("a(b)".into());
-        let token = OriginalLocation {
-            source: 0,
-            line: 0,
-            column: 0,
-            name: Some(0),
-        };
+        let token = OriginalLocation { source: 0, line: 0, column: 0, name: Some(0) };
         // This should return None since the heuristic won't find a matching minified name
         let result = view.get_original_function_name(&token, "nonexistent", &sm);
         assert_eq!(result, None);
@@ -728,12 +707,7 @@ mod tests {
 
         // Token is at original 0:5 with name "originalArg"
         // We want to find the function name "originalFunc" for this token
-        let token = OriginalLocation {
-            source: 0,
-            line: 0,
-            column: 5,
-            name: Some(1),
-        };
+        let token = OriginalLocation { source: 0, line: 0, column: 5, name: Some(1) };
 
         // The minified name "a" should match the candidate extracted from "a("
         let result = view.get_original_function_name(&token, "a", &sm);

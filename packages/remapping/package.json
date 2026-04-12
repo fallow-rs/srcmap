@@ -2,6 +2,28 @@
   "name": "@srcmap/remapping",
   "version": "0.3.1",
   "description": "Drop-in replacement for @jridgewell/remapping and @ampproject/remapping powered by Rust via WebAssembly",
+  "keywords": [
+    "composition",
+    "concatenation",
+    "drop-in",
+    "performance",
+    "remapping",
+    "source-map",
+    "sourcemap",
+    "wasm",
+    "webassembly"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/fallow-rs/srcmap.git"
+  },
+  "files": [
+    "src/remapping.mjs",
+    "src/remapping.cjs",
+    "index.d.ts",
+    "README.md"
+  ],
   "type": "module",
   "main": "src/remapping.cjs",
   "module": "src/remapping.mjs",
@@ -14,33 +36,15 @@
       "default": "./src/remapping.mjs"
     }
   },
-  "license": "MIT",
-  "files": [
-    "src/remapping.mjs",
-    "src/remapping.cjs",
-    "index.d.ts",
-    "README.md"
-  ],
   "scripts": {
     "test": "node --test __tests__/remapping.test.mjs",
-    "test:cjs": "node --test __tests__/remapping.cjs.test.cjs"
+    "test:cjs": "node --test __tests__/remapping.cjs.test.cjs",
+    "test:compat": "node --test __tests__/compat.test.mjs"
   },
   "dependencies": {
     "@srcmap/remapping-wasm": "0.3.1"
   },
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/fallow-rs/srcmap.git"
-  },
-  "keywords": [
-    "sourcemap",
-    "source-map",
-    "remapping",
-    "composition",
-    "concatenation",
-    "wasm",
-    "webassembly",
-    "performance",
-    "drop-in"
-  ]
+  "devDependencies": {
+    "@jridgewell/remapping": "^2.3.5"
+  }
 }

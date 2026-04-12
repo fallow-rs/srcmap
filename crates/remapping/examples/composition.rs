@@ -15,6 +15,8 @@
 //!
 //! Run with: cargo run -p srcmap-remapping --example composition
 
+#![allow(clippy::print_stdout, reason = "Examples are intended to print walkthrough output")]
+
 use srcmap_generator::SourceMapGenerator;
 use srcmap_remapping::{remap, remap_streaming};
 use srcmap_sourcemap::{MappingsIter, SourceMap};
@@ -179,20 +181,14 @@ fn main() {
     assert_eq!(composed.source(loc.source), "original.ts");
     assert_eq!(loc.line, 0);
     assert_eq!(loc.column, 0);
-    println!(
-        "  output.min.js 0:0  -> original.ts {}:{}",
-        loc.line, loc.column
-    );
+    println!("  output.min.js 0:0  -> original.ts {}:{}", loc.line, loc.column);
 
     // `greet` at minified col 9 -> original.ts line 0, col 9
     let loc = composed.original_position_for(0, 9).unwrap();
     assert_eq!(composed.source(loc.source), "original.ts");
     assert_eq!(loc.line, 0);
     assert_eq!(loc.column, 9);
-    println!(
-        "  output.min.js 0:9  -> original.ts {}:{}",
-        loc.line, loc.column
-    );
+    println!("  output.min.js 0:9  -> original.ts {}:{}", loc.line, loc.column);
 
     // `n` (was `name`) at minified col 15 -> original.ts line 0, col 15
     let loc = composed.original_position_for(0, 15).unwrap();
@@ -224,20 +220,14 @@ fn main() {
     assert_eq!(composed.source(loc.source), "original.ts");
     assert_eq!(loc.line, 2);
     assert_eq!(loc.column, 4);
-    println!(
-        "  output.min.js 0:39 -> original.ts {}:{}",
-        loc.line, loc.column
-    );
+    println!("  output.min.js 0:39 -> original.ts {}:{}", loc.line, loc.column);
 
     // `}` at minified col 47 -> original.ts line 3, col 0
     let loc = composed.original_position_for(0, 47).unwrap();
     assert_eq!(composed.source(loc.source), "original.ts");
     assert_eq!(loc.line, 3);
     assert_eq!(loc.column, 0);
-    println!(
-        "  output.min.js 0:47 -> original.ts {}:{}",
-        loc.line, loc.column
-    );
+    println!("  output.min.js 0:47 -> original.ts {}:{}", loc.line, loc.column);
 
     // sourcesContent should be preserved from the inner map
     assert_eq!(composed.sources_content.len(), 1);
@@ -296,15 +286,9 @@ fn main() {
         let a = composed.original_position_for(line, col).unwrap();
         let b = composed_streaming.original_position_for(line, col).unwrap();
 
-        assert_eq!(
-            composed.source(a.source),
-            composed_streaming.source(b.source)
-        );
+        assert_eq!(composed.source(a.source), composed_streaming.source(b.source));
         assert_eq!(a.line, b.line, "line mismatch for lookup ({line}, {col})");
-        assert_eq!(
-            a.column, b.column,
-            "column mismatch for lookup ({line}, {col})"
-        );
+        assert_eq!(a.column, b.column, "column mismatch for lookup ({line}, {col})");
 
         println!(
             "  ({line},{col}): remap -> {}:{}  |  streaming -> {}:{}  (match)",

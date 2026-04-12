@@ -17,6 +17,8 @@
 //!
 //! Run with: cargo run -p srcmap-remapping --example bundler_concat
 
+#![allow(clippy::print_stdout, reason = "Examples are intended to print walkthrough output")]
+
 use srcmap_generator::SourceMapGenerator;
 use srcmap_remapping::ConcatBuilder;
 use srcmap_sourcemap::SourceMap;
@@ -109,11 +111,7 @@ fn main() {
         "  app.js:    {} mappings, {} lines, sourcesContent: {}",
         app_map.mapping_count(),
         app_map.line_count(),
-        if app_map.sources_content.iter().any(|c| c.is_some()) {
-            "yes"
-        } else {
-            "no"
-        },
+        if app_map.sources_content.iter().any(|c| c.is_some()) { "yes" } else { "no" },
     );
 
     // --- footer.js: module wrapper close (2 lines) ---
@@ -201,33 +199,18 @@ fn main() {
     let loc = combined.original_position_for(0, 0).unwrap();
     assert_eq!(combined.source(loc.source), "header.js");
     assert_eq!(loc.line, 0);
-    println!(
-        "  bundle.js 0:0  -> {} {}:{}",
-        combined.source(loc.source),
-        loc.line,
-        loc.column
-    );
+    println!("  bundle.js 0:0  -> {} {}:{}", combined.source(loc.source), loc.line, loc.column);
 
     let loc = combined.original_position_for(1, 0).unwrap();
     assert_eq!(combined.source(loc.source), "header.js");
     assert_eq!(loc.line, 1);
-    println!(
-        "  bundle.js 1:0  -> {} {}:{}",
-        combined.source(loc.source),
-        loc.line,
-        loc.column
-    );
+    println!("  bundle.js 1:0  -> {} {}:{}", combined.source(loc.source), loc.line, loc.column);
 
     // App lookups (lines 3-7) -> src/app.ts
     let loc = combined.original_position_for(3, 0).unwrap();
     assert_eq!(combined.source(loc.source), "src/app.ts");
     assert_eq!(loc.line, 0);
-    println!(
-        "  bundle.js 3:0  -> {} {}:{}",
-        combined.source(loc.source),
-        loc.line,
-        loc.column
-    );
+    println!("  bundle.js 3:0  -> {} {}:{}", combined.source(loc.source), loc.line, loc.column);
 
     let loc = combined.original_position_for(4, 9).unwrap();
     assert_eq!(combined.source(loc.source), "src/app.ts");
@@ -260,12 +243,7 @@ fn main() {
     let loc = combined.original_position_for(8, 0).unwrap();
     assert_eq!(combined.source(loc.source), "footer.js");
     assert_eq!(loc.line, 0);
-    println!(
-        "  bundle.js 8:0  -> {} {}:{}",
-        combined.source(loc.source),
-        loc.line,
-        loc.column
-    );
+    println!("  bundle.js 8:0  -> {} {}:{}", combined.source(loc.source), loc.line, loc.column);
 
     let loc = combined.original_position_for(9, 15).unwrap();
     assert_eq!(combined.source(loc.source), "footer.js");
@@ -331,12 +309,8 @@ fn main() {
     println!("  header.js (index {}) is in ignoreList: yes", header_idx,);
 
     // app.ts and footer.js should NOT be in the ignore list
-    let other_sources: Vec<_> = combined
-        .sources
-        .iter()
-        .enumerate()
-        .filter(|(_, s)| *s != "header.js")
-        .collect();
+    let other_sources: Vec<_> =
+        combined.sources.iter().enumerate().filter(|(_, s)| *s != "header.js").collect();
     for (i, source) in &other_sources {
         assert!(
             !combined.ignore_list.contains(&(*i as u32)),

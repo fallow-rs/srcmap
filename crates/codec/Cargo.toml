@@ -2,6 +2,7 @@
 name = "srcmap-codec"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 description = "High-performance VLQ source map codec"
@@ -15,6 +16,9 @@ parallel = ["rayon"]
 
 [lib]
 crate-type = ["lib"]
+
+[lints]
+workspace = true
 
 [dependencies]
 rayon = { workspace = true, optional = true }

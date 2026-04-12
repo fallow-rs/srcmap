@@ -6,7 +6,7 @@
  *
  * Compatible with `@jridgewell/sourcemap-codec` decode().
  */
-export declare function decode(mappings: string): number[][][]
+export declare function decode(mappings: string): number[][][];
 
 /**
  * Encode decoded source map mappings back into a VLQ string.
@@ -16,4 +16,4 @@ export declare function decode(mappings: string): number[][][]
  *
  * Compatible with `@jridgewell/sourcemap-codec` encode().
  */
-export declare function encode(mappings: number[][][]): string
+export declare function encode(mappings: number[][][]): string;

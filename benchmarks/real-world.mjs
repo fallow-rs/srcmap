@@ -1,29 +1,26 @@
-import { Bench } from 'tinybench';
-import { readFileSync, existsSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { TraceMap, originalPositionFor } from '@jridgewell/trace-mapping';
-import { SourceMapConsumer } from 'source-map-js';
-import { SourceMap, resultPtr, wasmMemory } from '../packages/sourcemap-wasm/pkg/srcmap_sourcemap_wasm.js';
-import { createRequire } from 'node:module';
+import { Bench } from "tinybench";
+import { readFileSync, existsSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { TraceMap, originalPositionFor } from "@jridgewell/trace-mapping";
+import { SourceMapConsumer } from "source-map-js";
+import { SourceMap } from "../packages/sourcemap-wasm/pkg/srcmap_sourcemap_wasm.js";
+import { createRequire } from "node:module";
 const require = createRequire(import.meta.url);
-const { SourceMap: FastSourceMap } = require('../packages/sourcemap-wasm/pkg/fast.js');
-import { SourceMap as NapiSourceMap } from '../packages/sourcemap/index.js';
-
-// Set up zero-allocation buffer for originalPositionBuf.
-// The Int32Array view must be refreshed after WASM memory grows (e.g. after new SourceMap()).
-const bufOffset = resultPtr();
-const getResultView = () => new Int32Array(wasmMemory().buffer, bufOffset, 4);
+const {
+  LazySourceMap: FastSourceMap,
+} = require("../packages/sourcemap-wasm/pkg/srcmap_sourcemap_wasm.js");
+import { SourceMap as NapiSourceMap } from "../packages/sourcemap/index.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const fixturesDir = join(__dirname, 'fixtures');
+const fixturesDir = join(__dirname, "fixtures");
 
 // ── Load fixtures ────────────────────────────────────────────────
 
 const FIXTURES = [
-  { name: 'Preact', file: 'preact.js.map' },
-  { name: 'Chart.js', file: 'chartjs.js.map' },
-  { name: 'PDF.js', file: 'pdfjs.js.map' },
+  { name: "Preact", file: "preact.js.map" },
+  { name: "Chart.js", file: "chartjs.js.map" },
+  { name: "PDF.js", file: "pdfjs.js.map" },
 ];
 
 const maps = [];
@@ -33,17 +30,17 @@ for (const fixture of FIXTURES) {
 
   if (!existsSync(filePath)) {
     console.error(`Missing: fixtures/${fixture.file}`);
-    console.error('Run: npm run download-fixtures\n');
+    console.error("Run: npm run download-fixtures\n");
     process.exit(1);
   }
 
-  const json = readFileSync(filePath, 'utf-8');
+  const json = readFileSync(filePath, "utf-8");
   const parsed = JSON.parse(json);
 
   const lines = (parsed.mappings.match(/;/g) || []).length + 1;
   const segments = parsed.mappings
-    .split(';')
-    .reduce((total, line) => total + (line ? line.split(',').length : 0), 0);
+    .split(";")
+    .reduce((total, line) => total + (line ? line.split(",").length : 0), 0);
 
   maps.push({
     name: fixture.name,
@@ -57,14 +54,14 @@ for (const fixture of FIXTURES) {
 
 // ── Header ───────────────────────────────────────────────────────
 
-console.log('=== Real-World Source Map Benchmarks ===\n');
-console.log('Libraries:');
-console.log('  @jridgewell/trace-mapping  — de facto standard JS source map consumer');
-console.log('  source-map-js              — Mozilla source-map fork (used by Vite, PostCSS)');
-console.log('  srcmap WASM                — srcmap Rust core via WebAssembly');
-console.log('  srcmap NAPI                — srcmap Rust core via N-API\n');
+console.log("=== Real-World Source Map Benchmarks ===\n");
+console.log("Libraries:");
+console.log("  @jridgewell/trace-mapping  — de facto standard JS source map consumer");
+console.log("  source-map-js              — Mozilla source-map fork (used by Vite, PostCSS)");
+console.log("  srcmap WASM                — srcmap Rust core via WebAssembly");
+console.log("  srcmap NAPI                — srcmap Rust core via N-API\n");
 
-console.log('Source maps:');
+console.log("Source maps:");
 for (const m of maps) {
   const sizeStr =
     m.size > 1024 * 1024
@@ -72,7 +69,7 @@ for (const m of maps) {
       : `${(m.size / 1024).toFixed(0)} KB`;
 
   console.log(
-    `  ${m.name.padEnd(12)} ${sizeStr.padStart(8)}  ${String(m.segments).padStart(7)} segments  ${String(m.lines).padStart(6)} lines  ${m.sources} sources`
+    `  ${m.name.padEnd(12)} ${sizeStr.padStart(8)}  ${String(m.segments).padStart(7)} segments  ${String(m.lines).padStart(6)} lines  ${m.sources} sources`,
   );
 }
 
@@ -80,9 +77,9 @@ for (const m of maps) {
 
 // trace-mapping normalizes source paths (resolves ./ segments),
 // srcmap returns raw paths. Normalize both for fair comparison.
-const normalizePath = (s) => s?.replace(/\/\.\//g, '/') ?? null;
+const normalizePath = (s) => s?.replace(/\/\.\//g, "/") ?? null;
 
-console.log('\n--- Correctness Check ---\n');
+console.log("\n--- Correctness Check ---\n");
 
 for (const { name, json } of maps) {
   const trace = new TraceMap(json);
@@ -132,13 +129,13 @@ for (const { name, json } of maps) {
   }
 
   console.log(
-    `  ${name}: WASM ${wasmPass ? 'PASS' : 'FAIL'}, NAPI ${napiPass ? 'PASS' : 'FAIL'} (${checked} lookups)`
+    `  ${name}: WASM ${wasmPass ? "PASS" : "FAIL"}, NAPI ${napiPass ? "PASS" : "FAIL"} (${checked} lookups)`,
   );
 }
 
 // ── Parse benchmarks ─────────────────────────────────────────────
 
-console.log('\n--- Parse ---\n');
+console.log("\n--- Parse ---\n");
 
 for (const { name, json, size } of maps) {
   console.log(`### ${name}\n`);
@@ -148,27 +145,27 @@ for (const { name, json, size } of maps) {
   const bench = new Bench({ warmupIterations: 10, iterations });
 
   bench
-    .add('trace-mapping', () => new TraceMap(json))
-    .add('source-map-js', () => new SourceMapConsumer(json))
-    .add('srcmap WASM', () => new SourceMap(json))
-    .add('srcmap WASM (fast)', () => new FastSourceMap(json))
-    .add('srcmap NAPI', () => new NapiSourceMap(json));
+    .add("trace-mapping", () => new TraceMap(json))
+    .add("source-map-js", () => new SourceMapConsumer(json))
+    .add("srcmap WASM", () => new SourceMap(json))
+    .add("srcmap WASM (fast)", () => new FastSourceMap(json))
+    .add("srcmap NAPI", () => new NapiSourceMap(json));
 
   await bench.run();
 
   console.table(
     bench.tasks.map((task) => ({
       Name: task.name,
-      'ops/sec': Math.round(task.result.hz).toLocaleString(),
-      'avg (ms)': task.result.mean.toFixed(2),
-      'p99 (ms)': task.result.p99.toFixed(2),
-    }))
+      "ops/sec": Math.round(task.result.hz).toLocaleString(),
+      "avg (ms)": task.result.mean.toFixed(2),
+      "p99 (ms)": task.result.p99.toFixed(2),
+    })),
   );
 }
 
 // ── Single lookup ────────────────────────────────────────────────
 
-console.log('\n--- Single Lookup ---\n');
+console.log("\n--- Single Lookup ---\n");
 
 for (const { name, json } of maps) {
   console.log(`### ${name}\n`);
@@ -184,34 +181,30 @@ for (const { name, json } of maps) {
   const bench = new Bench({ warmupIterations: 500, iterations: 5000 });
 
   bench
-    .add('trace-mapping', () =>
-      originalPositionFor(trace, { line: midLine + 1, column: 20 })
-    )
-    .add('source-map-js', () =>
-      smjs.originalPositionFor({ line: midLine + 1, column: 20 })
-    )
-    .add('srcmap WASM', () => wasm.originalPositionFor(midLine, 20))
-    .add('srcmap WASM (flat)', () => wasm.originalPositionFlat(midLine, 20))
-    .add('srcmap WASM (buf)', () => {
+    .add("trace-mapping", () => originalPositionFor(trace, { line: midLine + 1, column: 20 }))
+    .add("source-map-js", () => smjs.originalPositionFor({ line: midLine + 1, column: 20 }))
+    .add("srcmap WASM", () => wasm.originalPositionFor(midLine, 20))
+    .add("srcmap WASM (flat)", () => wasm.originalPositionFlat(midLine, 20))
+    .add("srcmap WASM (buf)", () => {
       wasm.originalPositionBuf(midLine, 20);
     })
-    .add('srcmap NAPI', () => napi.originalPositionFor(midLine, 20));
+    .add("srcmap NAPI", () => napi.originalPositionFor(midLine, 20));
 
   await bench.run();
 
   console.table(
     bench.tasks.map((task) => ({
       Name: task.name,
-      'ops/sec': Math.round(task.result.hz).toLocaleString(),
-      'avg (ns)': Math.round(task.result.mean * 1_000_000).toLocaleString(),
-      'p99 (ns)': Math.round(task.result.p99 * 1_000_000).toLocaleString(),
-    }))
+      "ops/sec": Math.round(task.result.hz).toLocaleString(),
+      "avg (ns)": Math.round(task.result.mean * 1_000_000).toLocaleString(),
+      "p99 (ns)": Math.round(task.result.p99 * 1_000_000).toLocaleString(),
+    })),
   );
 }
 
 // ── Batch lookup (1000x) ─────────────────────────────────────────
 
-console.log('\n--- 1000x Lookup ---\n');
+console.log("\n--- 1000x Lookup ---\n");
 
 for (const { name, json } of maps) {
   console.log(`### ${name}\n`);
@@ -236,22 +229,20 @@ for (const { name, json } of maps) {
   const bench = new Bench({ warmupIterations: 20, iterations: 200 });
 
   bench
-    .add('trace-mapping', () => {
+    .add("trace-mapping", () => {
       for (const { line, column } of lookups)
         originalPositionFor(trace, { line: line + 1, column });
     })
-    .add('source-map-js', () => {
-      for (const { line, column } of lookups)
-        smjs.originalPositionFor({ line: line + 1, column });
+    .add("source-map-js", () => {
+      for (const { line, column } of lookups) smjs.originalPositionFor({ line: line + 1, column });
     })
-    .add('srcmap WASM (individual)', () => {
-      for (const { line, column } of lookups)
-        wasm.originalPositionFor(line, column);
+    .add("srcmap WASM (individual)", () => {
+      for (const { line, column } of lookups) wasm.originalPositionFor(line, column);
     })
-    .add('srcmap WASM (batch)', () => {
+    .add("srcmap WASM (batch)", () => {
       wasm.originalPositionsFor(posArray);
     })
-    .add('srcmap NAPI (batch)', () => {
+    .add("srcmap NAPI (batch)", () => {
       napi.originalPositionsFor(flatPositions);
     });
 
@@ -260,9 +251,9 @@ for (const { name, json } of maps) {
   console.table(
     bench.tasks.map((task) => ({
       Name: task.name,
-      'ops/sec': Math.round(task.result.hz).toLocaleString(),
-      'avg (μs)': (task.result.mean * 1000).toFixed(1),
-      'per lookup (ns)': Math.round(task.result.mean * 1_000_000).toLocaleString(),
-    }))
+      "ops/sec": Math.round(task.result.hz).toLocaleString(),
+      "avg (μs)": (task.result.mean * 1000).toFixed(1),
+      "per lookup (ns)": Math.round(task.result.mean * 1_000_000).toLocaleString(),
+    })),
   );
 }

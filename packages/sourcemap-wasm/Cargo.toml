@@ -2,6 +2,7 @@
 name = "srcmap-sourcemap-wasm"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 description = "WebAssembly bindings for srcmap-sourcemap"
@@ -12,6 +13,10 @@ wasm-opt = ["-Os", "--enable-bulk-memory", "--enable-nontrapping-float-to-int"]
 
 [lib]
 crate-type = ["cdylib"]
+test = false
+
+[lints]
+workspace = true
 
 [dependencies]
 srcmap-sourcemap = { workspace = true }

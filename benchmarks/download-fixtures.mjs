@@ -1,35 +1,35 @@
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const fixturesDir = join(__dirname, 'fixtures');
+const fixturesDir = join(__dirname, "fixtures");
 
 // Real-world source maps from popular open source projects.
 // Each entry tries multiple URLs (fallbacks) since package layouts vary by version.
 const FIXTURES = [
   {
-    name: 'Preact',
-    file: 'preact.js.map',
+    name: "Preact",
+    file: "preact.js.map",
     urls: [
-      'https://unpkg.com/preact@10.23.2/dist/preact.module.js.map',
-      'https://unpkg.com/preact@10.23.2/dist/preact.js.map',
+      "https://unpkg.com/preact@10.23.2/dist/preact.module.js.map",
+      "https://unpkg.com/preact@10.23.2/dist/preact.js.map",
     ],
   },
   {
-    name: 'Chart.js',
-    file: 'chartjs.js.map',
+    name: "Chart.js",
+    file: "chartjs.js.map",
     urls: [
-      'https://unpkg.com/chart.js@4.4.3/dist/chart.js.map',
-      'https://unpkg.com/chart.js@4.4.3/dist/chart.umd.js.map',
+      "https://unpkg.com/chart.js@4.4.3/dist/chart.js.map",
+      "https://unpkg.com/chart.js@4.4.3/dist/chart.umd.js.map",
     ],
   },
   {
-    name: 'PDF.js',
-    file: 'pdfjs.js.map',
+    name: "PDF.js",
+    file: "pdfjs.js.map",
     urls: [
-      'https://unpkg.com/pdfjs-dist@4.4.168/build/pdf.worker.mjs.map',
-      'https://unpkg.com/pdfjs-dist@4.4.168/build/pdf.mjs.map',
+      "https://unpkg.com/pdfjs-dist@4.4.168/build/pdf.worker.mjs.map",
+      "https://unpkg.com/pdfjs-dist@4.4.168/build/pdf.mjs.map",
     ],
   },
 ];
@@ -38,7 +38,7 @@ if (!existsSync(fixturesDir)) {
   mkdirSync(fixturesDir, { recursive: true });
 }
 
-console.log('Downloading real-world source maps...\n');
+console.log("Downloading real-world source maps...\n");
 
 let allOk = true;
 
@@ -75,7 +75,7 @@ for (const fixture of FIXTURES) {
 
   if (!downloaded) {
     console.error(`  ${fixture.name}: FAILED — could not download from any URL`);
-    console.error(`    Tried: ${fixture.urls.join('\n           ')}`);
+    console.error(`    Tried: ${fixture.urls.join("\n           ")}`);
     allOk = false;
   }
 }
@@ -83,8 +83,10 @@ for (const fixture of FIXTURES) {
 console.log();
 
 if (allOk) {
-  console.log('All fixtures ready! Run: npm run bench:real-world');
+  console.log("All fixtures ready! Run: npm run bench:real-world");
 } else {
-  console.error('Some downloads failed. You can manually place source map files in benchmarks/fixtures/');
+  console.error(
+    "Some downloads failed. You can manually place source map files in benchmarks/fixtures/",
+  );
   process.exit(1);
 }

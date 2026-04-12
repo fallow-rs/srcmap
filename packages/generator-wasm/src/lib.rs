@@ -10,9 +10,7 @@ impl SourceMapGenerator {
     /// Create a new source map generator.
     #[wasm_bindgen(constructor)]
     pub fn new(file: Option<String>) -> Self {
-        Self {
-            inner: srcmap_generator::SourceMapGenerator::new(file),
-        }
+        Self { inner: srcmap_generator::SourceMapGenerator::new(file) }
     }
 
     /// Register a source file and return its index.
@@ -42,8 +40,7 @@ impl SourceMapGenerator {
     /// Set the content for a source file by index.
     #[wasm_bindgen(js_name = "setSourceContent")]
     pub fn set_source_content(&mut self, source_idx: u32, content: &str) {
-        self.inner
-            .set_source_content(source_idx, content.to_string());
+        self.inner.set_source_content(source_idx, content.to_string());
     }
 
     /// Add a source index to the ignore list.
@@ -55,8 +52,7 @@ impl SourceMapGenerator {
     /// Add a mapping with no source information (generated-only).
     #[wasm_bindgen(js_name = "addGeneratedMapping")]
     pub fn add_generated_mapping(&mut self, generated_line: u32, generated_column: u32) {
-        self.inner
-            .add_generated_mapping(generated_line, generated_column);
+        self.inner.add_generated_mapping(generated_line, generated_column);
     }
 
     /// Add a mapping from generated position to original position.

@@ -1,3 +1,9 @@
+#![allow(
+    clippy::print_stdout,
+    clippy::print_stderr,
+    reason = "CLI commands intentionally write user-facing output"
+)]
+
 use std::fs;
 use std::io::{self, Read};
 use std::path::{Path, PathBuf};
@@ -255,10 +261,7 @@ struct CliError {
 
 impl CliError {
     fn new(code: &'static str, message: impl Into<String>) -> Self {
-        Self {
-            message: message.into(),
-            code,
-        }
+        Self { message: message.into(), code }
     }
 
     fn io(message: impl Into<String>) -> Self {
@@ -318,10 +321,7 @@ fn validate_safe_path(path: &Path, sandbox: &Path) -> Result<PathBuf, CliError> 
         .canonicalize()
         .map_err(|e| CliError::io(format!("failed to resolve path {}: {e}", path.display())))?;
     let sandbox_canonical = sandbox.canonicalize().map_err(|e| {
-        CliError::io(format!(
-            "failed to resolve sandbox {}: {e}",
-            sandbox.display()
-        ))
+        CliError::io(format!("failed to resolve sandbox {}: {e}", sandbox.display()))
     })?;
     if !canonical.starts_with(&sandbox_canonical) {
         return Err(CliError::path_traversal(format!(
@@ -349,9 +349,8 @@ fn validate_output_path(path: &Path) -> Result<(), CliError> {
                 parent.display()
             ))
         })?;
-        let cwd_canonical = cwd
-            .canonicalize()
-            .map_err(|e| CliError::io(format!("failed to resolve cwd: {e}")))?;
+        let cwd_canonical =
+            cwd.canonicalize().map_err(|e| CliError::io(format!("failed to resolve cwd: {e}")))?;
         if !parent_canonical.starts_with(&cwd_canonical) {
             return Err(CliError::path_traversal(format!(
                 "output path {} escapes current working directory",
@@ -421,10 +420,7 @@ fn write_output(output: &Option<PathBuf>, content: &str) -> Result<(), CliError>
 
 fn http_get(url: &str) -> Result<String, CliError> {
     let response = ureq::get(url)
-        .set(
-            "User-Agent",
-            concat!("srcmap-cli/", env!("CARGO_PKG_VERSION")),
-        )
+        .set("User-Agent", concat!("srcmap-cli/", env!("CARGO_PKG_VERSION")))
         .call()
         .map_err(|e| CliError::fetch_error(format!("failed to fetch {url}: {e}")))?;
 
@@ -442,11 +438,7 @@ fn url_filename(url: &str) -> String {
     let path = url.split('?').next().unwrap_or(url);
     let path = path.split('#').next().unwrap_or(path);
     let name = path.rsplit('/').next().unwrap_or("bundle.js");
-    if name.is_empty() {
-        "bundle.js".to_string()
-    } else {
-        name.to_string()
-    }
+    if name.is_empty() { "bundle.js".to_string() } else { name.to_string() }
 }
 
 fn sanitize_source_path(source: &str) -> Result<PathBuf, CliError> {
@@ -460,9 +452,7 @@ fn sanitize_source_path(source: &str) -> Result<PathBuf, CliError> {
     let stripped = stripped.trim_start_matches('/');
 
     if stripped.is_empty() {
-        return Err(CliError::invalid_input(
-            "empty source name after stripping prefixes",
-        ));
+        return Err(CliError::invalid_input("empty source name after stripping prefixes"));
     }
 
     // Normalize: resolve . and .., stripping leading ../ (relative to map file, safe to drop)
@@ -509,12 +499,8 @@ fn cmd_info(file: &PathBuf, json: bool) -> Result<(), CliError> {
 
     if json {
         let has_content = sm.sources_content.iter().filter(|c| c.is_some()).count();
-        let content_size: usize = sm
-            .sources_content
-            .iter()
-            .filter_map(|c| c.as_ref())
-            .map(|s| s.len())
-            .sum();
+        let content_size: usize =
+            sm.sources_content.iter().filter_map(|c| c.as_ref()).map(|s| s.len()).sum();
 
         let obj = serde_json::json!({
             "file": sm.file,
@@ -549,12 +535,8 @@ fn cmd_info(file: &PathBuf, json: bool) -> Result<(), CliError> {
 
         let has_content = sm.sources_content.iter().filter(|c| c.is_some()).count();
         if has_content > 0 {
-            let content_size: usize = sm
-                .sources_content
-                .iter()
-                .filter_map(|c| c.as_ref())
-                .map(|s| s.len())
-                .sum();
+            let content_size: usize =
+                sm.sources_content.iter().filter_map(|c| c.as_ref()).map(|s| s.len()).sum();
             println!(
                 "Content:      {has_content}/{} sources ({})",
                 sm.sources.len(),
@@ -573,11 +555,7 @@ fn cmd_info(file: &PathBuf, json: bool) -> Result<(), CliError> {
         println!();
         println!("Sources:");
         for (i, s) in sm.sources.iter().enumerate() {
-            let ignored = if sm.ignore_list.contains(&(i as u32)) {
-                " (ignored)"
-            } else {
-                ""
-            };
+            let ignored = if sm.ignore_list.contains(&(i as u32)) { " (ignored)" } else { "" };
             let content = match sm.sources_content.get(i) {
                 Some(Some(c)) => format!(" [{}]", format_size(c.len())),
                 _ => String::new(),
@@ -646,9 +624,9 @@ fn parse_bias(s: &str) -> Result<Bias, CliError> {
     match s {
         "glb" | "greatest-lower-bound" => Ok(Bias::GreatestLowerBound),
         "lub" | "least-upper-bound" => Ok(Bias::LeastUpperBound),
-        _ => Err(CliError::invalid_input(format!(
-            "invalid bias: {s} (expected \"glb\" or \"lub\")"
-        ))),
+        _ => {
+            Err(CliError::invalid_input(format!("invalid bias: {s} (expected \"glb\" or \"lub\")")))
+        }
     }
 }
 
@@ -670,16 +648,15 @@ fn cmd_lookup(
 
             // Extract context lines from sourcesContent if requested
             let context_lines = if context > 0 {
-                sm.sources_content
-                    .get(loc.source as usize)
-                    .and_then(|c| c.as_ref())
-                    .map(|content| {
+                sm.sources_content.get(loc.source as usize).and_then(|c| c.as_ref()).map(
+                    |content| {
                         let lines: Vec<&str> = content.lines().collect();
                         let target = loc.line as usize;
                         let start = target.saturating_sub(context as usize);
                         let end = (target + context as usize + 1).min(lines.len());
                         (start, target, lines[start..end].to_vec())
-                    })
+                    },
+                )
             } else {
                 None
             };
@@ -730,9 +707,7 @@ fn cmd_lookup(
             }
         }
         None => {
-            return Err(CliError::not_found(format!(
-                "no mapping found for {line}:{column}"
-            )));
+            return Err(CliError::not_found(format!("no mapping found for {line}:{column}")));
         }
     }
 
@@ -857,11 +832,7 @@ fn cmd_mappings(
         let source_idx = sm
             .source_index(source_name)
             .ok_or_else(|| CliError::not_found(format!("source not found: {source_name}")))?;
-        all.iter()
-            .filter(|m| m.source == source_idx)
-            .skip(offset)
-            .take(limit)
-            .collect()
+        all.iter().filter(|m| m.source == source_idx).skip(offset).take(limit).collect()
     } else {
         all.iter().skip(offset).take(limit).collect()
     };
@@ -870,16 +841,10 @@ fn cmd_mappings(
         let entries: Vec<serde_json::Value> = filtered
             .iter()
             .map(|m| {
-                let source = if m.source != u32::MAX {
-                    Some(sm.source(m.source).to_string())
-                } else {
-                    None
-                };
-                let name = if m.name != u32::MAX {
-                    Some(sm.name(m.name).to_string())
-                } else {
-                    None
-                };
+                let source =
+                    if m.source != u32::MAX { Some(sm.source(m.source).to_string()) } else { None };
+                let name =
+                    if m.name != u32::MAX { Some(sm.name(m.name).to_string()) } else { None };
                 serde_json::json!({
                     "generatedLine": m.generated_line,
                     "generatedColumn": m.generated_column,
@@ -907,16 +872,8 @@ fn cmd_mappings(
         );
         println!("{:-<86}", "");
         for m in &filtered {
-            let source = if m.source != u32::MAX {
-                sm.source(m.source)
-            } else {
-                "-"
-            };
-            let name = if m.name != u32::MAX {
-                sm.name(m.name)
-            } else {
-                ""
-            };
+            let source = if m.source != u32::MAX { sm.source(m.source) } else { "-" };
+            let name = if m.name != u32::MAX { sm.name(m.name) } else { "" };
             let range_marker = if m.is_range_mapping { "R" } else { "" };
             println!(
                 "{:<8} {:<8} {:<30} {:<8} {:<8} {:<6} {}",
@@ -951,9 +908,7 @@ fn cmd_concat(
     dry_run: bool,
 ) -> Result<(), CliError> {
     if files.is_empty() {
-        return Err(CliError::validation(
-            "at least one source map file is required",
-        ));
+        return Err(CliError::validation("at least one source map file is required"));
     }
 
     if let Some(path) = output {
@@ -1054,11 +1009,7 @@ fn cmd_remap(
 
     // Validate and resolve search directory
     let cwd = std::env::current_dir().map_err(|e| CliError::io(format!("cannot get cwd: {e}")))?;
-    let safe_dir = if let Some(d) = dir {
-        Some(validate_safe_path(d, &cwd)?)
-    } else {
-        None
-    };
+    let safe_dir = if let Some(d) = dir { Some(validate_safe_path(d, &cwd)?) } else { None };
 
     // Build explicit upstream map: source name → file path
     let mut upstream_paths: std::collections::HashMap<String, PathBuf> =
@@ -1066,9 +1017,7 @@ fn cmd_remap(
 
     for entry in upstreams {
         let (source, path) = entry.split_once('=').ok_or_else(|| {
-            CliError::validation(format!(
-                "invalid upstream format: {entry} (expected SOURCE=PATH)"
-            ))
+            CliError::validation(format!("invalid upstream format: {entry} (expected SOURCE=PATH)"))
         })?;
         reject_control_chars(source, "upstream source")?;
         upstream_paths.insert(source.to_string(), PathBuf::from(path));
@@ -1200,20 +1149,14 @@ fn cmd_symbolicate(
     let stack_input = read_file_or_stdin(file)?;
 
     let cwd = std::env::current_dir().map_err(|e| CliError::io(format!("cannot get cwd: {e}")))?;
-    let safe_dir = if let Some(d) = dir {
-        Some(validate_safe_path(d, &cwd)?)
-    } else {
-        None
-    };
+    let safe_dir = if let Some(d) = dir { Some(validate_safe_path(d, &cwd)?) } else { None };
 
     // Build explicit map: source → SourceMap
     let mut explicit_maps: std::collections::HashMap<String, SourceMap> =
         std::collections::HashMap::new();
     for entry in maps {
         let (source, path_str) = entry.split_once('=').ok_or_else(|| {
-            CliError::validation(format!(
-                "invalid map format: {entry} (expected SOURCE=PATH)"
-            ))
+            CliError::validation(format!("invalid map format: {entry} (expected SOURCE=PATH)"))
         })?;
         let path = PathBuf::from(path_str);
         let content = fs::read_to_string(&path)
@@ -1256,11 +1199,7 @@ fn cmd_symbolicate(
 fn format_scope_tree(scope: &srcmap_scopes::OriginalScope, indent: usize) {
     let pad = "  ".repeat(indent);
     let kind = scope.kind.as_deref().unwrap_or("?");
-    let name = scope
-        .name
-        .as_deref()
-        .map(|n| format!(" \"{n}\""))
-        .unwrap_or_default();
+    let name = scope.name.as_deref().map(|n| format!(" \"{n}\"")).unwrap_or_default();
     let frame = if scope.is_stack_frame { " [frame]" } else { "" };
     println!(
         "{pad}{kind}{name}{frame}  {}:{}-{}:{}",
@@ -1286,10 +1225,7 @@ fn format_range_tree(range: &srcmap_scopes::GeneratedRange, sources: &[String], 
         println!("{pad}  definition: scope #{def}");
     }
     if let Some(ref cs) = range.call_site {
-        let source = sources
-            .get(cs.source_index as usize)
-            .map(|s| s.as_str())
-            .unwrap_or("?");
+        let source = sources.get(cs.source_index as usize).map(|s| s.as_str()).unwrap_or("?");
         println!("{pad}  call site: {source}:{}:{}", cs.line, cs.column);
     }
     for binding in &range.bindings {
@@ -1303,10 +1239,7 @@ fn format_range_tree(range: &srcmap_scopes::GeneratedRange, sources: &[String], 
             srcmap_scopes::Binding::SubRanges(subs) => {
                 for sub in subs {
                     let expr = sub.expression.as_deref().unwrap_or("<unavailable>");
-                    println!(
-                        "{pad}  binding: {expr} (from {}:{})",
-                        sub.from.line, sub.from.column
-                    );
+                    println!("{pad}  binding: {expr} (from {}:{})", sub.from.line, sub.from.column);
                 }
             }
         }
@@ -1355,10 +1288,7 @@ fn range_to_json(range: &srcmap_scopes::GeneratedRange, sources: &[String]) -> s
         .collect();
 
     let call_site = range.call_site.as_ref().map(|cs| {
-        let source = sources
-            .get(cs.source_index as usize)
-            .map(|s| s.as_str())
-            .unwrap_or("?");
+        let source = sources.get(cs.source_index as usize).map(|s| s.as_str()).unwrap_or("?");
         serde_json::json!({
             "source": source,
             "line": cs.line,
@@ -1402,11 +1332,8 @@ fn cmd_scopes(file: &PathBuf, json: bool) -> Result<(), CliError> {
             })
             .collect();
 
-        let ranges: Vec<serde_json::Value> = scopes
-            .ranges
-            .iter()
-            .map(|r| range_to_json(r, &sm.sources))
-            .collect();
+        let ranges: Vec<serde_json::Value> =
+            scopes.ranges.iter().map(|r| range_to_json(r, &sm.sources)).collect();
 
         let obj = serde_json::json!({
             "originalScopes": original,
@@ -1441,9 +1368,7 @@ fn cmd_scopes(file: &PathBuf, json: bool) -> Result<(), CliError> {
 fn cmd_fetch(url: &str, output: &Option<PathBuf>, json: bool) -> Result<(), CliError> {
     // Validate URL
     if !url.starts_with("http://") && !url.starts_with("https://") {
-        return Err(CliError::invalid_input(
-            "URL must start with http:// or https://",
-        ));
+        return Err(CliError::invalid_input("URL must start with http:// or https://"));
     }
 
     let output_dir = match output {
@@ -1455,10 +1380,7 @@ fn cmd_fetch(url: &str, output: &Option<PathBuf>, json: bool) -> Result<(), CliE
 
     if !output_dir.exists() {
         fs::create_dir_all(&output_dir).map_err(|e| {
-            CliError::io(format!(
-                "failed to create output directory {}: {e}",
-                output_dir.display()
-            ))
+            CliError::io(format!("failed to create output directory {}: {e}", output_dir.display()))
         })?;
     }
 
@@ -1470,11 +1392,7 @@ fn cmd_fetch(url: &str, output: &Option<PathBuf>, json: bool) -> Result<(), CliE
 
     fs::write(&bundle_path, &bundle_body)
         .map_err(|e| CliError::io(format!("failed to write {}: {e}", bundle_path.display())))?;
-    eprintln!(
-        "  Saved {} ({})",
-        bundle_path.display(),
-        format_size(bundle_body.len())
-    );
+    eprintln!("  Saved {} ({})", bundle_path.display(), format_size(bundle_body.len()));
 
     // Extract sourceMappingURL
     let map_result = match parse_source_mapping_url(&bundle_body) {
@@ -1489,11 +1407,7 @@ fn cmd_fetch(url: &str, output: &Option<PathBuf>, json: bool) -> Result<(), CliE
                 map_path.display(),
                 format_size(decoded_json.len())
             );
-            Some((
-                map_path.display().to_string(),
-                decoded_json.len(),
-                "inline".to_string(),
-            ))
+            Some((map_path.display().to_string(), decoded_json.len(), "inline".to_string()))
         }
         Some(SourceMappingUrl::External(ref map_ref)) => {
             let map_url = resolve_source_map_url(url, map_ref).ok_or_else(|| {
@@ -1506,11 +1420,7 @@ fn cmd_fetch(url: &str, output: &Option<PathBuf>, json: bool) -> Result<(), CliE
             fs::write(&map_path, &map_body).map_err(|e| {
                 CliError::io(format!("failed to write {}: {e}", map_path.display()))
             })?;
-            eprintln!(
-                "  Saved {} ({})",
-                map_path.display(),
-                format_size(map_body.len())
-            );
+            eprintln!("  Saved {} ({})", map_path.display(), format_size(map_body.len()));
             Some((map_path.display().to_string(), map_body.len(), map_url))
         }
         None => {
@@ -1602,10 +1512,7 @@ fn cmd_sources(
 
             if let Some(parent) = dest_path.parent() {
                 fs::create_dir_all(parent).map_err(|e| {
-                    CliError::io(format!(
-                        "failed to create directory {}: {e}",
-                        parent.display()
-                    ))
+                    CliError::io(format!("failed to create directory {}: {e}", parent.display()))
                 })?;
             }
 
@@ -1650,11 +1557,8 @@ fn cmd_sources(
             .iter()
             .enumerate()
             .map(|(i, source)| {
-                let content_size = sm
-                    .sources_content
-                    .get(i)
-                    .and_then(|c| c.as_ref())
-                    .map(|c| c.len());
+                let content_size =
+                    sm.sources_content.get(i).and_then(|c| c.as_ref()).map(|c| c.len());
                 let ignored = sm.ignore_list.contains(&(i as u32));
 
                 serde_json::json!({
@@ -1675,15 +1579,9 @@ fn cmd_sources(
             });
             println!("{}", serde_json::to_string_pretty(&obj).unwrap());
         } else {
-            let with_content = entries
-                .iter()
-                .filter(|e| e["hasContent"].as_bool() == Some(true))
-                .count();
-            println!(
-                "Sources ({}, {} with content):",
-                sm.sources.len(),
-                with_content
-            );
+            let with_content =
+                entries.iter().filter(|e| e["hasContent"].as_bool() == Some(true)).count();
+            println!("Sources ({}, {} with content):", sm.sources.len(), with_content);
             for entry in &entries {
                 let idx = entry["index"].as_u64().unwrap();
                 let source = entry["source"].as_str().unwrap();
@@ -1691,11 +1589,8 @@ fn cmd_sources(
                     Some(size) => format!(" [{}]", format_size(size as usize)),
                     None => " [no content]".to_string(),
                 };
-                let ignored = if entry["ignored"].as_bool() == Some(true) {
-                    " (ignored)"
-                } else {
-                    ""
-                };
+                let ignored =
+                    if entry["ignored"].as_bool() == Some(true) { " (ignored)" } else { "" };
                 println!("  {idx}: {source}{size_str}{ignored}");
             }
         }
@@ -1909,60 +1804,29 @@ fn main() -> ExitCode {
             Ok(false) => return ExitCode::FAILURE,
             Err(e) => Err(e),
         },
-        Command::Lookup {
-            file,
-            line,
-            column,
-            bias,
-            context,
-            json,
-        } => cmd_lookup(file, *line, *column, bias, *context, *json),
-        Command::Resolve {
-            file,
-            source,
-            line,
-            column,
-            bias,
-            json,
-        } => cmd_resolve(file, source, *line, *column, bias, *json),
+        Command::Lookup { file, line, column, bias, context, json } => {
+            cmd_lookup(file, *line, *column, bias, *context, *json)
+        }
+        Command::Resolve { file, source, line, column, bias, json } => {
+            cmd_resolve(file, source, *line, *column, bias, *json)
+        }
         Command::Decode { mappings, compact } => cmd_decode(mappings.clone(), *compact),
         Command::Encode { file, json } => cmd_encode(file.clone(), *json),
-        Command::Mappings {
-            file,
-            source,
-            limit,
-            offset,
-            json,
-        } => cmd_mappings(file, source, *limit, *offset, *json),
-        Command::Concat {
-            files,
-            output,
-            file_name,
-            json,
-            dry_run,
-        } => cmd_concat(files, output, file_name.clone(), *json, *dry_run),
-        Command::Remap {
-            file,
-            dir,
-            upstreams,
-            output,
-            json,
-            dry_run,
-        } => cmd_remap(file, dir, upstreams, output, *json, *dry_run),
-        Command::Symbolicate {
-            file,
-            dir,
-            maps,
-            json,
-        } => cmd_symbolicate(file, dir, maps, *json),
+        Command::Mappings { file, source, limit, offset, json } => {
+            cmd_mappings(file, source, *limit, *offset, *json)
+        }
+        Command::Concat { files, output, file_name, json, dry_run } => {
+            cmd_concat(files, output, file_name.clone(), *json, *dry_run)
+        }
+        Command::Remap { file, dir, upstreams, output, json, dry_run } => {
+            cmd_remap(file, dir, upstreams, output, *json, *dry_run)
+        }
+        Command::Symbolicate { file, dir, maps, json } => cmd_symbolicate(file, dir, maps, *json),
         Command::Scopes { file, json } => cmd_scopes(file, *json),
         Command::Fetch { url, output, json } => cmd_fetch(url, output, *json),
-        Command::Sources {
-            file,
-            extract,
-            output,
-            json,
-        } => cmd_sources(file, *extract, output, *json),
+        Command::Sources { file, extract, output, json } => {
+            cmd_sources(file, *extract, output, *json)
+        }
         Command::Schema => cmd_schema(),
     };
 

@@ -13,6 +13,8 @@
 //!
 //! Run with: cargo run -p srcmap-codec --example vlq_primitives
 
+#![allow(clippy::print_stdout, reason = "Examples are intended to print walkthrough output")]
+
 use srcmap_codec::{vlq_decode, vlq_decode_unsigned, vlq_encode, vlq_encode_unsigned};
 
 fn main() {
@@ -50,11 +52,7 @@ fn main() {
         );
 
         assert_eq!(decoded, value, "signed roundtrip failed for {value}");
-        assert_eq!(
-            bytes_consumed,
-            buf.len(),
-            "must consume all bytes for {value}"
-        );
+        assert_eq!(bytes_consumed, buf.len(), "must consume all bytes for {value}");
     }
 
     // -----------------------------------------------------------------------
@@ -73,7 +71,7 @@ fn main() {
     vlq_encode(&mut buf, 1000);
 
     println!("  Value: 1000");
-    println!("  Encoded bytes: {:?}", buf);
+    println!("  Encoded bytes: {buf:?}");
     println!("  Base64 string: {}", std::str::from_utf8(&buf).unwrap());
     println!();
 
@@ -97,11 +95,7 @@ fn main() {
             "  byte[{i}]: '{}' (base64 value {six_bit:>2}, 0b{six_bit:06b}) -> continuation={}, data=0b{data_bits:05b}{}",
             char::from(digit),
             continuation,
-            if i == 0 {
-                format!(" (sign bit={})", data_bits & 1)
-            } else {
-                String::new()
-            },
+            if i == 0 { format!(" (sign bit={})", data_bits & 1) } else { String::new() },
         );
 
         if is_last {
@@ -139,11 +133,7 @@ fn main() {
         );
 
         assert_eq!(decoded, value, "unsigned roundtrip failed for {value}");
-        assert_eq!(
-            bytes_consumed,
-            buf.len(),
-            "must consume all bytes for {value}"
-        );
+        assert_eq!(bytes_consumed, buf.len(), "must consume all bytes for {value}");
     }
 
     // -----------------------------------------------------------------------
