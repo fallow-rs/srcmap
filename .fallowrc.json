@@ -22,6 +22,7 @@
     "coverage/**",
     "target/**",
     "benchmarks/node_modules/**",
+    "packages/gen-mapping/src/gen-mapping.cjs",
     "packages/*/pkg/**",
     "packages/*/web/**",
     "packages/*/bundler/**"
