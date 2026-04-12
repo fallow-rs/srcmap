@@ -30,8 +30,8 @@ importers:
         specifier: ^1.2.0
         version: 1.2.1
       tinybench:
-        specifier: ^3.0.0
-        version: 3.1.1
+        specifier: ^6.0.0
+        version: 6.0.0
 
   packages/codec:
     dependencies:
@@ -1177,9 +1177,9 @@ packages:
     resolution: {integrity: sha512-UXWMKhLOwVKb728IUtQPXxfYU+usdybtUrK/8uGE8CQMvrhOpwvzDBwj0QhSL7MQc7vIsISBG8VQ8+IDQxpfQA==}
     engines: {node: '>=0.10.0'}
 
-  tinybench@3.1.1:
-    resolution: {integrity: sha512-74pmf47HY/bHqamcCMGris+1AtGGsqTZ3Hc/UK4QvSmRuf/9PIF9753+c8XBh7JfX2r9KeZtVjOYjd6vFpc0qQ==}
-    engines: {node: '>=18.0.0'}
+  tinybench@6.0.0:
+    resolution: {integrity: sha512-BWlWpVbbZXaYjRV0twGLNQO00Zj4HA/sjLOQP2IvzQqGwRGp+2kh7UU3ijyJ3ywFRogYDRbiHDMrUOfaMnN56g==}
+    engines: {node: '>=20.0.0'}
 
   tinypool@2.1.0:
     resolution: {integrity: sha512-Pugqs6M0m7Lv1I7FtxN4aoyToKg1C4tu+/381vH35y8oENM/Ai7f7C4StcoK4/+BSw9ebcS8jRiVrORFKCALLw==}
@@ -1948,7 +1948,7 @@ snapshots:
 
   source-map-js@1.2.1: {}
 
-  tinybench@3.1.1: {}
+  tinybench@6.0.0: {}
 
   tinypool@2.1.0: {}
 
