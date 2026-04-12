@@ -116,7 +116,8 @@ jobs:
 
       - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
         with:
-          node-version: 22
+          node-version: 24
+          registry-url: https://registry.npmjs.org/
 
       - uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7
         with:
@@ -324,6 +325,28 @@ jobs:
       - name: Install @napi-rs/cli
         run: npm install -g @napi-rs/cli
 
+      - name: Prepare publish helper
+        shell: bash
+        run: |
+          cat > /tmp/publish-if-needed.sh <<'EOF'
+          #!/usr/bin/env bash
+          set -euo pipefail
+
+          pkg_dir="$1"
+          cd "$pkg_dir"
+
+          name="$(node -p "require('./package.json').name")"
+          version="$(node -p "require('./package.json').version")"
+
+          if npm view "${name}@${version}" version >/dev/null 2>&1; then
+            echo "Skipping ${name}@${version}; already present on npm"
+            exit 0
+          fi
+
+          npm publish --access public --provenance --ignore-scripts
+          EOF
+          chmod +x /tmp/publish-if-needed.sh
+
       - name: Download all codec NAPI artifacts
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
@@ -395,43 +418,61 @@ jobs:
         working-directory: packages/sourcemap
 
       - name: Publish @srcmap/codec platform packages
+        shell: bash
         run: |
           for dir in npm/*/; do
-            npm publish "$dir" --access public --provenance || echo "Skipping $(basename "$dir")"
+            name="$(node -p "require('./${dir%/}/package.json').name")"
+            version="$(node -p "require('./${dir%/}/package.json').version")"
+
+            if npm view "${name}@${version}" version >/dev/null 2>&1; then
+              echo "Skipping ${name}@${version}; already present on npm"
+              continue
+            fi
+
+            npm publish "$dir" --access public --provenance
           done
         working-directory: packages/codec
 
       - name: Publish @srcmap/codec
-        run: npm publish --access public --provenance --ignore-scripts || echo "Already published, skipping"
+        run: /tmp/publish-if-needed.sh .
         working-directory: packages/codec
 
       - name: Publish @srcmap/sourcemap platform packages
+        shell: bash
         run: |
           for dir in npm/*/; do
-            npm publish "$dir" --access public --provenance || echo "Skipping $(basename "$dir")"
+            name="$(node -p "require('./${dir%/}/package.json').name")"
+            version="$(node -p "require('./${dir%/}/package.json').version")"
+
+            if npm view "${name}@${version}" version >/dev/null 2>&1; then
+              echo "Skipping ${name}@${version}; already present on npm"
+              continue
+            fi
+
+            npm publish "$dir" --access public --provenance
           done
         working-directory: packages/sourcemap
 
       - name: Publish @srcmap/sourcemap
-        run: npm publish --access public --provenance --ignore-scripts || echo "Already published, skipping"
+        run: /tmp/publish-if-needed.sh .
         working-directory: packages/sourcemap
 
       - name: Publish @srcmap/sourcemap-wasm
-        run: npm publish --access public --provenance --ignore-scripts || echo "Already published, skipping"
+        run: /tmp/publish-if-needed.sh .
         working-directory: packages/sourcemap-wasm
 
       - name: Publish @srcmap/generator-wasm
-        run: npm publish --access public --provenance --ignore-scripts || echo "Already published, skipping"
+        run: /tmp/publish-if-needed.sh .
         working-directory: packages/generator-wasm
 
       - name: Publish @srcmap/remapping-wasm
-        run: npm publish --access public --provenance --ignore-scripts || echo "Already published, skipping"
+        run: /tmp/publish-if-needed.sh .
         working-directory: packages/remapping-wasm
 
       - name: Publish @srcmap/symbolicate-wasm
-        run: npm publish --access public --provenance --ignore-scripts || echo "Already published, skipping"
+        run: /tmp/publish-if-needed.sh .
         working-directory: packages/symbolicate-wasm
 
       - name: Publish @srcmap/trace-mapping
-        run: npm publish --access public --provenance --ignore-scripts || echo "Already published, skipping"
+        run: /tmp/publish-if-needed.sh .
         working-directory: packages/trace-mapping
