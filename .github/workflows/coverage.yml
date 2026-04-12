@@ -73,7 +73,7 @@ jobs:
 
       # Build WASM package for JS tests
       - name: Build WASM sourcemap
-        run: corepack pnpm --filter @srcmap/sourcemap-wasm build:node
+        run: corepack pnpm --filter @srcmap/sourcemap-wasm build
 
       # JS coverage (lcov)
       - name: JS coverage - codec

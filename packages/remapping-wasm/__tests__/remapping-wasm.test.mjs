@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 
 const require = createRequire(import.meta.url);
+// fallow-ignore-next-line unresolved-import
 const { ConcatBuilder, remap } = require("../pkg/srcmap_remapping_wasm.js");
 
 const MAP_A = JSON.stringify({

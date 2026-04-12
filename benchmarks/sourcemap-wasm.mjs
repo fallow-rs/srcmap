@@ -1,11 +1,12 @@
 import { Bench } from "tinybench";
 import { TraceMap, originalPositionFor } from "@jridgewell/trace-mapping";
+// fallow-ignore-next-line unresolved-import
 import { SourceMap } from "../packages/sourcemap-wasm/pkg/srcmap_sourcemap_wasm.js";
 import { createRequire } from "node:module";
 const require = createRequire(import.meta.url);
-const {
-  LazySourceMap: FastSourceMap,
-} = require("../packages/sourcemap-wasm/pkg/srcmap_sourcemap_wasm.js");
+// fallow-ignore-next-line unresolved-import
+const sourcemapWasm = require("../packages/sourcemap-wasm/pkg/srcmap_sourcemap_wasm.js");
+const { LazySourceMap: FastSourceMap } = sourcemapWasm;
 import { SourceMap as NapiSourceMap } from "../packages/sourcemap/index.js";
 import { encode } from "@jridgewell/sourcemap-codec";
 

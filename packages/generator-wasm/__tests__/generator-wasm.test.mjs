@@ -1,5 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
+// fallow-ignore-next-line unresolved-import
 import { SourceMapGenerator } from "../pkg/srcmap_generator_wasm.js";
 
 describe("SourceMapGenerator constructor", () => {

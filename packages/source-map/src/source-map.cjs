@@ -5,11 +5,13 @@ let WasmGenerator;
 try {
   SourceMap = require("@srcmap/sourcemap-wasm").SourceMap;
 } catch {
+  // fallow-ignore-next-line unresolved-import
   SourceMap = require("../../sourcemap-wasm/pkg/srcmap_sourcemap_wasm.js").SourceMap;
 }
 try {
   WasmGenerator = require("@srcmap/generator-wasm").SourceMapGenerator;
 } catch {
+  // fallow-ignore-next-line unresolved-import
   WasmGenerator = require("../../generator-wasm/pkg/srcmap_generator_wasm.js").SourceMapGenerator;
 }
 

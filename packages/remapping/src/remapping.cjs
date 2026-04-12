@@ -5,6 +5,7 @@ try {
   wasmRemap = require("@srcmap/remapping-wasm").remap;
 } catch {
   // Fallback for monorepo development
+  // fallow-ignore-next-line unresolved-import
   wasmRemap = require("../../remapping-wasm/pkg/srcmap_remapping_wasm.js").remap;
 }
 

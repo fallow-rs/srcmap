@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 
 const require = createRequire(import.meta.url);
+// fallow-ignore-next-line unresolved-import
 const { SourceMap, resultPtr, wasmMemory } = require("../pkg/srcmap_sourcemap_wasm.js");
 
 const SIMPLE_MAP = JSON.stringify({
