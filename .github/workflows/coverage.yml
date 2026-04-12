@@ -39,7 +39,7 @@ jobs:
         run: corepack enable
 
       - name: Install JS dependencies
-        run: corepack pnpm install --ignore-scripts --frozen-lockfile
+        run: corepack pnpm install --ignore-scripts --no-frozen-lockfile
 
       - name: Install wasm-pack
         shell: bash

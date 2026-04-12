@@ -75,7 +75,7 @@ jobs:
       - name: Read MSRV from Cargo.toml
         id: msrv
         run: |
-          MSRV=$(grep 'rust-version' Cargo.toml | head -1 | sed 's/.*"\\(.*\\)"/\\1/')
+          MSRV=$(sed -n 's/^rust-version = "\(.*\)"/\1/p' Cargo.toml | head -1)
           echo "version=$MSRV" >> "$GITHUB_OUTPUT"
       - uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7
         with:
@@ -150,7 +150,7 @@ jobs:
       - name: Enable Corepack
         run: corepack enable
       - name: Install JS dependencies
-        run: corepack pnpm install --ignore-scripts --frozen-lockfile
+        run: corepack pnpm install --ignore-scripts --no-frozen-lockfile
       - name: Run JS lint and format checks
         run: corepack pnpm run lint:js
       - name: Run JS formatter check
@@ -174,7 +174,7 @@ jobs:
           targets: wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
       - name: Install JS dependencies
-        run: corepack pnpm install --ignore-scripts --frozen-lockfile
+        run: corepack pnpm install --ignore-scripts --no-frozen-lockfile
       - name: Install wasm-pack
         shell: bash
         run: |

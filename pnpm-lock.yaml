@@ -42,33 +42,14 @@ importers:
       '@napi-rs/cli':
         specifier: ^3.0.0
         version: 3.6.1(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)
-    optionalDependencies:
-      '@srcmap/codec-darwin-arm64':
-        specifier: 0.2.0
-        version: 0.2.0
-      '@srcmap/codec-darwin-x64':
-        specifier: 0.2.0
-        version: 0.2.0
-      '@srcmap/codec-linux-arm64-gnu':
-        specifier: 0.2.0
-        version: 0.2.0
-      '@srcmap/codec-linux-arm64-musl':
-        specifier: 0.2.0
-        version: 0.2.0
-      '@srcmap/codec-linux-x64-gnu':
-        specifier: 0.2.0
-        version: 0.2.0
-      '@srcmap/codec-win32-x64-msvc':
-        specifier: 0.2.0
-        version: 0.2.0
 
   packages/gen-mapping:
     dependencies:
       '@srcmap/generator-wasm':
-        specifier: 0.3.1
+        specifier: 0.3.2
         version: link:../generator-wasm
       '@srcmap/sourcemap-wasm':
-        specifier: 0.3.1
+        specifier: 0.3.2
         version: link:../sourcemap-wasm
 
   packages/generator-wasm: {}
@@ -76,7 +57,7 @@ importers:
   packages/remapping:
     dependencies:
       '@srcmap/remapping-wasm':
-        specifier: 0.3.1
+        specifier: 0.3.2
         version: link:../remapping-wasm
     devDependencies:
       '@jridgewell/remapping':
@@ -88,10 +69,10 @@ importers:
   packages/source-map:
     dependencies:
       '@srcmap/generator-wasm':
-        specifier: 0.3.1
+        specifier: 0.3.2
         version: link:../generator-wasm
       '@srcmap/sourcemap-wasm':
-        specifier: 0.3.1
+        specifier: 0.3.2
         version: link:../sourcemap-wasm
 
   packages/sourcemap:
@@ -103,28 +84,6 @@ importers:
       '@napi-rs/cli':
         specifier: ^3.0.0
         version: 3.6.1(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)
-    optionalDependencies:
-      '@srcmap/sourcemap-darwin-arm64':
-        specifier: 0.2.0
-        version: 0.2.0
-      '@srcmap/sourcemap-darwin-x64':
-        specifier: 0.2.0
-        version: 0.2.0
-      '@srcmap/sourcemap-linux-arm64-gnu':
-        specifier: 0.2.0
-        version: 0.2.0
-      '@srcmap/sourcemap-linux-arm64-musl':
-        specifier: 0.2.0
-        version: 0.2.0
-      '@srcmap/sourcemap-linux-x64-gnu':
-        specifier: 0.2.0
-        version: 0.2.0
-      '@srcmap/sourcemap-linux-x64-musl':
-        specifier: 0.2.0
-        version: 0.2.0
-      '@srcmap/sourcemap-win32-x64-msvc':
-        specifier: 0.2.0
-        version: 0.2.0
 
   packages/sourcemap-wasm: {}
 
@@ -133,7 +92,7 @@ importers:
   packages/trace-mapping:
     dependencies:
       '@srcmap/sourcemap-wasm':
-        specifier: 0.3.1
+        specifier: 0.3.2
         version: link:../sourcemap-wasm
     devDependencies:
       '@jridgewell/sourcemap-codec':
@@ -988,78 +947,6 @@ packages:
     cpu: [x64]
     os: [win32]
 
-  '@srcmap/codec-darwin-arm64@0.2.0':
-    resolution: {integrity: sha512-8qiPSFcHzTmenYnypKrHqYZpny7dHnLiWEeqVZhVjLRai3/hAG6/wJL4juXDpCy0h+Y1sCkGRbBi/x16C2su5A==}
-    cpu: [arm64]
-    os: [darwin]
-
-  '@srcmap/codec-darwin-x64@0.2.0':
-    resolution: {integrity: sha512-aw1djqZyUwvGhwIuct8OsC4OlgkjEu58C4SuF/N37ADyYlBt7WUh0Khoeoe9hErWOx5IxR2RzprmpPOpFAByEg==}
-    cpu: [x64]
-    os: [darwin]
-
-  '@srcmap/codec-linux-arm64-gnu@0.2.0':
-    resolution: {integrity: sha512-nZmaJE/wEEyElb+zJJ0r+kgC9+pOlNU5RQ71/ntc72mpo4eltXa9xPXczW52TUlyq8oXoOfUvPiLjabeGICTxg==}
-    cpu: [arm64]
-    os: [linux]
-    libc: [glibc]
-
-  '@srcmap/codec-linux-arm64-musl@0.2.0':
-    resolution: {integrity: sha512-kR1hRbEDtzZcYUpF7tJZehA/7cOvr/YrwggB+LpuDYlkyWg/UZXgsId8+aPAtV5ukHD/QXGQ6HVvg1lKSdvQXg==}
-    cpu: [arm64]
-    os: [linux]
-    libc: [musl]
-
-  '@srcmap/codec-linux-x64-gnu@0.2.0':
-    resolution: {integrity: sha512-9VGIX8XrgrYBmJW4jJuUTxobftOdsykQ2JK4K+Iw5hF9soEjx+9xYPdF/Fs1bP5gLCmhU0yH1G1UXc5PE04Z/A==}
-    cpu: [x64]
-    os: [linux]
-    libc: [glibc]
-
-  '@srcmap/codec-win32-x64-msvc@0.2.0':
-    resolution: {integrity: sha512-VJZUKQEmGSHXW7uaxXFyVyZXDIQov7n8jJEAdGRGtP7y53IL2Xr6ReeTflP8Qu7RJ+6C0KfGIQqzeQxRNHWwmQ==}
-    cpu: [x64]
-    os: [win32]
-
-  '@srcmap/sourcemap-darwin-arm64@0.2.0':
-    resolution: {integrity: sha512-zRiRtr9ekO1GwGTgOVOFtjAkCHecFJdLUsXkq6xVVh2hF9SplMg7sLMU4fcC4oTEzG2L/o+wGkFtvAQJwZh//Q==}
-    cpu: [arm64]
-    os: [darwin]
-
-  '@srcmap/sourcemap-darwin-x64@0.2.0':
-    resolution: {integrity: sha512-6eAFE0OgySz32EPEPKRdUJOchN0ESZf9ni5zIL2Xu60uOUhA+QtQmJoaJxcbJyDd7JFLKWxTRpUHj21kKgKjQA==}
-    cpu: [x64]
-    os: [darwin]
-
-  '@srcmap/sourcemap-linux-arm64-gnu@0.2.0':
-    resolution: {integrity: sha512-1sD479PQ1ZIjDpCXTv9DsXFtj+qJeIizgKaShPI/ZlSBf7/D7qG0FxBg1MoBhfloXxNQrQQ+/Tw4JVrGFBneBg==}
-    cpu: [arm64]
-    os: [linux]
-    libc: [glibc]
-
-  '@srcmap/sourcemap-linux-arm64-musl@0.2.0':
-    resolution: {integrity: sha512-QI1RNiiHBa7bTSK+/mM8/fT6c3zWbuOToS6qM6r3zIJa9dFXGXuFtMFrTQb5qzP5iCT+2FIlGFvz61f6n+yU8w==}
-    cpu: [arm64]
-    os: [linux]
-    libc: [musl]
-
-  '@srcmap/sourcemap-linux-x64-gnu@0.2.0':
-    resolution: {integrity: sha512-0y7o6Il8Qei4+WVshAW6Wvz0kQs0i5x3QUXY8WmZ5Qb5nPjQkI4NghNcNV/IKtj2xsxw9BpjreBjl5fpuyLmGA==}
-    cpu: [x64]
-    os: [linux]
-    libc: [glibc]
-
-  '@srcmap/sourcemap-linux-x64-musl@0.2.0':
-    resolution: {integrity: sha512-vWTANELr34JV41nErTUzg7d8+iMa6X4bkgluEKbPBjVIP8rxESyXjOm1GTitVsuxlV5R87Um1lf7RwOPOYIKjA==}
-    cpu: [x64]
-    os: [linux]
-    libc: [musl]
-
-  '@srcmap/sourcemap-win32-x64-msvc@0.2.0':
-    resolution: {integrity: sha512-k+BwbSqzxgGo8mxBnc5ddWGkIpOjs2e+IfArsy4PBw9zSaXwFbqE57IfgITASPJxoO8v6MHhZ8GN6+oX4fXJHg==}
-    cpu: [x64]
-    os: [win32]
-
   '@tybys/wasm-util@0.10.1':
     resolution: {integrity: sha512-9tTaPJLSiejZKx+Bmog4uSubteqTvFrVrURwkmHixBo0G4seD0zUxp98E1DzUBJxLQ3NPwXrGKDiVjwx/DpPsg==}
 
@@ -1784,45 +1671,6 @@ snapshots:
     optional: true
 
   '@oxlint/binding-win32-x64-msvc@1.59.0':
-    optional: true
-
-  '@srcmap/codec-darwin-arm64@0.2.0':
-    optional: true
-
-  '@srcmap/codec-darwin-x64@0.2.0':
-    optional: true
-
-  '@srcmap/codec-linux-arm64-gnu@0.2.0':
-    optional: true
-
-  '@srcmap/codec-linux-arm64-musl@0.2.0':
-    optional: true
-
-  '@srcmap/codec-linux-x64-gnu@0.2.0':
-    optional: true
-
-  '@srcmap/codec-win32-x64-msvc@0.2.0':
-    optional: true
-
-  '@srcmap/sourcemap-darwin-arm64@0.2.0':
-    optional: true
-
-  '@srcmap/sourcemap-darwin-x64@0.2.0':
-    optional: true
-
-  '@srcmap/sourcemap-linux-arm64-gnu@0.2.0':
-    optional: true
-
-  '@srcmap/sourcemap-linux-arm64-musl@0.2.0':
-    optional: true
-
-  '@srcmap/sourcemap-linux-x64-gnu@0.2.0':
-    optional: true
-
-  '@srcmap/sourcemap-linux-x64-musl@0.2.0':
-    optional: true
-
-  '@srcmap/sourcemap-win32-x64-msvc@0.2.0':
     optional: true
 
   '@tybys/wasm-util@0.10.1':
