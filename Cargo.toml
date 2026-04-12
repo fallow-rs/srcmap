@@ -21,7 +21,7 @@ criterion = { version = "0.5", features = ["html_reports"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["raw_value"] }
 simd-json = "0.14"
-sonic-rs = "0.3"
+sonic-rs = "0.5"
 rayon = "1"
 napi = { version = "2", default-features = false, features = ["napi6"] }
 napi-derive = "2"
