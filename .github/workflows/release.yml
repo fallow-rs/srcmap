@@ -4,6 +4,7 @@ on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
 
 concurrency:
   group: release-${{ github.ref }}
@@ -191,7 +192,22 @@ jobs:
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
 
       - name: Install wasm-pack
-        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          install_script='https://rustwasm.github.io/wasm-pack/installer/init.sh'
+
+          for attempt in 1 2 3; do
+            if curl "$install_script" -sSf | sh; then
+              exit 0
+            fi
+
+            echo "wasm-pack installer attempt $attempt failed; retrying..." >&2
+            sleep 5
+          done
+
+          cargo install wasm-pack --locked --version 0.13.1
 
       - name: Build sourcemap-wasm (nodejs)
         run: wasm-pack build --target nodejs --out-dir pkg --release
