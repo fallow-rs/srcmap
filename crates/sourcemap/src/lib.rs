@@ -2126,71 +2126,24 @@ fn prescan_mappings(input: &str) -> Result<Vec<LineInfo>, DecodeError> {
     let line_count = bytes.iter().filter(|&&b| b == b';').count() + 1;
     let mut line_info: Vec<LineInfo> = Vec::with_capacity(line_count);
 
-    let mut source_index: i64 = 0;
-    let mut original_line: i64 = 0;
-    let mut original_column: i64 = 0;
-    let mut name_index: i64 = 0;
+    let mut state = VlqState::default();
     let mut pos: usize = 0;
 
     loop {
         let line_start = pos;
-        let state = VlqState { source_index, original_line, original_column, name_index };
-
-        let mut saw_semicolon = false;
-
-        // Walk the VLQ data, updating cumulative state but not allocating mappings
-        while pos < len {
-            let byte = bytes[pos];
-
-            if byte == b';' {
-                pos += 1;
-                saw_semicolon = true;
-                break;
-            }
-
-            if byte == b',' {
-                pos += 1;
-                continue;
-            }
-
-            // Field 1: generated column (skip value, it resets per line)
-            vlq_fast(bytes, &mut pos)?;
-
-            if pos < len && bytes[pos] != b',' && bytes[pos] != b';' {
-                // Field 2: source index
-                source_index += vlq_fast(bytes, &mut pos)?;
-
-                // Reject 2-field segments (only 1, 4, or 5 are valid per ECMA-426)
-                if pos >= len || bytes[pos] == b',' || bytes[pos] == b';' {
-                    return Err(DecodeError::InvalidSegmentLength { fields: 2, offset: pos });
-                }
-
-                // Field 3: original line
-                original_line += vlq_fast(bytes, &mut pos)?;
-
-                // Reject 3-field segments (only 1, 4, or 5 are valid per ECMA-426)
-                if pos >= len || bytes[pos] == b',' || bytes[pos] == b';' {
-                    return Err(DecodeError::InvalidSegmentLength { fields: 3, offset: pos });
-                }
-
-                // Field 4: original column
-                original_column += vlq_fast(bytes, &mut pos)?;
-
-                // Field 5: name (optional)
-                if pos < len && bytes[pos] != b',' && bytes[pos] != b';' {
-                    name_index += vlq_fast(bytes, &mut pos)?;
-                }
-            }
+        let line_state = state;
+        while pos < len && bytes[pos] != b';' {
+            pos += 1;
         }
+        let byte_end = pos;
+        state = walk_vlq_state(bytes, line_start, byte_end, state)?;
 
-        // byte_end is before the semicolon (or end of string)
-        let byte_end = if saw_semicolon { pos - 1 } else { pos };
+        line_info.push(LineInfo { byte_offset: line_start, byte_end, state: line_state });
 
-        line_info.push(LineInfo { byte_offset: line_start, byte_end, state });
-
-        if !saw_semicolon {
+        if pos >= len {
             break;
         }
+        pos += 1;
     }
 
     Ok(line_info)
