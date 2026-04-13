@@ -1,6 +1,6 @@
 {
   "name": "@srcmap/symbolicate-wasm",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "description": "Stack trace symbolication using source maps, powered by Rust (WebAssembly)",
   "keywords": [
     "browser",

@@ -1,6 +1,6 @@
 {
   "name": "@srcmap/generator-wasm",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "description": "High-performance source map generator powered by Rust (WebAssembly)",
   "keywords": [
     "browser",
