@@ -1,6 +1,6 @@
 {
   "name": "@srcmap/remapping",
-  "version": "0.3.3",
+  "version": "0.3.4",
   "description": "Drop-in replacement for @jridgewell/remapping and @ampproject/remapping powered by Rust via WebAssembly",
   "keywords": [
     "composition",
@@ -42,7 +42,7 @@
     "test:compat": "node --test __tests__/compat.test.mjs"
   },
   "dependencies": {
-    "@srcmap/remapping-wasm": "0.3.3"
+    "@srcmap/remapping-wasm": "0.3.4"
   },
   "devDependencies": {
     "@jridgewell/remapping": "^2.3.5"
