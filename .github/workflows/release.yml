@@ -468,9 +468,21 @@ jobs:
         run: /tmp/publish-if-needed.sh .
         working-directory: packages/generator-wasm
 
+      - name: Publish @srcmap/source-map
+        run: /tmp/publish-if-needed.sh .
+        working-directory: packages/source-map
+
+      - name: Publish @srcmap/gen-mapping
+        run: /tmp/publish-if-needed.sh .
+        working-directory: packages/gen-mapping
+
       - name: Publish @srcmap/remapping-wasm
         run: /tmp/publish-if-needed.sh .
         working-directory: packages/remapping-wasm
+
+      - name: Publish @srcmap/remapping
+        run: /tmp/publish-if-needed.sh .
+        working-directory: packages/remapping
 
       - name: Publish @srcmap/symbolicate-wasm
         run: /tmp/publish-if-needed.sh .

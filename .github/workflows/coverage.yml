@@ -71,35 +71,16 @@ jobs:
           corepack pnpm --filter @srcmap/codec build
           corepack pnpm --filter @srcmap/sourcemap build
 
-      # Build WASM package for JS tests
-      - name: Build WASM sourcemap
-        run: corepack pnpm --filter @srcmap/sourcemap-wasm build
+      # Build WASM packages for JS tests
+      - name: Build WASM packages
+        run: |
+          corepack pnpm --filter @srcmap/sourcemap-wasm build
+          corepack pnpm --filter @srcmap/generator-wasm build
+          corepack pnpm --filter @srcmap/remapping-wasm build
 
       # JS coverage (lcov)
-      - name: JS coverage - codec
-        working-directory: packages/codec
-        run: |
-          mkdir -p ../../coverage
-          node --test --experimental-test-coverage \
-            --test-reporter=lcov --test-reporter-destination=../../coverage/js-codec.lcov \
-            --test-reporter=spec --test-reporter-destination=stdout \
-            __tests__/codec.test.mjs
-
-      - name: JS coverage - sourcemap
-        working-directory: packages/sourcemap
-        run: |
-          node --test --experimental-test-coverage \
-            --test-reporter=lcov --test-reporter-destination=../../coverage/js-sourcemap.lcov \
-            --test-reporter=spec --test-reporter-destination=stdout \
-            __tests__/sourcemap.test.mjs
-
-      - name: JS coverage - sourcemap-wasm
-        working-directory: packages/sourcemap-wasm
-        run: |
-          node --test --experimental-test-coverage \
-            --test-reporter=lcov --test-reporter-destination=../../coverage/js-wasm.lcov \
-            --test-reporter=spec --test-reporter-destination=stdout \
-            __tests__/sourcemap-wasm.test.mjs
+      - name: JS coverage
+        run: corepack pnpm run coverage:js
 
       # Compute merged coverage percentage from all lcov files
       - name: Compute coverage
@@ -108,7 +89,7 @@ jobs:
             /^LF:/ { total += $2 }
             /^LH:/ { hit += $2 }
             END { if (total > 0) printf "%.1f", (hit/total)*100; else print "0" }
-          ' coverage/rust.lcov coverage/js-codec.lcov coverage/js-sourcemap.lcov coverage/js-wasm.lcov)
+          ' coverage/rust.lcov coverage/js-lcov.info)
           echo "COVERAGE=$COVERAGE" >> "$GITHUB_ENV"
           echo "Total coverage: $COVERAGE%"
 

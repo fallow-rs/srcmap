@@ -45,6 +45,32 @@ const pos = sm.generatedPositionFor('src/app.ts', 10, 4);
 sm.free();
 ```
 
+## Coverage offsets
+
+For V8 production coverage workloads you often start with generated code offsets, not `line,column` pairs.
+`@srcmap/sourcemap-wasm/coverage` provides a cacheable helper that converts UTF-8 offsets into generated positions and then forwards them into the batch source map APIs.
+It works with both `@srcmap/sourcemap-wasm` and `@srcmap/sourcemap`.
+
+```js
+import { SourceMap } from "@srcmap/sourcemap-wasm";
+import { GeneratedOffsetLookup } from "@srcmap/sourcemap-wasm/coverage";
+
+const sm = new SourceMap(mapJson);
+const lookup = new GeneratedOffsetLookup(generatedCode);
+
+const start = lookup.generatedPositionFor(startOffset);
+// { line: 120, column: 18 }
+
+const original = lookup.originalPositionFor(sm, startOffset);
+// { source, line, column, name } | null
+
+const positions = lookup.originalPositionsFor(sm, [startOffset, endOffset]);
+// Int32Array in @srcmap/sourcemap-wasm, number[] in @srcmap/sourcemap
+```
+
+Use one `GeneratedOffsetLookup` per generated asset and reuse it across beacon batches. That matches the `fallow-cloud` shape better than recomputing line starts for every flush.
+The helper always feeds a plain JavaScript array into the backend batch API, so both source map packages accept the same offset input shape.
+
 ## API
 
 ### `new SourceMap(json: string)`

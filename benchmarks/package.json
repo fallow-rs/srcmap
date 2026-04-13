@@ -7,9 +7,10 @@
     "bench:codec": "node codec.mjs",
     "bench:sourcemap": "node sourcemap.mjs",
     "bench:wasm": "node sourcemap-wasm.mjs",
+    "bench:fallow-cloud": "node fallow-cloud-coverage.mjs",
     "download-fixtures": "node download-fixtures.mjs",
     "bench:real-world": "node real-world.mjs",
-    "bench": "node codec.mjs && node sourcemap.mjs && node sourcemap-wasm.mjs"
+    "bench": "node codec.mjs && node sourcemap.mjs && node sourcemap-wasm.mjs && node fallow-cloud-coverage.mjs"
   },
   "dependencies": {
     "@jridgewell/sourcemap-codec": "^1.5.0",
