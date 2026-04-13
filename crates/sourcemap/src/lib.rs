@@ -2656,6 +2656,97 @@ fn decode_range_mappings(
     Ok(())
 }
 
+#[derive(Default)]
+struct MappingsDecodeState {
+    source_index: i64,
+    original_line: i64,
+    original_column: i64,
+    name_index: i64,
+}
+
+fn decode_mapping_segment(
+    bytes: &[u8],
+    pos: &mut usize,
+    generated_line: u32,
+    generated_column: &mut i64,
+    state: &mut MappingsDecodeState,
+) -> Result<Mapping, DecodeError> {
+    *generated_column += vlq_fast(bytes, pos)?;
+
+    if *pos < bytes.len() && bytes[*pos] != b',' && bytes[*pos] != b';' {
+        state.source_index += vlq_fast(bytes, pos)?;
+
+        // Reject 2-field segments (only 1, 4, or 5 are valid per ECMA-426)
+        if *pos >= bytes.len() || bytes[*pos] == b',' || bytes[*pos] == b';' {
+            return Err(DecodeError::InvalidSegmentLength { fields: 2, offset: *pos });
+        }
+
+        state.original_line += vlq_fast(bytes, pos)?;
+
+        // Reject 3-field segments (only 1, 4, or 5 are valid per ECMA-426)
+        if *pos >= bytes.len() || bytes[*pos] == b',' || bytes[*pos] == b';' {
+            return Err(DecodeError::InvalidSegmentLength { fields: 3, offset: *pos });
+        }
+
+        state.original_column += vlq_fast(bytes, pos)?;
+
+        let name = if *pos < bytes.len() && bytes[*pos] != b',' && bytes[*pos] != b';' {
+            state.name_index += vlq_fast(bytes, pos)?;
+            state.name_index as u32
+        } else {
+            NO_NAME
+        };
+
+        Ok(Mapping {
+            generated_line,
+            generated_column: *generated_column as u32,
+            source: state.source_index as u32,
+            original_line: state.original_line as u32,
+            original_column: state.original_column as u32,
+            name,
+            is_range_mapping: false,
+        })
+    } else {
+        Ok(Mapping {
+            generated_line,
+            generated_column: *generated_column as u32,
+            source: NO_SOURCE,
+            original_line: 0,
+            original_column: 0,
+            name: NO_NAME,
+            is_range_mapping: false,
+        })
+    }
+}
+
+fn build_range_line_offsets(
+    start_line: u32,
+    end_line: u32,
+    line_starts: &[(u32, u32)],
+    total: u32,
+) -> Vec<u32> {
+    let mut line_offsets: Vec<u32> = vec![total; end_line as usize + 1];
+
+    for offset in line_offsets.iter_mut().take(start_line as usize + 1) {
+        *offset = 0;
+    }
+
+    for &(line, offset) in line_starts {
+        line_offsets[line as usize] = offset;
+    }
+
+    let mut next_offset = total;
+    for i in (start_line as usize..end_line as usize).rev() {
+        if line_offsets[i] == total {
+            line_offsets[i] = next_offset;
+        } else {
+            next_offset = line_offsets[i];
+        }
+    }
+
+    line_offsets
+}
+
 fn decode_mappings(input: &str) -> Result<(Vec<Mapping>, Vec<u32>), DecodeError> {
     if input.is_empty() {
         return Ok((Vec::new(), vec![0]));
@@ -2677,10 +2768,7 @@ fn decode_mappings(input: &str) -> Result<(Vec<Mapping>, Vec<u32>), DecodeError>
     let mut mappings: Vec<Mapping> = Vec::with_capacity(approx_segments);
     let mut line_offsets: Vec<u32> = Vec::with_capacity(line_count + 1);
 
-    let mut source_index: i64 = 0;
-    let mut original_line: i64 = 0;
-    let mut original_column: i64 = 0;
-    let mut name_index: i64 = 0;
+    let mut state = MappingsDecodeState::default();
     let mut generated_line: u32 = 0;
     let mut pos: usize = 0;
 
@@ -2703,58 +2791,13 @@ fn decode_mappings(input: &str) -> Result<(Vec<Mapping>, Vec<u32>), DecodeError>
                 continue;
             }
 
-            // Field 1: generated column
-            generated_column += vlq_fast(bytes, &mut pos)?;
-
-            if pos < len && bytes[pos] != b',' && bytes[pos] != b';' {
-                // Field 2: source index
-                source_index += vlq_fast(bytes, &mut pos)?;
-
-                // Reject 2-field segments (only 1, 4, or 5 are valid per ECMA-426)
-                if pos >= len || bytes[pos] == b',' || bytes[pos] == b';' {
-                    return Err(DecodeError::InvalidSegmentLength { fields: 2, offset: pos });
-                }
-
-                // Field 3: original line
-                original_line += vlq_fast(bytes, &mut pos)?;
-
-                // Reject 3-field segments (only 1, 4, or 5 are valid per ECMA-426)
-                if pos >= len || bytes[pos] == b',' || bytes[pos] == b';' {
-                    return Err(DecodeError::InvalidSegmentLength { fields: 3, offset: pos });
-                }
-
-                // Field 4: original column
-                original_column += vlq_fast(bytes, &mut pos)?;
-
-                // Field 5: name (optional)
-                let name = if pos < len && bytes[pos] != b',' && bytes[pos] != b';' {
-                    name_index += vlq_fast(bytes, &mut pos)?;
-                    name_index as u32
-                } else {
-                    NO_NAME
-                };
-
-                mappings.push(Mapping {
-                    generated_line,
-                    generated_column: generated_column as u32,
-                    source: source_index as u32,
-                    original_line: original_line as u32,
-                    original_column: original_column as u32,
-                    name,
-                    is_range_mapping: false,
-                });
-            } else {
-                // 1-field segment: no source info
-                mappings.push(Mapping {
-                    generated_line,
-                    generated_column: generated_column as u32,
-                    source: NO_SOURCE,
-                    original_line: 0,
-                    original_column: 0,
-                    name: NO_NAME,
-                    is_range_mapping: false,
-                });
-            }
+            mappings.push(decode_mapping_segment(
+                bytes,
+                &mut pos,
+                generated_line,
+                &mut generated_column,
+                &mut state,
+            )?);
         }
 
         if !saw_semicolon {
@@ -2798,16 +2841,12 @@ fn decode_mappings_range(
 
     let mut mappings: Vec<Mapping> = Vec::new();
 
-    let mut source_index: i64 = 0;
-    let mut original_line: i64 = 0;
-    let mut original_column: i64 = 0;
-    let mut name_index: i64 = 0;
+    let mut state = MappingsDecodeState::default();
     let mut generated_line: u32 = 0;
     let mut pos: usize = 0;
 
-    // Track which line each mapping starts at, so we can build line_offsets after
-    // We use a vec of (line, mapping_start_index) pairs for lines in range
-    let mut line_starts: Vec<(u32, u32)> = Vec::new();
+    let mut line_starts: Vec<(u32, u32)> =
+        Vec::with_capacity((end_line - start_line).min(actual_lines) as usize);
 
     loop {
         let in_range = generated_line >= start_line && generated_line < end_line;
@@ -2832,61 +2871,15 @@ fn decode_mappings_range(
                 continue;
             }
 
-            // Field 1: generated column
-            generated_column += vlq_fast(bytes, &mut pos)?;
-
-            if pos < len && bytes[pos] != b',' && bytes[pos] != b';' {
-                // Field 2: source index
-                source_index += vlq_fast(bytes, &mut pos)?;
-
-                // Reject 2-field segments (only 1, 4, or 5 are valid per ECMA-426)
-                if pos >= len || bytes[pos] == b',' || bytes[pos] == b';' {
-                    return Err(DecodeError::InvalidSegmentLength { fields: 2, offset: pos });
-                }
-
-                // Field 3: original line
-                original_line += vlq_fast(bytes, &mut pos)?;
-
-                // Reject 3-field segments (only 1, 4, or 5 are valid per ECMA-426)
-                if pos >= len || bytes[pos] == b',' || bytes[pos] == b';' {
-                    return Err(DecodeError::InvalidSegmentLength { fields: 3, offset: pos });
-                }
-
-                // Field 4: original column
-                original_column += vlq_fast(bytes, &mut pos)?;
-
-                // Field 5: name (optional)
-                let name = if pos < len && bytes[pos] != b',' && bytes[pos] != b';' {
-                    name_index += vlq_fast(bytes, &mut pos)?;
-                    name_index as u32
-                } else {
-                    NO_NAME
-                };
-
-                if in_range {
-                    mappings.push(Mapping {
-                        generated_line,
-                        generated_column: generated_column as u32,
-                        source: source_index as u32,
-                        original_line: original_line as u32,
-                        original_column: original_column as u32,
-                        name,
-                        is_range_mapping: false,
-                    });
-                }
-            } else {
-                // 1-field segment: no source info
-                if in_range {
-                    mappings.push(Mapping {
-                        generated_line,
-                        generated_column: generated_column as u32,
-                        source: NO_SOURCE,
-                        original_line: 0,
-                        original_column: 0,
-                        name: NO_NAME,
-                        is_range_mapping: false,
-                    });
-                }
+            let mapping = decode_mapping_segment(
+                bytes,
+                &mut pos,
+                generated_line,
+                &mut generated_column,
+                &mut state,
+            )?;
+            if in_range {
+                mappings.push(mapping);
             }
         }
 
@@ -2901,78 +2894,8 @@ fn decode_mappings_range(
         }
     }
 
-    // Build line_offsets indexed by actual line number.
-    // Size = end_line + 1 so that line_offsets[line] and line_offsets[line+1] both exist
-    // for any line < end_line.
     let total = mappings.len() as u32;
-    let mut line_offsets: Vec<u32> = vec![total; end_line as usize + 1];
-
-    // Fill from our recorded line starts (in reverse so gaps get forward-filled correctly)
-    // First set lines before start_line to 0 (they have no mappings, and 0..0 = empty)
-    for i in 0..=start_line as usize {
-        if i < line_offsets.len() {
-            line_offsets[i] = 0;
-        }
-    }
-
-    // Set each recorded line start
-    for &(line, offset) in &line_starts {
-        line_offsets[line as usize] = offset;
-    }
-
-    // Forward-fill gaps within the range: if a line in [start_line, end_line) wasn't
-    // in line_starts, it should point to the same offset as the next line with mappings.
-    // We do a backward pass: for lines not explicitly set, they should get the offset
-    // of the next line (which means "empty line" since start == end for that range).
-    // Actually, the approach used in decode_mappings is forward: each line offset is
-    // set when we encounter it. Lines not encountered get the sentinel (total).
-    // But we also need lines before start_line to be "empty" (start == end).
-    // Since lines < start_line all have offset 0 and line start_line also starts at 0
-    // (or wherever the first mapping is), lines before start_line correctly have 0..0 = empty.
-
-    // However, there's a subtlety: if start_line has no mappings (empty line in range),
-    // it would have been set to 0 by line_starts but then line_offsets[start_line+1]
-    // might also be 0, making an empty range. Let's just ensure the forward-fill works:
-    // lines within range that have no mappings should have the same offset as the next
-    // line's start.
-
-    // Actually the simplest correct approach: walk forward from start_line to end_line.
-    // For each line not in line_starts, set it to the value of the previous line's end
-    // (which is the current mapping count at that point).
-    // We already recorded line_starts in order, so let's use them directly.
-
-    // Reset line_offsets for lines in [start_line, end_line] to sentinel
-    for i in start_line as usize..=end_line as usize {
-        if i < line_offsets.len() {
-            line_offsets[i] = total;
-        }
-    }
-
-    // Set recorded line starts
-    for &(line, offset) in &line_starts {
-        line_offsets[line as usize] = offset;
-    }
-
-    // Forward-fill: lines in the range that weren't recorded should get
-    // the offset of the next line (so they appear empty)
-    // Walk backward from end_line to start_line
-    let mut next_offset = total;
-    for i in (start_line as usize..end_line as usize).rev() {
-        if line_offsets[i] == total {
-            // This line wasn't in the input at all, point to next_offset
-            line_offsets[i] = next_offset;
-        } else {
-            next_offset = line_offsets[i];
-        }
-    }
-
-    // Lines before start_line should all be empty.
-    // Make consecutive lines point to 0 so start == end == 0.
-    for offset in line_offsets.iter_mut().take(start_line as usize) {
-        *offset = 0;
-    }
-
-    Ok((mappings, line_offsets))
+    Ok((mappings, build_range_line_offsets(start_line, end_line, &line_starts, total)))
 }
 
 /// Build reverse index: mapping indices sorted by (source, original_line, original_column).
