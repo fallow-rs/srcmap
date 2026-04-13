@@ -6,10 +6,8 @@ import { SourceMap as NapiSourceMap } from "../packages/sourcemap/index.js";
 import { GeneratedOffsetLookup } from "../packages/sourcemap-wasm/coverage.mjs";
 
 const require = createRequire(import.meta.url);
-// fallow-ignore-next-line unresolved-import
-const {
-  SourceMap: WasmSourceMap,
-} = require("../packages/sourcemap-wasm/pkg/srcmap_sourcemap_wasm.js");
+const wasmSourceMapModule = "../packages/sourcemap-wasm/pkg/srcmap_sourcemap_wasm.js";
+const { SourceMap: WasmSourceMap } = require(wasmSourceMapModule);
 
 const MAP_URL = "https://cdn.fallow-cloud.test/assets/app.js.map";
 const MAP_LINE_COUNT = 6000;
