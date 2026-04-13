@@ -33,6 +33,20 @@ function binarySearchFloor(values, needle) {
   return Math.max(0, high);
 }
 
+function binarySearchFloorFrom(values, needle, low) {
+  let high = values.length - 1;
+
+  while (low <= high) {
+    const mid = low + ((high - low) >> 1);
+    const value = values[mid];
+    if (value === needle) return mid;
+    if (value < needle) low = mid + 1;
+    else high = mid - 1;
+  }
+
+  return Math.max(0, high);
+}
+
 function toLength(value) {
   if (ArrayBuffer.isView(value)) return value.length;
   if (Array.isArray(value)) return value.length;
@@ -43,21 +57,17 @@ function getOffsetValue(offsets, index) {
   return offsets[index];
 }
 
-function createBatchPositions(sourceMap, length) {
-  if (typeof sourceMap?.free === "function") {
-    return new Int32Array(length * 2);
-  }
-
-  return new Array(length * 2);
-}
-
 export class GeneratedOffsetLookup {
   #code;
   #lineAsciiOnly;
   #lineEndBytes;
   #lineStartBytes;
   #lineStartIndices;
+  #napiBatchPositions;
+  #napiBatchPositionsLength;
   #totalBytes;
+  #wasmBatchPositions;
+  #wasmBatchPositionsLength;
 
   constructor(code) {
     if (typeof code !== "string") {
@@ -122,7 +132,11 @@ export class GeneratedOffsetLookup {
     this.#lineEndBytes = Uint32Array.from(lineEndBytes);
     this.#lineStartBytes = Uint32Array.from(lineStartBytes);
     this.#lineStartIndices = Uint32Array.from(lineStartIndices);
+    this.#napiBatchPositions = null;
+    this.#napiBatchPositionsLength = 0;
     this.#totalBytes = byteOffset;
+    this.#wasmBatchPositions = null;
+    this.#wasmBatchPositionsLength = 0;
   }
 
   get lineCount() {
@@ -186,56 +200,7 @@ export class GeneratedOffsetLookup {
     const length = toLength(offsets);
     const positions = new Int32Array(length * 2);
 
-    for (let i = 0; i < length; i++) {
-      const offset = getOffsetValue(offsets, i);
-      assertInteger(offset, "offset");
-
-      if (offset < 0 || offset > this.#totalBytes) {
-        throw new RangeError(`offset ${offset} is outside generated code bounds`);
-      }
-
-      const line = binarySearchFloor(this.#lineStartBytes, offset);
-      const lineStartByte = this.#lineStartBytes[line];
-      const lineEndByte = this.#lineEndBytes[line];
-      const base = i * 2;
-
-      positions[base] = line;
-      if (this.#lineAsciiOnly[line]) {
-        positions[base + 1] =
-          offset <= lineEndByte ? offset - lineStartByte : lineEndByte - lineStartByte;
-        continue;
-      }
-
-      const lineStartIndex = this.#lineStartIndices[line];
-      const lineEndIndex =
-        line + 1 < this.#lineStartIndices.length
-          ? this.#lineStartIndices[line + 1]
-          : this.#code.length;
-
-      let byteCursor = lineStartByte;
-      let column = 0;
-      let codeUnitIndex = lineStartIndex;
-
-      while (codeUnitIndex < lineEndIndex && byteCursor < offset) {
-        const codePoint = this.#code.codePointAt(codeUnitIndex);
-        const width = codePointWidth(codePoint);
-
-        if (codePoint === NEWLINE_LF || codePoint === NEWLINE_CR) {
-          break;
-        }
-
-        const charBytes = utf8ByteLength(codePoint);
-        if (byteCursor + charBytes > offset) {
-          throw new RangeError(`offset ${offset} falls in the middle of a UTF-8 code point`);
-        }
-
-        byteCursor += charBytes;
-        column += width;
-        codeUnitIndex += width;
-      }
-
-      positions[base + 1] = column;
-    }
+    this.#fillBatchPositions(offsets, positions);
 
     return positions;
   }
@@ -257,7 +222,17 @@ export class GeneratedOffsetLookup {
     }
 
     const length = toLength(offsets);
-    const positions = createBatchPositions(sourceMap, length);
+    const positions = this.#getReusableBatchPositions(sourceMap, length);
+
+    this.#fillBatchPositions(offsets, positions);
+
+    return sourceMap.originalPositionsFor(positions);
+  }
+
+  #fillBatchPositions(offsets, positions) {
+    const length = toLength(offsets);
+    let previousOffset = -1;
+    let previousLine = 0;
 
     for (let i = 0; i < length; i++) {
       const offset = getOffsetValue(offsets, i);
@@ -267,10 +242,16 @@ export class GeneratedOffsetLookup {
         throw new RangeError(`offset ${offset} is outside generated code bounds`);
       }
 
-      const line = binarySearchFloor(this.#lineStartBytes, offset);
+      const line =
+        offset >= previousOffset
+          ? binarySearchFloorFrom(this.#lineStartBytes, offset, previousLine)
+          : binarySearchFloor(this.#lineStartBytes, offset);
       const lineStartByte = this.#lineStartBytes[line];
       const lineEndByte = this.#lineEndBytes[line];
       const base = i * 2;
+
+      previousOffset = offset;
+      previousLine = line;
 
       positions[base] = line;
       if (this.#lineAsciiOnly[line]) {
@@ -309,8 +290,28 @@ export class GeneratedOffsetLookup {
 
       positions[base + 1] = column;
     }
+  }
 
-    return sourceMap.originalPositionsFor(positions);
+  #getReusableBatchPositions(sourceMap, length) {
+    const positionCount = length * 2;
+
+    if (typeof sourceMap?.free === "function") {
+      if (this.#wasmBatchPositions === null || this.#wasmBatchPositionsLength < positionCount) {
+        this.#wasmBatchPositions = new Int32Array(positionCount);
+        this.#wasmBatchPositionsLength = positionCount;
+      }
+
+      return this.#wasmBatchPositions.subarray(0, positionCount);
+    }
+
+    if (this.#napiBatchPositions === null || this.#napiBatchPositionsLength < positionCount) {
+      this.#napiBatchPositions = new Array(positionCount);
+      this.#napiBatchPositionsLength = positionCount;
+    } else {
+      this.#napiBatchPositions.length = positionCount;
+    }
+
+    return this.#napiBatchPositions;
   }
 }
 

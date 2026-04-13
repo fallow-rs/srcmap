@@ -164,6 +164,46 @@ function verifyBatchResults(entry, beacon, resolvePosition) {
   return true;
 }
 
+function verifyBulkResults(entry, beacon, actualResults) {
+  const generatedPositions = entry.offsetLookup.generatedPositionsFor(beacon.offsets);
+
+  for (let i = 0; i < generatedPositions.length; i += 2) {
+    const expected = originalPositionFor(entry.trace, {
+      line: generatedPositions[i] + 1,
+      column: generatedPositions[i + 1],
+    });
+    const base = i * 2;
+    const expectedSource = expected.source ?? null;
+    const expectedLine = expected.line ?? null;
+    const expectedColumn = expected.column ?? null;
+    const expectedName = expected.name ?? null;
+
+    if (expectedSource === null) {
+      if (actualResults[base] !== -1) return false;
+      continue;
+    }
+
+    const actualSourceIndex = actualResults[base];
+    const actualLine = actualResults[base + 1];
+    const actualColumn = actualResults[base + 2];
+    const actualNameIndex = actualResults[base + 3];
+    const actualSource =
+      actualSourceIndex === -1 ? null : (fixture.sources[actualSourceIndex] ?? null);
+    const actualName = actualNameIndex === -1 ? null : (fixture.names[actualNameIndex] ?? null);
+
+    if (
+      actualSource !== expectedSource ||
+      actualLine !== expectedLine - 1 ||
+      actualColumn !== expectedColumn ||
+      actualName !== expectedName
+    ) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
 console.log("=== Fallow Cloud Coverage Workload ===\n");
 console.log(`Map cache: 1 large map reused across ${BATCH_COUNT} beacon batches`);
 console.log(
@@ -179,6 +219,8 @@ console.log("--- Correctness Check ---\n");
 
 let wasmPass = true;
 let napiPass = true;
+let wasmBatchPass = true;
+let napiBatchPass = true;
 
 for (const beacon of beacons.slice(0, 8)) {
   if (
@@ -195,12 +237,32 @@ for (const beacon of beacons.slice(0, 8)) {
   ) {
     napiPass = false;
   }
+  if (
+    !verifyBulkResults(
+      cachedMaps,
+      beacon,
+      cachedMaps.offsetLookup.originalPositionsFor(cachedMaps.wasm, beacon.offsets),
+    )
+  ) {
+    wasmBatchPass = false;
+  }
+  if (
+    !verifyBulkResults(
+      cachedMaps,
+      beacon,
+      cachedMaps.offsetLookup.originalPositionsFor(cachedMaps.napi, beacon.offsets),
+    )
+  ) {
+    napiBatchPass = false;
+  }
 }
 
 console.log(`  WASM single lookup: ${wasmPass ? "PASS" : "FAIL"}`);
 console.log(`  NAPI single lookup: ${napiPass ? "PASS" : "FAIL"}`);
+console.log(`  WASM batch lookup: ${wasmBatchPass ? "PASS" : "FAIL"}`);
+console.log(`  NAPI batch lookup: ${napiBatchPass ? "PASS" : "FAIL"}`);
 
-if (!wasmPass || !napiPass) {
+if (!wasmPass || !napiPass || !wasmBatchPass || !napiBatchPass) {
   process.exitCode = 1;
 }
 
@@ -234,6 +296,16 @@ bench
       for (let i = 0; i < positions.length; i += 2) {
         cachedMaps.napi.originalPositionFor(positions[i], positions[i + 1]);
       }
+    }
+  })
+  .add("srcmap WASM batch lookup", () => {
+    for (const beacon of beacons) {
+      cachedMaps.offsetLookup.originalPositionsFor(cachedMaps.wasm, beacon.offsets);
+    }
+  })
+  .add("srcmap NAPI batch lookup", () => {
+    for (const beacon of beacons) {
+      cachedMaps.offsetLookup.originalPositionsFor(cachedMaps.napi, beacon.offsets);
     }
   });
 
