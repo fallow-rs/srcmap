@@ -94,7 +94,10 @@ describe("offset lookup integration", () => {
 
   it("provides a stateless convenience helper", () => {
     const sm = new WasmSourceMap(TWO_LINE_MAP);
-    const pos = generatedPositionForOffset("alpha();\nbeta();\n", Buffer.byteLength("alpha();\n", "utf8"));
+    const pos = generatedPositionForOffset(
+      "alpha();\nbeta();\n",
+      Buffer.byteLength("alpha();\n", "utf8"),
+    );
     assert.deepEqual(pos, { line: 1, column: 0 });
     sm.free();
   });

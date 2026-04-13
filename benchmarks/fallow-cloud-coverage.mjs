@@ -7,7 +7,9 @@ import { GeneratedOffsetLookup } from "../packages/sourcemap-wasm/coverage.mjs";
 
 const require = createRequire(import.meta.url);
 // fallow-ignore-next-line unresolved-import
-const { SourceMap: WasmSourceMap } = require("../packages/sourcemap-wasm/pkg/srcmap_sourcemap_wasm.js");
+const {
+  SourceMap: WasmSourceMap,
+} = require("../packages/sourcemap-wasm/pkg/srcmap_sourcemap_wasm.js");
 
 const MAP_URL = "https://cdn.fallow-cloud.test/assets/app.js.map";
 const MAP_LINE_COUNT = 6000;
@@ -19,8 +21,14 @@ const POSITIONS_PER_BATCH = 40;
 const GENERATED_LINE_WIDTH = 220;
 
 function buildLargeCoverageMap() {
-  const sources = Array.from({ length: SOURCE_COUNT }, (_, i) => `src/module-${String(i).padStart(2, "0")}.ts`);
-  const names = Array.from({ length: NAME_COUNT }, (_, i) => `symbol_${String(i).padStart(2, "0")}`);
+  const sources = Array.from(
+    { length: SOURCE_COUNT },
+    (_, i) => `src/module-${String(i).padStart(2, "0")}.ts`,
+  );
+  const names = Array.from(
+    { length: NAME_COUNT },
+    (_, i) => `symbol_${String(i).padStart(2, "0")}`,
+  );
 
   const mappings = [];
   let sourceIndex = 0;
@@ -61,7 +69,7 @@ function buildLargeCoverageMap() {
 }
 
 function buildGeneratedCode() {
-  const lineStartOffsets = new Array(MAP_LINE_COUNT);
+  const lineStartOffsets = [];
   const lines = [];
   let offset = 0;
 
@@ -160,8 +168,12 @@ function verifyBatchResults(entry, beacon, resolvePosition) {
 
 console.log("=== Fallow Cloud Coverage Workload ===\n");
 console.log(`Map cache: 1 large map reused across ${BATCH_COUNT} beacon batches`);
-console.log(`Batch size: ${POSITIONS_PER_BATCH} offsets per beacon (${BATCH_COUNT * POSITIONS_PER_BATCH} lookups per run)`);
-console.log(`Fixture map: ${fixture.json.length.toLocaleString()} bytes, ${MAP_LINE_COUNT} lines, ${SEGS_PER_LINE * MAP_LINE_COUNT} segments\n`);
+console.log(
+  `Batch size: ${POSITIONS_PER_BATCH} offsets per beacon (${BATCH_COUNT * POSITIONS_PER_BATCH} lookups per run)`,
+);
+console.log(
+  `Fixture map: ${fixture.json.length.toLocaleString()} bytes, ${MAP_LINE_COUNT} lines, ${SEGS_PER_LINE * MAP_LINE_COUNT} segments\n`,
+);
 
 const cachedMaps = getCachedMaps(MAP_URL);
 
@@ -171,10 +183,18 @@ let wasmPass = true;
 let napiPass = true;
 
 for (const beacon of beacons.slice(0, 8)) {
-  if (!verifyBatchResults(cachedMaps, beacon, (line, column) => cachedMaps.wasm.originalPositionFor(line, column))) {
+  if (
+    !verifyBatchResults(cachedMaps, beacon, (line, column) =>
+      cachedMaps.wasm.originalPositionFor(line, column),
+    )
+  ) {
     wasmPass = false;
   }
-  if (!verifyBatchResults(cachedMaps, beacon, (line, column) => cachedMaps.napi.originalPositionFor(line, column))) {
+  if (
+    !verifyBatchResults(cachedMaps, beacon, (line, column) =>
+      cachedMaps.napi.originalPositionFor(line, column),
+    )
+  ) {
     napiPass = false;
   }
 }
@@ -226,7 +246,9 @@ console.table(
     Name: task.name,
     "ops/sec": Math.round(task.result.hz).toLocaleString(),
     "avg (μs)": (task.result.mean * 1000).toFixed(1),
-    "per lookup (ns)": Math.round((task.result.mean * 1_000_000) / (BATCH_COUNT * POSITIONS_PER_BATCH)).toLocaleString(),
+    "per lookup (ns)": Math.round(
+      (task.result.mean * 1_000_000) / (BATCH_COUNT * POSITIONS_PER_BATCH),
+    ).toLocaleString(),
   })),
 );
 

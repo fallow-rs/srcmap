@@ -116,7 +116,9 @@ export class GeneratedOffsetLookup {
     const lineStartByte = this.#lineStartBytes[line];
     const lineStartIndex = this.#lineStartIndices[line];
     const lineEndIndex =
-      line + 1 < this.#lineStartIndices.length ? this.#lineStartIndices[line + 1] : this.#code.length;
+      line + 1 < this.#lineStartIndices.length
+        ? this.#lineStartIndices[line + 1]
+        : this.#code.length;
 
     let byteCursor = lineStartByte;
     let column = 0;
