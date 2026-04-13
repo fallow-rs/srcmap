@@ -43,8 +43,18 @@ function getOffsetValue(offsets, index) {
   return offsets[index];
 }
 
+function createBatchPositions(sourceMap, length) {
+  if (typeof sourceMap?.free === "function") {
+    return new Int32Array(length * 2);
+  }
+
+  return new Array(length * 2);
+}
+
 export class GeneratedOffsetLookup {
   #code;
+  #lineAsciiOnly;
+  #lineEndBytes;
   #lineStartBytes;
   #lineStartIndices;
   #totalBytes;
@@ -57,24 +67,32 @@ export class GeneratedOffsetLookup {
     this.#code = code;
 
     const lineStartBytes = [0];
+    const lineEndBytes = [];
     const lineStartIndices = [0];
+    const lineAsciiOnly = [];
 
     let byteOffset = 0;
     let codeUnitIndex = 0;
+    let currentLineAsciiOnly = true;
 
     while (codeUnitIndex < code.length) {
       const codePoint = code.codePointAt(codeUnitIndex);
       const width = codePointWidth(codePoint);
 
       if (codePoint === NEWLINE_LF) {
+        lineEndBytes.push(byteOffset);
+        lineAsciiOnly.push(currentLineAsciiOnly ? 1 : 0);
         byteOffset += 1;
         codeUnitIndex += 1;
         lineStartBytes.push(byteOffset);
         lineStartIndices.push(codeUnitIndex);
+        currentLineAsciiOnly = true;
         continue;
       }
 
       if (codePoint === NEWLINE_CR) {
+        lineEndBytes.push(byteOffset);
+        lineAsciiOnly.push(currentLineAsciiOnly ? 1 : 0);
         const next = code.charCodeAt(codeUnitIndex + 1);
         if (next === NEWLINE_LF) {
           byteOffset += 2;
@@ -85,13 +103,23 @@ export class GeneratedOffsetLookup {
         }
         lineStartBytes.push(byteOffset);
         lineStartIndices.push(codeUnitIndex);
+        currentLineAsciiOnly = true;
         continue;
+      }
+
+      if (codePoint > 0x7f) {
+        currentLineAsciiOnly = false;
       }
 
       byteOffset += utf8ByteLength(codePoint);
       codeUnitIndex += width;
     }
 
+    lineEndBytes.push(byteOffset);
+    lineAsciiOnly.push(currentLineAsciiOnly ? 1 : 0);
+
+    this.#lineAsciiOnly = Uint8Array.from(lineAsciiOnly);
+    this.#lineEndBytes = Uint32Array.from(lineEndBytes);
     this.#lineStartBytes = Uint32Array.from(lineStartBytes);
     this.#lineStartIndices = Uint32Array.from(lineStartIndices);
     this.#totalBytes = byteOffset;
@@ -114,6 +142,15 @@ export class GeneratedOffsetLookup {
 
     const line = binarySearchFloor(this.#lineStartBytes, offset);
     const lineStartByte = this.#lineStartBytes[line];
+    const lineEndByte = this.#lineEndBytes[line];
+
+    if (this.#lineAsciiOnly[line]) {
+      return {
+        line,
+        column: offset <= lineEndByte ? offset - lineStartByte : lineEndByte - lineStartByte,
+      };
+    }
+
     const lineStartIndex = this.#lineStartIndices[line];
     const lineEndIndex =
       line + 1 < this.#lineStartIndices.length
@@ -150,9 +187,53 @@ export class GeneratedOffsetLookup {
     const positions = new Int32Array(length * 2);
 
     for (let i = 0; i < length; i++) {
-      const { line, column } = this.generatedPositionFor(getOffsetValue(offsets, i));
+      const offset = getOffsetValue(offsets, i);
+      assertInteger(offset, "offset");
+
+      if (offset < 0 || offset > this.#totalBytes) {
+        throw new RangeError(`offset ${offset} is outside generated code bounds`);
+      }
+
+      const line = binarySearchFloor(this.#lineStartBytes, offset);
+      const lineStartByte = this.#lineStartBytes[line];
+      const lineEndByte = this.#lineEndBytes[line];
       const base = i * 2;
+
       positions[base] = line;
+      if (this.#lineAsciiOnly[line]) {
+        positions[base + 1] =
+          offset <= lineEndByte ? offset - lineStartByte : lineEndByte - lineStartByte;
+        continue;
+      }
+
+      const lineStartIndex = this.#lineStartIndices[line];
+      const lineEndIndex =
+        line + 1 < this.#lineStartIndices.length
+          ? this.#lineStartIndices[line + 1]
+          : this.#code.length;
+
+      let byteCursor = lineStartByte;
+      let column = 0;
+      let codeUnitIndex = lineStartIndex;
+
+      while (codeUnitIndex < lineEndIndex && byteCursor < offset) {
+        const codePoint = this.#code.codePointAt(codeUnitIndex);
+        const width = codePointWidth(codePoint);
+
+        if (codePoint === NEWLINE_LF || codePoint === NEWLINE_CR) {
+          break;
+        }
+
+        const charBytes = utf8ByteLength(codePoint);
+        if (byteCursor + charBytes > offset) {
+          throw new RangeError(`offset ${offset} falls in the middle of a UTF-8 code point`);
+        }
+
+        byteCursor += charBytes;
+        column += width;
+        codeUnitIndex += width;
+      }
+
       positions[base + 1] = column;
     }
 
@@ -174,7 +255,62 @@ export class GeneratedOffsetLookup {
     if (typeof sourceMap?.originalPositionsFor !== "function") {
       throw new TypeError("sourceMap must expose originalPositionsFor");
     }
-    return sourceMap.originalPositionsFor(Array.from(this.generatedPositionsFor(offsets)));
+
+    const length = toLength(offsets);
+    const positions = createBatchPositions(sourceMap, length);
+
+    for (let i = 0; i < length; i++) {
+      const offset = getOffsetValue(offsets, i);
+      assertInteger(offset, "offset");
+
+      if (offset < 0 || offset > this.#totalBytes) {
+        throw new RangeError(`offset ${offset} is outside generated code bounds`);
+      }
+
+      const line = binarySearchFloor(this.#lineStartBytes, offset);
+      const lineStartByte = this.#lineStartBytes[line];
+      const lineEndByte = this.#lineEndBytes[line];
+      const base = i * 2;
+
+      positions[base] = line;
+      if (this.#lineAsciiOnly[line]) {
+        positions[base + 1] =
+          offset <= lineEndByte ? offset - lineStartByte : lineEndByte - lineStartByte;
+        continue;
+      }
+
+      const lineStartIndex = this.#lineStartIndices[line];
+      const lineEndIndex =
+        line + 1 < this.#lineStartIndices.length
+          ? this.#lineStartIndices[line + 1]
+          : this.#code.length;
+
+      let byteCursor = lineStartByte;
+      let column = 0;
+      let codeUnitIndex = lineStartIndex;
+
+      while (codeUnitIndex < lineEndIndex && byteCursor < offset) {
+        const codePoint = this.#code.codePointAt(codeUnitIndex);
+        const width = codePointWidth(codePoint);
+
+        if (codePoint === NEWLINE_LF || codePoint === NEWLINE_CR) {
+          break;
+        }
+
+        const charBytes = utf8ByteLength(codePoint);
+        if (byteCursor + charBytes > offset) {
+          throw new RangeError(`offset ${offset} falls in the middle of a UTF-8 code point`);
+        }
+
+        byteCursor += charBytes;
+        column += width;
+        codeUnitIndex += width;
+      }
+
+      positions[base + 1] = column;
+    }
+
+    return sourceMap.originalPositionsFor(positions);
   }
 }
 

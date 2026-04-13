@@ -69,7 +69,7 @@ const positions = lookup.originalPositionsFor(sm, [startOffset, endOffset]);
 ```
 
 Use one `GeneratedOffsetLookup` per generated asset and reuse it across beacon batches. That matches the `fallow-cloud` shape better than recomputing line starts for every flush.
-The helper always feeds a plain JavaScript array into the backend batch API, so both source map packages accept the same offset input shape.
+The helper preserves the backend-native batch shape: `Int32Array` for `@srcmap/sourcemap-wasm`, plain arrays for `@srcmap/sourcemap`.
 
 ## API
 
