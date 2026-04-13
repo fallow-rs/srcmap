@@ -312,8 +312,6 @@ jobs:
     permissions:
       contents: read
       id-token: write
-    env:
-      NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
@@ -321,6 +319,9 @@ jobs:
         with:
           node-version: 24
           registry-url: https://registry.npmjs.org/
+
+      - name: Ensure latest npm (for trusted publishing)
+        run: npm install -g npm@10.9.8 && npm install -g npm@latest
 
       - name: Configure npm registry
         run: npm config set registry https://registry.npmjs.org/
@@ -346,7 +347,10 @@ jobs:
             exit 0
           fi
 
-          npm publish --access public --provenance --ignore-scripts
+          if ! npm publish --access public --provenance --ignore-scripts; then
+            echo "Provenance publish failed for ${name}@${version}, retrying without provenance..."
+            npm publish --access public --ignore-scripts
+          fi
           EOF
           chmod +x /tmp/publish-if-needed.sh
 
@@ -423,6 +427,7 @@ jobs:
       - name: Publish @srcmap/codec platform packages
         shell: bash
         run: |
+          failed=0
           for dir in npm/*/; do
             name="$(node -p "require('./${dir%/}/package.json').name")"
             version="$(node -p "require('./${dir%/}/package.json').version")"
@@ -432,8 +437,18 @@ jobs:
               continue
             fi
 
-            npm publish "$dir" --access public --provenance
+            if ! npm publish "$dir" --access public --provenance; then
+              echo "Provenance publish failed for ${name}@${version}, retrying without provenance..."
+              if ! npm publish "$dir" --access public; then
+                echo "::error::Failed to publish ${name}@${version}"
+                failed=1
+              fi
+            fi
           done
+
+          if [ "$failed" -eq 1 ]; then
+            exit 1
+          fi
         working-directory: packages/codec
 
       - name: Publish @srcmap/codec
@@ -443,6 +458,7 @@ jobs:
       - name: Publish @srcmap/sourcemap platform packages
         shell: bash
         run: |
+          failed=0
           for dir in npm/*/; do
             name="$(node -p "require('./${dir%/}/package.json').name")"
             version="$(node -p "require('./${dir%/}/package.json').version")"
@@ -452,8 +468,18 @@ jobs:
               continue
             fi
 
-            npm publish "$dir" --access public --provenance
+            if ! npm publish "$dir" --access public --provenance; then
+              echo "Provenance publish failed for ${name}@${version}, retrying without provenance..."
+              if ! npm publish "$dir" --access public; then
+                echo "::error::Failed to publish ${name}@${version}"
+                failed=1
+              fi
+            fi
           done
+
+          if [ "$failed" -eq 1 ]; then
+            exit 1
+          fi
         working-directory: packages/sourcemap
 
       - name: Publish @srcmap/sourcemap
