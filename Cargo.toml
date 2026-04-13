@@ -3,7 +3,7 @@ resolver = "3"
 members = ["crates/*", "packages/codec", "packages/sourcemap", "packages/sourcemap-wasm", "packages/generator-wasm", "packages/remapping-wasm", "packages/symbolicate-wasm", "packages/scopes-wasm", "packages/generator", "packages/remapping"]
 
 [workspace.package]
-version = "0.3.4"
+version = "0.3.5"
 edition = "2024"
 rust-version = "1.88"
 license = "MIT"
@@ -11,12 +11,12 @@ repository = "https://github.com/fallow-rs/srcmap"
 homepage = "https://github.com/fallow-rs/srcmap"
 
 [workspace.dependencies]
-srcmap-codec = { version = "0.3.4", path = "crates/codec" }
-srcmap-sourcemap = { version = "0.3.4", path = "crates/sourcemap" }
-srcmap-generator = { version = "0.3.4", path = "crates/generator" }
-srcmap-remapping = { version = "0.3.4", path = "crates/remapping" }
-srcmap-scopes = { version = "0.3.4", path = "crates/scopes" }
-srcmap-symbolicate = { version = "0.3.4", path = "crates/symbolicate" }
+srcmap-codec = { version = "0.3.5", path = "crates/codec" }
+srcmap-sourcemap = { version = "0.3.5", path = "crates/sourcemap" }
+srcmap-generator = { version = "0.3.5", path = "crates/generator" }
+srcmap-remapping = { version = "0.3.5", path = "crates/remapping" }
+srcmap-scopes = { version = "0.3.5", path = "crates/scopes" }
+srcmap-symbolicate = { version = "0.3.5", path = "crates/symbolicate" }
 criterion = { version = "0.5", features = ["html_reports"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["raw_value"] }

@@ -1,6 +1,6 @@
 {
   "name": "@srcmap/codec-win32-x64-msvc",
-  "version": "0.3.4",
+  "version": "0.3.5",
   "description": "High-performance VLQ source map codec powered by Rust",
   "keywords": [
     "codec",
