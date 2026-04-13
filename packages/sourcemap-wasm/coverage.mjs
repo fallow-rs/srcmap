@@ -305,7 +305,8 @@ export class GeneratedOffsetLookup {
     }
 
     if (this.#napiBatchPositions === null || this.#napiBatchPositionsLength < positionCount) {
-      this.#napiBatchPositions = new Array(positionCount);
+      this.#napiBatchPositions = [];
+      this.#napiBatchPositions.length = positionCount;
       this.#napiBatchPositionsLength = positionCount;
     } else {
       this.#napiBatchPositions.length = positionCount;
