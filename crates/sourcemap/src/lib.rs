@@ -1545,7 +1545,7 @@ impl SourceMap {
 // ── LazySourceMap ──────────────────────────────────────────────────
 
 /// Cumulative VLQ state at a line boundary.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Default)]
 struct VlqState {
     source_index: i64,
     original_line: i64,
@@ -1621,6 +1621,45 @@ pub struct LazySourceMap {
 }
 
 impl LazySourceMap {
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "private constructor centralizes shared LazySourceMap setup"
+    )]
+    fn new_inner(
+        file: Option<String>,
+        source_root: Option<String>,
+        sources: Vec<String>,
+        sources_content: Vec<Option<String>>,
+        names: Vec<String>,
+        ignore_list: Vec<u32>,
+        extensions: HashMap<String, serde_json::Value>,
+        debug_id: Option<String>,
+        scopes: Option<ScopeInfo>,
+        raw_mappings: String,
+        line_info: Vec<LineInfo>,
+        source_map: HashMap<String, u32>,
+        fast_scan: bool,
+    ) -> Self {
+        Self {
+            file,
+            source_root,
+            sources,
+            sources_content,
+            names,
+            ignore_list,
+            extensions,
+            debug_id,
+            scopes,
+            raw_mappings,
+            line_info,
+            decoded_lines: RefCell::new(HashMap::new()),
+            source_map,
+            fast_scan,
+            decode_watermark: Cell::new(0),
+            decode_state: Cell::new(VlqState::default()),
+        }
+    }
+
     /// Parse a source map from JSON, deferring VLQ mappings decoding.
     ///
     /// Parses all JSON metadata eagerly but stores the raw mappings string.
@@ -1663,29 +1702,21 @@ impl LazySourceMap {
             .filter(|(k, _)| k.starts_with("x_") || k.starts_with("x-"))
             .collect();
 
-        Ok(Self {
-            file: raw.file,
-            source_root: raw.source_root,
+        Ok(Self::new_inner(
+            raw.file,
+            raw.source_root,
             sources,
             sources_content,
-            names: raw.names,
+            raw.names,
             ignore_list,
             extensions,
-            debug_id: raw.debug_id,
+            raw.debug_id,
             scopes,
             raw_mappings,
             line_info,
-            decoded_lines: RefCell::new(HashMap::new()),
             source_map,
-            fast_scan: false,
-            decode_watermark: Cell::new(0),
-            decode_state: Cell::new(VlqState {
-                source_index: 0,
-                original_line: 0,
-                original_column: 0,
-                name_index: 0,
-            }),
-        })
+            false,
+        ))
     }
 
     /// Parse a source map from JSON, skipping sourcesContent allocation
@@ -1728,29 +1759,21 @@ impl LazySourceMap {
             None => raw.x_google_ignore_list.unwrap_or_default(),
         };
 
-        Ok(Self {
-            file: raw.file,
-            source_root: raw.source_root,
+        Ok(Self::new_inner(
+            raw.file,
+            raw.source_root,
             sources,
-            sources_content: Vec::new(),
-            names: raw.names,
+            Vec::new(),
+            raw.names,
             ignore_list,
-            extensions: HashMap::new(),
-            debug_id: raw.debug_id,
+            HashMap::new(),
+            raw.debug_id,
             scopes,
             raw_mappings,
             line_info,
-            decoded_lines: RefCell::new(HashMap::new()),
             source_map,
-            fast_scan: false,
-            decode_watermark: Cell::new(0),
-            decode_state: Cell::new(VlqState {
-                source_index: 0,
-                original_line: 0,
-                original_column: 0,
-                name_index: 0,
-            }),
-        })
+            false,
+        ))
     }
 
     /// Build a lazy source map from pre-parsed components.
@@ -1770,29 +1793,21 @@ impl LazySourceMap {
         let raw_mappings = mappings.to_string();
         let line_info = prescan_mappings(&raw_mappings)?;
 
-        Ok(Self {
+        Ok(Self::new_inner(
             file,
             source_root,
             sources,
-            sources_content: Vec::new(),
+            Vec::new(),
             names,
             ignore_list,
-            extensions: HashMap::new(),
+            HashMap::new(),
             debug_id,
-            scopes: None,
+            None,
             raw_mappings,
             line_info,
-            decoded_lines: RefCell::new(HashMap::new()),
             source_map,
-            fast_scan: false,
-            decode_watermark: Cell::new(0),
-            decode_state: Cell::new(VlqState {
-                source_index: 0,
-                original_line: 0,
-                original_column: 0,
-                name_index: 0,
-            }),
-        })
+            false,
+        ))
     }
 
     /// Parse a source map from JSON using fast-scan mode.
@@ -1830,29 +1845,21 @@ impl LazySourceMap {
             None => raw.x_google_ignore_list.unwrap_or_default(),
         };
 
-        Ok(Self {
-            file: raw.file,
-            source_root: raw.source_root,
+        Ok(Self::new_inner(
+            raw.file,
+            raw.source_root,
             sources,
-            sources_content: Vec::new(),
-            names: raw.names,
+            Vec::new(),
+            raw.names,
             ignore_list,
-            extensions: HashMap::new(),
-            debug_id: raw.debug_id,
-            scopes: None,
+            HashMap::new(),
+            raw.debug_id,
+            None,
             raw_mappings,
             line_info,
-            decoded_lines: RefCell::new(HashMap::new()),
             source_map,
-            fast_scan: true,
-            decode_watermark: Cell::new(0),
-            decode_state: Cell::new(VlqState {
-                source_index: 0,
-                original_line: 0,
-                original_column: 0,
-                name_index: 0,
-            }),
-        })
+            true,
+        ))
     }
 
     /// Decode a single line's VLQ segment into mappings, given the initial VLQ state.
