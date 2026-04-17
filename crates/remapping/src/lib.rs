@@ -823,7 +823,9 @@ pub fn remap_chain(maps: &[&SourceMap]) -> Option<SourceMap> {
 }
 
 /// Compose two source maps: outer maps generated → intermediate, inner maps intermediate → original.
-/// All sources in outer are resolved through inner.
+/// Only the outer source matching `inner.file` is resolved through inner; other outer sources
+/// pass through unchanged. When `inner.file` is unset and outer has a single non-empty source,
+/// that source is treated as the match target.
 fn compose_pair(outer: &SourceMap, inner: &SourceMap) -> SourceMap {
     let fallback_source = if inner.file.is_none() {
         let mut sources = outer.sources.iter().filter(|source| !source.is_empty());
