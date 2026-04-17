@@ -30,7 +30,7 @@ use std::io;
 
 use serde::Deserialize;
 use srcmap_codec::{DecodeError, vlq_encode_unsigned};
-use srcmap_scopes::ScopeInfo;
+use srcmap_scopes::{Binding, CallSite, GeneratedRange, OriginalScope, Position, ScopeInfo};
 
 pub mod js_identifiers;
 pub mod source_view;
@@ -211,6 +211,91 @@ pub fn resolve_sources(raw_sources: &[Option<String>], source_root: &str) -> Vec
 /// Build a source filename -> index lookup map.
 fn build_source_map(sources: &[String]) -> HashMap<String, u32> {
     sources.iter().enumerate().map(|(i, s)| (s.clone(), i as u32)).collect()
+}
+
+/// Retain only extension fields that use an `x_*` or `x-*` prefix.
+fn filter_extensions(
+    extensions: HashMap<String, serde_json::Value>,
+) -> HashMap<String, serde_json::Value> {
+    extensions.into_iter().filter(|(k, _)| k.starts_with("x_") || k.starts_with("x-")).collect()
+}
+
+fn count_scope_tree(scope: &OriginalScope) -> u32 {
+    1 + scope.children.iter().map(count_scope_tree).sum::<u32>()
+}
+
+fn definition_bases(scopes: &[Option<OriginalScope>]) -> Vec<u32> {
+    let mut bases = Vec::with_capacity(scopes.len());
+    let mut next = 0;
+    for scope in scopes {
+        bases.push(next);
+        if let Some(scope) = scope {
+            next += count_scope_tree(scope);
+        }
+    }
+    bases
+}
+
+fn offset_generated_position(pos: Position, line_offset: u32, col_offset: u32) -> Position {
+    Position {
+        line: pos.line + line_offset,
+        column: if pos.line == 0 { pos.column + col_offset } else { pos.column },
+    }
+}
+
+fn remap_binding(binding: &Binding, line_offset: u32, col_offset: u32) -> Binding {
+    match binding {
+        Binding::Expression(expr) => Binding::Expression(expr.clone()),
+        Binding::Unavailable => Binding::Unavailable,
+        Binding::SubRanges(sub_ranges) => Binding::SubRanges(
+            sub_ranges
+                .iter()
+                .map(|sub| srcmap_scopes::SubRangeBinding {
+                    expression: sub.expression.clone(),
+                    from: offset_generated_position(sub.from, line_offset, col_offset),
+                })
+                .collect(),
+        ),
+    }
+}
+
+fn remap_generated_range(
+    range: &GeneratedRange,
+    line_offset: u32,
+    col_offset: u32,
+    definition_remap: &[u32],
+    source_remap: &[u32],
+) -> GeneratedRange {
+    GeneratedRange {
+        start: offset_generated_position(range.start, line_offset, col_offset),
+        end: offset_generated_position(range.end, line_offset, col_offset),
+        is_stack_frame: range.is_stack_frame,
+        is_hidden: range.is_hidden,
+        definition: range.definition.map(|idx| definition_remap[idx as usize]),
+        call_site: range.call_site.map(|call_site| CallSite {
+            source_index: source_remap[call_site.source_index as usize],
+            line: call_site.line,
+            column: call_site.column,
+        }),
+        bindings: range
+            .bindings
+            .iter()
+            .map(|binding| remap_binding(binding, line_offset, col_offset))
+            .collect(),
+        children: range
+            .children
+            .iter()
+            .map(|child| {
+                remap_generated_range(
+                    child,
+                    line_offset,
+                    col_offset,
+                    definition_remap,
+                    source_remap,
+                )
+            })
+            .collect(),
+    }
 }
 
 // ── Raw JSON structure ─────────────────────────────────────────────
@@ -431,7 +516,13 @@ impl SourceMap {
             if !allow_sections {
                 return Err(ParseError::NestedIndexMap);
             }
-            return Self::from_sections(raw.file, sections);
+            return Self::from_sections(
+                raw.file,
+                raw.source_root,
+                raw.debug_id,
+                filter_extensions(raw.extensions),
+                sections,
+            );
         }
 
         Self::from_regular(raw)
@@ -470,11 +561,7 @@ impl SourceMap {
         };
 
         // Filter extensions to only keep x_* and x-* fields
-        let extensions: HashMap<String, serde_json::Value> = raw
-            .extensions
-            .into_iter()
-            .filter(|(k, _)| k.starts_with("x_") || k.starts_with("x-"))
-            .collect();
+        let extensions = filter_extensions(raw.extensions);
 
         let has_range_mappings = mappings.iter().any(|m| m.is_range_mapping);
 
@@ -497,12 +584,21 @@ impl SourceMap {
     }
 
     /// Flatten an indexed source map (with sections) into a regular one.
-    fn from_sections(file: Option<String>, sections: Vec<RawSection>) -> Result<Self, ParseError> {
+    fn from_sections(
+        file: Option<String>,
+        source_root: Option<String>,
+        debug_id: Option<String>,
+        extensions: HashMap<String, serde_json::Value>,
+        sections: Vec<RawSection>,
+    ) -> Result<Self, ParseError> {
         let mut all_sources: Vec<String> = Vec::new();
         let mut all_sources_content: Vec<Option<String>> = Vec::new();
         let mut all_names: Vec<String> = Vec::new();
         let mut all_mappings: Vec<Mapping> = Vec::new();
         let mut all_ignore_list: Vec<u32> = Vec::new();
+        let mut all_scopes: Vec<Option<OriginalScope>> = Vec::new();
+        let mut all_ranges: Vec<GeneratedRange> = Vec::new();
+        let mut pending_scopes: Vec<(ScopeInfo, Vec<u32>, u32, u32)> = Vec::new();
         let mut max_line: u32 = 0;
 
         // Source/name dedup maps to merge across sections
@@ -539,6 +635,7 @@ impl SourceMap {
                         // Add sourcesContent if available
                         let content = sub.sources_content.get(i).cloned().unwrap_or(None);
                         all_sources_content.push(content);
+                        all_scopes.push(None);
                         source_index_map.insert(s.clone(), idx);
                         idx
                     }
@@ -567,6 +664,15 @@ impl SourceMap {
                 if !all_ignore_list.contains(&global_idx) {
                     all_ignore_list.push(global_idx);
                 }
+            }
+
+            if let Some(section_scopes) = &sub.scopes {
+                pending_scopes.push((
+                    section_scopes.clone(),
+                    source_remap.clone(),
+                    line_offset,
+                    col_offset,
+                ));
             }
 
             // Remap and offset all mappings from this section
@@ -598,6 +704,44 @@ impl SourceMap {
             }
         }
 
+        for (section_scopes, source_remap, _, _) in &pending_scopes {
+            for (local_idx, local_scope) in section_scopes.scopes.iter().enumerate() {
+                let global_idx = source_remap[local_idx] as usize;
+                if all_scopes[global_idx].is_none() {
+                    all_scopes[global_idx] = local_scope.clone();
+                }
+            }
+        }
+
+        let global_bases = definition_bases(&all_scopes);
+        for (section_scopes, source_remap, line_offset, col_offset) in pending_scopes {
+            let local_bases = definition_bases(&section_scopes.scopes);
+            let total_local_definitions =
+                section_scopes.scopes.iter().flatten().map(count_scope_tree).sum::<u32>() as usize;
+            let mut definition_remap = vec![0; total_local_definitions];
+
+            for (local_idx, local_scope) in section_scopes.scopes.iter().enumerate() {
+                let Some(local_scope) = local_scope else {
+                    continue;
+                };
+                let local_base = local_bases[local_idx];
+                let global_base = global_bases[source_remap[local_idx] as usize];
+                for offset in 0..count_scope_tree(local_scope) {
+                    definition_remap[(local_base + offset) as usize] = global_base + offset;
+                }
+            }
+
+            all_ranges.extend(section_scopes.ranges.iter().map(|range| {
+                remap_generated_range(
+                    range,
+                    line_offset,
+                    col_offset,
+                    &definition_remap,
+                    &source_remap,
+                )
+            }));
+        }
+
         // Sort mappings by (generated_line, generated_column)
         all_mappings.sort_unstable_by(|a, b| {
             a.generated_line
@@ -627,17 +771,29 @@ impl SourceMap {
 
         let source_map = build_source_map(&all_sources);
         let has_range_mappings = all_mappings.iter().any(|m| m.is_range_mapping);
+        let scopes = if all_ranges.is_empty() && all_scopes.iter().all(Option::is_none) {
+            None
+        } else {
+            Some(ScopeInfo { scopes: all_scopes, ranges: all_ranges })
+        };
+        let source_root = source_root.filter(|root| {
+            root.is_empty()
+                || all_sources
+                    .iter()
+                    .filter(|source| !source.is_empty())
+                    .all(|source| source.starts_with(root))
+        });
 
         Ok(Self {
             file,
-            source_root: None,
+            source_root,
             sources: all_sources,
             sources_content: all_sources_content,
             names: all_names,
             ignore_list: all_ignore_list,
-            extensions: HashMap::new(),
-            debug_id: None,
-            scopes: None, // TODO: merge scopes from sections
+            extensions,
+            debug_id,
+            scopes,
             mappings: all_mappings,
             line_offsets,
             reverse_index: OnceCell::new(),
@@ -682,14 +838,33 @@ impl SourceMap {
         let idx = match bias {
             Bias::GreatestLowerBound => {
                 match line_mappings.binary_search_by_key(&column, |m| m.generated_column) {
-                    Ok(i) => i,
+                    // Exact match: walk back to the earliest segment sharing this column.
+                    // `binary_search_by_key` returns an unspecified index among equal keys;
+                    // `@jridgewell/trace-mapping` specifies GLB = earliest-equal.
+                    Ok(i) => {
+                        let mut idx = i;
+                        while idx > 0 && line_mappings[idx - 1].generated_column == column {
+                            idx -= 1;
+                        }
+                        idx
+                    }
                     Err(0) => return self.range_mapping_fallback(line, column),
                     Err(i) => i - 1,
                 }
             }
             Bias::LeastUpperBound => {
                 match line_mappings.binary_search_by_key(&column, |m| m.generated_column) {
-                    Ok(i) => i,
+                    // Exact match: walk forward to the latest segment sharing this column.
+                    // Mirrors `@jridgewell/trace-mapping`'s LUB = latest-equal tie-break.
+                    Ok(i) => {
+                        let mut idx = i;
+                        while idx + 1 < line_mappings.len()
+                            && line_mappings[idx + 1].generated_column == column
+                        {
+                            idx += 1;
+                        }
+                        idx
+                    }
                     Err(i) => {
                         if i >= line_mappings.len() {
                             return None;
@@ -1325,11 +1500,7 @@ impl SourceMap {
         };
 
         // Filter extensions to only keep x_* and x-* fields
-        let extensions: HashMap<String, serde_json::Value> = raw
-            .extensions
-            .into_iter()
-            .filter(|(k, _)| k.starts_with("x_") || k.starts_with("x-"))
-            .collect();
+        let extensions = filter_extensions(raw.extensions);
 
         let has_range_mappings = mappings.iter().any(|m| m.is_range_mapping);
 
@@ -1696,11 +1867,7 @@ impl LazySourceMap {
         };
 
         // Filter extensions to only keep x_* and x-* fields
-        let extensions: HashMap<String, serde_json::Value> = raw
-            .extensions
-            .into_iter()
-            .filter(|(k, _)| k.starts_with("x_") || k.starts_with("x-"))
-            .collect();
+        let extensions = filter_extensions(raw.extensions);
 
         Ok(Self::new_inner(
             raw.file,
@@ -3287,6 +3454,38 @@ mod tests {
         // Column 0 on line 1: the first mapping at col 0 (AACA decodes to col=0, src delta=1...)
         // Actually depends on exact VLQ values. Let's just verify it doesn't crash.
         let _ = loc;
+    }
+
+    #[test]
+    fn original_position_for_duplicate_column_prefers_first_segment() {
+        // Regression: when two segments share a generated column and the second
+        // is a single-value segment (no source), GLB/default lookup must return
+        // the first (source-bearing) segment, not the second. `@jridgewell/trace-mapping`
+        // specifies GLB = earliest-equal tie-break; Rust's `binary_search_by_key`
+        // returns an unspecified index among duplicates and previously picked the
+        // NO_SOURCE segment, breaking drop-in parity.
+        //
+        // VLQ "AASA,A;AAIA,C;AAIA" decodes to:
+        //   line 0: [(col=0, src=0, orig_line=9, orig_col=0), (col=0)]   <- duplicate col
+        //   line 1: [(col=0, src=0, orig_line=13, orig_col=0), (col=1)]
+        //   line 2: [(col=0, src=0, orig_line=17, orig_col=0)]
+        let json = r#"{
+            "version":3,
+            "sources":["src/original.ts"],
+            "names":["originalFn","helperFn"],
+            "mappings":"AASA,A;AAIA,C;AAIA"
+        }"#;
+        let sm = SourceMap::from_json(json).unwrap();
+
+        // GLB (default) at (0, 0) must pick the source-bearing segment.
+        let loc = sm.original_position_for(0, 0).unwrap();
+        assert_eq!(loc.source, 0);
+        assert_eq!(loc.line, 9);
+        assert_eq!(loc.column, 0);
+
+        // LUB at (0, 0) walks forward to the latest duplicate — the NO_SOURCE
+        // segment — and returns None, matching `@jridgewell`'s OMapping(null, …).
+        assert!(sm.original_position_for_with_bias(0, 0, Bias::LeastUpperBound).is_none());
     }
 
     #[test]
@@ -6389,6 +6588,56 @@ mod tests {
         let sm = SourceMap::from_json(r#"{"version":3,"sections":[{"offset":{"line":0,"column":0},"map":{"version":3,"sources":["a.js"],"names":[],"mappings":"AAAA","rangeMappings":"A"}}]}"#).unwrap();
         assert!(sm.has_range_mappings());
         assert_eq!(sm.original_position_for(1, 3).unwrap().line, 1);
+    }
+
+    #[test]
+    fn indexed_map_preserves_debug_id_extensions_and_scopes() {
+        let info = ScopeInfo {
+            scopes: vec![Some(OriginalScope {
+                start: Position { line: 0, column: 0 },
+                end: Position { line: 2, column: 0 },
+                name: None,
+                kind: Some("function".to_string()),
+                is_stack_frame: true,
+                variables: vec![],
+                children: vec![],
+            })],
+            ranges: vec![GeneratedRange {
+                start: Position { line: 0, column: 0 },
+                end: Position { line: 0, column: 4 },
+                is_stack_frame: true,
+                is_hidden: false,
+                definition: Some(0),
+                call_site: Some(CallSite { source_index: 0, line: 7, column: 2 }),
+                bindings: vec![Binding::Unavailable],
+                children: vec![],
+            }],
+        };
+        let mut names = vec![];
+        let scopes_str = srcmap_scopes::encode_scopes(&info, &mut names);
+        let names_json = serde_json::to_string(&names).unwrap();
+        let json = format!(
+            r#"{{"version":3,"debugId":"indexed-debug","x_custom":{{"enabled":true}},"sections":[{{"offset":{{"line":2,"column":3}},"map":{{"version":3,"sources":["a.js"],"names":{names_json},"mappings":"AAAA","scopes":"{scopes_str}"}}}}]}}"#
+        );
+
+        let sm = SourceMap::from_json(&json).unwrap();
+
+        assert_eq!(sm.debug_id.as_deref(), Some("indexed-debug"));
+        assert_eq!(sm.extensions.get("x_custom"), Some(&serde_json::json!({ "enabled": true })));
+
+        let scopes = sm.scopes.as_ref().unwrap();
+        assert_eq!(scopes.scopes.len(), 1);
+        assert!(scopes.scopes[0].is_some());
+        assert_eq!(scopes.ranges.len(), 1);
+        assert_eq!(scopes.ranges[0].start.line, 2);
+        assert_eq!(scopes.ranges[0].start.column, 3);
+        assert_eq!(scopes.ranges[0].end.line, 2);
+        assert_eq!(scopes.ranges[0].end.column, 7);
+        assert_eq!(scopes.ranges[0].definition, Some(0));
+        assert_eq!(
+            scopes.ranges[0].call_site,
+            Some(CallSite { source_index: 0, line: 7, column: 2 })
+        );
     }
 
     #[test]

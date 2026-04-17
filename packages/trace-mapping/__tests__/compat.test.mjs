@@ -274,6 +274,42 @@ describe("cross-validation with @jridgewell/trace-mapping", () => {
   }
 });
 
+describe("regression: duplicate-column segments", () => {
+  // Two segments at the same generated column on the same line, where the
+  // second is a single-value segment (no source). `@jridgewell/trace-mapping`
+  // GLB = earliest-equal (returns the source-bearing segment); LUB = latest-equal
+  // (returns the no-source segment, reported as OMapping(null, …)).
+  //
+  // Rust's `binary_search_by_key` returns an unspecified index among duplicates,
+  // which previously made srcmap pick the NO_SOURCE segment for GLB/default
+  // lookups and break drop-in parity. See fallow-cloud test fixture VALID_SOURCE_MAP.
+  const DUP_COL_MAP = JSON.stringify({
+    version: 3,
+    file: "bundle.js",
+    sources: ["src/original.ts"],
+    names: ["originalFn", "helperFn"],
+    mappings: "AASA,A;AAIA,C;AAIA",
+    sourcesContent: ["const a = 1;\nconst b = 2;"],
+  });
+
+  it("originalPositionFor default (GLB) at (1, 0) returns source-bearing segment", () => {
+    const srcmap = new SrcmapTraceMap(DUP_COL_MAP);
+    const jr = new JrTraceMap(DUP_COL_MAP);
+
+    const expected = jrOriginal(jr, { line: 1, column: 0 });
+    const actual = srcmapOriginal(srcmap, { line: 1, column: 0 });
+
+    assert.equal(normalizePath(actual.source), normalizePath(expected.source));
+    assert.equal(actual.line, expected.line);
+    assert.equal(actual.column, expected.column);
+    assert.equal(actual.name, expected.name);
+    assert.equal(actual.source, "src/original.ts");
+    assert.equal(actual.line, 10);
+
+    srcmap.free();
+  });
+});
+
 describe("decoded/encoded mappings cross-validation", () => {
   it("decodedMappings structure matches", () => {
     const srcmap = new SrcmapTraceMap(SIMPLE_MAP);
