@@ -5,9 +5,9 @@
 [![crates.io](https://img.shields.io/crates/v/srcmap-sourcemap.svg)](https://crates.io/crates/srcmap-sourcemap)
 [![docs.rs](https://docs.rs/srcmap-sourcemap/badge.svg)](https://docs.rs/srcmap-sourcemap)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![ECMA-426](https://img.shields.io/badge/ECMA--426-compliant-44cc11.svg)](https://tc39.es/ecma426/)
+[![ECMA-426](https://img.shields.io/badge/ECMA--426-core%20%2B%20proposals-44cc11.svg)](https://tc39.es/ecma426/)
 
-> The source map SDK for Rust tooling. Parse, generate, remap, and compose — with full [ECMA-426](https://tc39.es/ecma426/) compliance.
+> The source map SDK for Rust tooling. Parse, generate, remap, and compose — with stable [ECMA-426](https://tc39.es/ecma426/) core support plus selected draft proposals.
 
 A standalone source map library that any Rust tool can embed. If you're building a bundler, compiler, minifier, linter, or symbolication service — srcmap gives you the complete source map stack so you don't have to build it yourself.
 
@@ -44,7 +44,7 @@ srcmap-remapping = "0.3"    # if you compose/concatenate source maps
 | Composition/remapping | **yes** | limited | no | yes |
 | Concatenation | **yes** | no | yes | yes |
 | Indexed source maps | **yes** | yes | no | no |
-| ECMA-426 scopes | **yes** | no | no | no |
+| Scopes proposal | **yes** | no | no | no |
 | Stack trace symbolication | **yes** | yes | no | no |
 | Hermes/React Native | **yes** | yes | no | no |
 | RAM bundle parsing | **yes** | no | no | no |
@@ -136,18 +136,22 @@ let mut buf = Vec::new();
 vlq_encode(&mut buf, 42);
 ```
 
-## Spec conformance
+## Spec support
 
-Full [ECMA-426](https://tc39.es/ecma426/) (Source Map v3) compliance:
+Stable [ECMA-426](https://tc39.es/ecma426/) core support:
 
-- All standard fields: `version`, `file`, `sourceRoot`, `sources`, `sourcesContent`, `names`, `mappings`
-- `rangeMappings` for range-based source mapping (ECMA-426 Stage 2 proposal)
-- `ignoreList` for filtering third-party sources
-- Indexed source maps with `sections` — flattened with source/name deduplication
-- Proper `sourceRoot` resolution
-- `debugId` for associating generated files with source maps
-- Scopes & variables (first Rust implementation of the [ECMA-426 scopes proposal](https://tc39.es/ecma426/) — draft, may evolve)
+- Standard Source Map v3 fields: `version`, `file`, `sourceRoot`, `sources`, `sourcesContent`, `names`, `mappings`
+- `ignoreList`
+- Indexed source maps with `sections`
+- `sourceRoot` resolution
+- Required extension tolerance for unrecognized properties
 - Robust error handling for malformed input
+
+Draft proposal support:
+
+- `debugId` (ECMA-426 draft proposal, not part of the published core standard)
+- Scopes & variables via [`srcmap-scopes`](https://crates.io/crates/srcmap-scopes) (first Rust implementation of the [ECMA-426 scopes proposal](https://github.com/tc39/ecma426/blob/main/proposals/scopes.md))
+- `rangeMappings` (ECMA-426 Stage 2 proposal)
 
 ## Performance
 

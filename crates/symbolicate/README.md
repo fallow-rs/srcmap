@@ -37,7 +37,7 @@ println!("{result}"); // Pretty-printed symbolicated stack
 | `parse_stack_trace_full(input)` | Parse into `ParsedStack` (message + frames) |
 | `symbolicate(stack, loader)` | Parse and resolve through source maps |
 | `symbolicate_batch(stacks, maps)` | Batch symbolication with pre-loaded maps |
-| `resolve_by_debug_id(id, maps)` | Find a source map by its ECMA-426 debug ID |
+| `resolve_by_debug_id(id, maps)` | Find a source map by its `debugId` proposal field |
 | `to_json(stack)` | Serialize a `SymbolicatedStack` to JSON |
 
 ## Supported stack trace formats

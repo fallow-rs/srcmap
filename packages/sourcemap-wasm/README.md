@@ -116,7 +116,7 @@ Parse a source map from a JSON string.
 | `ignoreList` | `number[]` | Source ignore list indices |
 | `file` | `string \| undefined` | Output filename |
 | `sourceRoot` | `string \| undefined` | Source root prefix |
-| `debugId` | `string \| undefined` | ECMA-426 debug ID |
+| `debugId` | `string \| undefined` | `debugId` proposal field |
 | `lineCount` | `number` | Number of generated lines |
 | `mappingCount` | `number` | Total decoded mappings |
 | `hasRangeMappings` | `boolean` | Whether any range mappings exist |
@@ -158,7 +158,7 @@ A fast-scan alternative to `SourceMap` that defers VLQ decoding until lookup tim
 | `ignoreList` | `number[]` | Source ignore list indices |
 | `file` | `string \| undefined` | Output filename |
 | `sourceRoot` | `string \| undefined` | Source root prefix |
-| `debugId` | `string \| undefined` | ECMA-426 debug ID |
+| `debugId` | `string \| undefined` | `debugId` proposal field |
 | `lineCount` | `number` | Number of generated lines |
 
 ---
@@ -211,7 +211,7 @@ sm.free();
 | `ignoreList` | `number[]` | Source ignore list indices |
 | `file` | `string \| undefined` | Output filename |
 | `sourceRoot` | `string \| undefined` | Source root prefix |
-| `debugId` | `string \| undefined` | ECMA-426 debug ID |
+| `debugId` | `string \| undefined` | `debugId` proposal field |
 | `lineCount` | `number` | Number of generated lines |
 
 ## Performance

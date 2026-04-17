@@ -80,11 +80,11 @@ On-the-fly VLQ encoder that emits mappings as they are added, without collecting
 | `add_source(path) -> u32` | Register a source file (deduped) |
 | `add_name(name) -> u32` | Register a name (deduped) |
 | `set_source_root(root)` | Set the `sourceRoot` prefix |
-| `set_debug_id(id)` | Set the `debugId` field |
+| `set_debug_id(id)` | Set the `debugId` proposal field |
 | `add_to_ignore_list(source_idx)` | Mark a source as ignored (third-party) |
 | `add_mapping(...)` | Add a mapping (encoded immediately) |
 | `add_named_mapping(...)` | Add a mapping with a name |
-| `add_range_mapping(...)` | Add a range mapping (ECMA-426) |
+| `add_range_mapping(...)` | Add a range mapping (ECMA-426 Stage 2 proposal) |
 | `add_named_range_mapping(...)` | Add a named range mapping |
 | `to_json() -> String` | Serialize to source map v3 JSON |
 | `to_decoded_map() -> SourceMap` | Build a `SourceMap` directly |

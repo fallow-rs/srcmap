@@ -4,9 +4,11 @@ What's next for srcmap, and why.
 
 ## Function Name Mappings
 
-**ECMA-426, standardized** — [bloomberg.github.io/js-blog/post/standardizing-source-maps](https://bloomberg.github.io/js-blog/post/standardizing-source-maps/)
+**Interop work, not part of published ECMA-426 core today** — [bloomberg.github.io/js-blog/post/standardizing-source-maps](https://bloomberg.github.io/js-blog/post/standardizing-source-maps/)
 
-A `"sourcesFunctionMappings"` array parallel to `"sources"`, where each entry is a VLQ-encoded string mapping generated positions to original function names. Previously the `x_com_bloomberg_sourcesFunctionMappings` extension, now standardized in ECMA-426.
+A `"sourcesFunctionMappings"` array parallel to `"sources"`, where each entry is a VLQ-encoded string mapping generated positions to original function names. Previously the `x_com_bloomberg_sourcesFunctionMappings` extension, and worth tracking for ecosystem interoperability.
+
+Note: this repository tracks it as forward-looking ecosystem interoperability work. It is not currently in the published ECMA-426 core standard or the official `tc39/ecma426` proposal set.
 
 This is a simpler alternative to the full scopes proposal for resolving minified function names in stack traces. Tools that don't need full scope/binding information can use this field alone. For tools that support scopes, `FindOriginalFunctionName` from the scopes proposal supersedes this — but both should be supported for interop, since most source maps in the wild won't have scopes data.
 
@@ -29,7 +31,7 @@ This is a simpler alternative to the full scopes proposal for resolving minified
 
 ### Open issues to track
 
-**Boundary rules for generated ranges** ([tc39/ecma426#249](https://github.com/nicolo-ribaudo/ecma-426/blob/main/proposals/range-mappings.md)): Defines where generated ranges must start and end relative to JavaScript syntax. Key rules:
+**Boundary rules for generated ranges** ([tc39/ecma426#249](https://github.com/tc39/ecma426/blob/main/proposals/scopes.md)): Defines where generated ranges must start and end relative to JavaScript syntax. Key rules:
 
 - Generated ranges must be strictly well-nested with syntactic scopes (no partial overlap)
 - For callable scopes (functions, arrows, methods), the range starts inside the opening boundary (before default parameter evaluation)
@@ -39,23 +41,23 @@ This is a simpler alternative to the full scopes proposal for resolving minified
   - `BlockStatement`: opening = `{`, closing = `}`, not callable
   - `ClassDeclaration`: opening = `class` to `{`, closing = `}`, not callable
 
-**Stack frame reconstruction algorithm** ([tc39/ecma426#219](https://github.com/nicolo-ribaudo/ecma-426/blob/main/proposals/range-mappings.md)): Three operations being standardized:
+**Stack frame reconstruction algorithm** ([tc39/ecma426#219](https://github.com/tc39/ecma426/blob/main/proposals/scopes.md)): Three operations being standardized:
 
 1. `FindOriginalFunctionName(position)` — find innermost generated range, walk scope chain outward to find `isStackFrame = true` scope
 2. `SymbolizeStackTrace(rawFrames)` — translate generated stack traces to original, expand inlined frames and collapse outlined frames across different bundles
 3. `BuildScopeChain(position)` — return `OriginalScopeWithValues[]` mapping original variables to concrete JS values
 
-**Hidden scopes** ([tc39/ecma426#113](https://github.com/nicolo-ribaudo/ecma-426/blob/main/proposals/range-mappings.md)): A generated range without an `originalScope` reference signals compiler-generated code. Combined with `isFunctionScope`: if `range.isFunctionScope && !range.hasDefinition`, the function frame should be omitted from stack traces.
+**Hidden scopes** ([tc39/ecma426#113](https://github.com/tc39/ecma426/blob/main/proposals/scopes.md)): A generated range without an `originalScope` reference signals compiler-generated code. Combined with `isFunctionScope`: if `range.isFunctionScope && !range.hasDefinition`, the function frame should be omitted from stack traces.
 
-**Null variable names** ([tc39/ecma426#244](https://github.com/nicolo-ribaudo/ecma-426/blob/main/proposals/range-mappings.md)): When a `names` index is invalid, the variable entry becomes `null` (or empty string) instead of causing a parse error. Variables array type becomes `(string | null)[]`.
+**Null variable names** ([tc39/ecma426#244](https://github.com/tc39/ecma426/blob/main/proposals/scopes.md)): When a `names` index is invalid, the variable entry becomes `null` (or empty string) instead of causing a parse error. Variables array type becomes `(string | null)[]`.
 
 ### What to implement
 
 - [ ] Validate generated range boundaries against JavaScript syntax rules (#249)
-- [ ] `FindOriginalFunctionName` in the symbolicate crate
+- [x] `FindOriginalFunctionName` in the symbolicate crate
 - [ ] `SymbolizeStackTrace` with inlining expansion and outlining collapse (#219)
 - [ ] `BuildScopeChain` for debugger integration
-- [ ] Handle hidden scopes (`isFunctionScope && !hasDefinition`) in stack trace output
+- [x] Handle hidden scopes (`isFunctionScope && !hasDefinition`) in stack trace output
 - [ ] Tolerate null variable names (#244)
 - [ ] Track Chrome DevTools scopes codec ([@chrome-devtools/source-map-scopes-codec](https://jsr.io/@chrome-devtools/source-map-scopes-codec)) for compatibility
 
@@ -63,7 +65,7 @@ This is a simpler alternative to the full scopes proposal for resolving minified
 
 ## Sources Hash `[Stage 1 — not implementing yet]`
 
-**ECMA-426 proposal, Stage 1** — [tc39/ecma426#208](https://github.com/nicolo-ribaudo/ecma-426/blob/main/proposals/range-mappings.md)
+**ECMA-426 proposal, Stage 1** — [sources-hash proposal](https://github.com/tc39/ecma426/blob/main/proposals/sources-hash.md)
 
 A new `"sourcesHash"` array parallel to `"sources"`, containing content hashes for source file integrity verification.
 
@@ -94,7 +96,7 @@ Hash algorithm is implementation-defined (SHA-256 recommended). Format is a pref
 
 ## Debug ID Extraction `[Stage 2 — not implementing yet]`
 
-**ECMA-426 proposal, Stage 2** — [tc39/ecma426#207](https://github.com/nicolo-ribaudo/ecma-426/blob/main/proposals/range-mappings.md)
+**ECMA-426 proposal, Stage 2** — [debug-id proposal](https://github.com/tc39/ecma426/blob/main/proposals/debug-id.md)
 
 srcmap already parses `debugId` from source map JSON. What's missing is extracting it from generated JavaScript/CSS files via the `//# debugId=<UUID>` comment.
 
@@ -119,7 +121,7 @@ srcmap already parses `debugId` from source map JSON. What's missing is extracti
 
 ## Mappings v2 Encoding `[Discussion — not implementing yet]`
 
-**ECMA-426 discussion** — [tc39/ecma426#155](https://github.com/nicolo-ribaudo/ecma-426/blob/main/proposals/range-mappings.md)
+**ECMA-426 discussion** — [range-mappings proposal](https://github.com/tc39/ecma426/blob/main/proposals/range-mappings.md)
 
 A proposed encoding that eliminates `,` and `;` separators and packs metadata into VLQ bits. Claims ~35-50% raw size reduction.
 
@@ -154,7 +156,7 @@ This is early-stage and may never land. Worth implementing as an experimental en
 
 ## Env Metadata `[Stage 1 — not implementing yet]`
 
-**ECMA-426 proposal, Stage 1** — [tc39/ecma426 proposals/env.md](https://github.com/nicolo-ribaudo/ecma-426/blob/main/proposals/range-mappings.md)
+**ECMA-426 proposal, Stage 1** — [env proposal](https://github.com/tc39/ecma426/blob/main/proposals/env.md)
 
 Environment metadata for source maps. The proposal is minimal at Stage 1 — track for details before implementing.
 

@@ -130,7 +130,7 @@ assert_eq!(pos.column, 0);
 - **Lazy reverse index** built on first `generated_position_for` call
 - **Indexed source maps** (`sections`) with automatic flattening
 - **Zero-copy JSON parsing** via borrowed mappings string
-- **Range mappings** (`rangeMappings` field, ECMA-426 Stage 2) with cross-line delta lookup
+- **Range mappings** (`rangeMappings` field, ECMA-426 Stage 2 proposal) with cross-line delta lookup
 - **Lazy iterator** (`MappingsIter`) for zero-allocation streaming over encoded mappings
 - **Robust error handling** for malformed input
 
