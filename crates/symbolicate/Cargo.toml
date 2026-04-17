@@ -15,4 +15,5 @@ workspace = true
 
 [dependencies]
 srcmap-sourcemap = { workspace = true }
+srcmap-scopes = { workspace = true }
 serde_json = { workspace = true }

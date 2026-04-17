@@ -1413,6 +1413,7 @@ name = "srcmap-symbolicate"
 version = "0.3.5"
 dependencies = [
  "serde_json",
+ "srcmap-scopes",
  "srcmap-sourcemap",
 ]
 

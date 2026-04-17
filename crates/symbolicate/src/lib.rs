@@ -17,6 +17,7 @@
 use std::collections::HashMap;
 use std::fmt;
 
+use srcmap_scopes::GeneratedRange;
 use srcmap_sourcemap::SourceMap;
 
 // ── Types ───────────────────────────────────────────────────────
@@ -37,7 +38,7 @@ pub struct StackFrame {
 /// A symbolicated (resolved) stack frame.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SymbolicatedFrame {
-    /// Original function name from source map (or original function name).
+    /// Original function name from source map mappings or scopes data.
     pub function_name: Option<String>,
     /// Resolved original source file.
     pub file: String,
@@ -267,6 +268,7 @@ where
                         function_name: loc
                             .name
                             .map(|n| sm.name(n).to_string())
+                            .or_else(|| find_original_function_name(sm, line, column))
                             .or_else(|| frame.function_name.clone()),
                         file: sm.source(loc.source).to_string(),
                         line: loc.line + 1,     // back to 1-based
@@ -295,6 +297,59 @@ where
     }
 
     SymbolicatedStack { message, frames: result_frames }
+}
+
+fn find_original_function_name(sm: &SourceMap, line: u32, column: u32) -> Option<String> {
+    let scopes = sm.scopes.as_ref()?;
+    let mut path = Vec::new();
+    if !collect_innermost_range_path(&scopes.ranges, line, column, &mut path) {
+        return None;
+    }
+
+    for range in path.iter().rev() {
+        if !range.is_stack_frame || range.is_hidden {
+            continue;
+        }
+
+        let definition = match range.definition {
+            Some(definition) => definition,
+            None => continue,
+        };
+        let scope = scopes.original_scope_for_definition(definition)?;
+        if let Some(name) = &scope.name {
+            return Some(name.clone());
+        }
+    }
+
+    None
+}
+
+fn collect_innermost_range_path<'a>(
+    ranges: &'a [GeneratedRange],
+    line: u32,
+    column: u32,
+    path: &mut Vec<&'a GeneratedRange>,
+) -> bool {
+    for range in ranges {
+        if !range_contains_position(range, line, column) {
+            continue;
+        }
+
+        path.push(range);
+        if collect_innermost_range_path(&range.children, line, column, path) {
+            return true;
+        }
+        return true;
+    }
+
+    false
+}
+
+fn range_contains_position(range: &GeneratedRange, line: u32, column: u32) -> bool {
+    let pos = (line, column);
+    let start = (range.start.line, range.start.column);
+    let end = (range.end.line, range.end.column);
+    start <= pos && pos <= end
 }
 
 /// Batch symbolicate multiple stack traces against pre-loaded source maps.
@@ -348,6 +403,7 @@ pub fn to_json(stack: &SymbolicatedStack) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use srcmap_scopes::{GeneratedRange, OriginalScope, Position, ScopeInfo};
 
     // ── V8 format tests ──────────────────────────────────────────
 
@@ -424,6 +480,97 @@ mod tests {
         assert!(result.frames[0].symbolicated);
         assert_eq!(result.frames[0].file, "src/app.ts");
         assert_eq!(result.frames[0].function_name.as_deref(), Some("handleClick"));
+    }
+
+    #[test]
+    fn symbolicate_uses_scopes_function_name_when_mapping_name_is_absent() {
+        let scope_info = ScopeInfo {
+            scopes: vec![Some(OriginalScope {
+                start: Position { line: 10, column: 0 },
+                end: Position { line: 20, column: 0 },
+                name: Some("originalFunc".to_string()),
+                kind: Some("function".to_string()),
+                is_stack_frame: true,
+                variables: vec![],
+                children: vec![],
+            })],
+            ranges: vec![GeneratedRange {
+                start: Position { line: 0, column: 0 },
+                end: Position { line: 0, column: 10 },
+                is_stack_frame: true,
+                is_hidden: false,
+                definition: Some(0),
+                call_site: None,
+                bindings: vec![],
+                children: vec![],
+            }],
+        };
+        let mut names = vec![];
+        let scopes_str = srcmap_scopes::encode_scopes(&scope_info, &mut names);
+        let names_json = serde_json::to_string(&names).unwrap();
+        let map_json = format!(
+            r#"{{"version":3,"sources":["src/app.ts"],"names":{names_json},"mappings":"AAAA","scopes":"{scopes_str}"}}"#
+        );
+
+        let result = symbolicate("Error: test\n    at foo (bundle.js:1:1)", |file| {
+            if file == "bundle.js" { SourceMap::from_json(&map_json).ok() } else { None }
+        });
+
+        assert_eq!(result.frames[0].function_name.as_deref(), Some("originalFunc"));
+    }
+
+    #[test]
+    fn symbolicate_skips_hidden_scopes_and_uses_outer_stack_frame_name() {
+        let scope_info = ScopeInfo {
+            scopes: vec![Some(OriginalScope {
+                start: Position { line: 0, column: 0 },
+                end: Position { line: 30, column: 0 },
+                name: Some("outerFunc".to_string()),
+                kind: Some("function".to_string()),
+                is_stack_frame: true,
+                variables: vec![],
+                children: vec![OriginalScope {
+                    start: Position { line: 5, column: 0 },
+                    end: Position { line: 10, column: 0 },
+                    name: Some("hiddenInner".to_string()),
+                    kind: Some("function".to_string()),
+                    is_stack_frame: true,
+                    variables: vec![],
+                    children: vec![],
+                }],
+            })],
+            ranges: vec![GeneratedRange {
+                start: Position { line: 0, column: 0 },
+                end: Position { line: 0, column: 20 },
+                is_stack_frame: true,
+                is_hidden: false,
+                definition: Some(0),
+                call_site: None,
+                bindings: vec![],
+                children: vec![GeneratedRange {
+                    start: Position { line: 0, column: 5 },
+                    end: Position { line: 0, column: 10 },
+                    is_stack_frame: true,
+                    is_hidden: true,
+                    definition: Some(1),
+                    call_site: None,
+                    bindings: vec![],
+                    children: vec![],
+                }],
+            }],
+        };
+        let mut names = vec![];
+        let scopes_str = srcmap_scopes::encode_scopes(&scope_info, &mut names);
+        let names_json = serde_json::to_string(&names).unwrap();
+        let map_json = format!(
+            r#"{{"version":3,"sources":["src/app.ts"],"names":{names_json},"mappings":"AAAA","scopes":"{scopes_str}"}}"#
+        );
+
+        let result = symbolicate("Error: test\n    at foo (bundle.js:1:7)", |file| {
+            if file == "bundle.js" { SourceMap::from_json(&map_json).ok() } else { None }
+        });
+
+        assert_eq!(result.frames[0].function_name.as_deref(), Some("outerFunc"));
     }
 
     #[test]
