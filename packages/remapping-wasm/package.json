@@ -1,6 +1,6 @@
 {
   "name": "@srcmap/remapping-wasm",
-  "version": "0.3.5",
+  "version": "0.3.6",
   "description": "High-performance source map concatenation and remapping powered by Rust (WebAssembly)",
   "keywords": [
     "browser",

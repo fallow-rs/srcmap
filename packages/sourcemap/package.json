@@ -1,6 +1,6 @@
 {
   "name": "@srcmap/sourcemap",
-  "version": "0.3.5",
+  "version": "0.3.6",
   "description": "High-performance source map parser and consumer powered by Rust",
   "keywords": [
     "consumer",
@@ -47,13 +47,13 @@
     "@napi-rs/cli": "^3.0.0"
   },
   "optionalDependencies": {
-    "@srcmap/sourcemap-darwin-arm64": "0.3.5",
-    "@srcmap/sourcemap-darwin-x64": "0.3.5",
-    "@srcmap/sourcemap-linux-arm64-gnu": "0.3.5",
-    "@srcmap/sourcemap-linux-arm64-musl": "0.3.5",
-    "@srcmap/sourcemap-linux-x64-gnu": "0.3.5",
-    "@srcmap/sourcemap-linux-x64-musl": "0.3.5",
-    "@srcmap/sourcemap-win32-x64-msvc": "0.3.5"
+    "@srcmap/sourcemap-darwin-arm64": "0.3.6",
+    "@srcmap/sourcemap-darwin-x64": "0.3.6",
+    "@srcmap/sourcemap-linux-arm64-gnu": "0.3.6",
+    "@srcmap/sourcemap-linux-arm64-musl": "0.3.6",
+    "@srcmap/sourcemap-linux-x64-gnu": "0.3.6",
+    "@srcmap/sourcemap-linux-x64-musl": "0.3.6",
+    "@srcmap/sourcemap-win32-x64-msvc": "0.3.6"
   },
   "napi": {
     "binaryName": "srcmap-sourcemap",
