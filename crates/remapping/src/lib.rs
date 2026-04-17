@@ -825,7 +825,23 @@ pub fn remap_chain(maps: &[&SourceMap]) -> Option<SourceMap> {
 /// Compose two source maps: outer maps generated → intermediate, inner maps intermediate → original.
 /// All sources in outer are resolved through inner.
 fn compose_pair(outer: &SourceMap, inner: &SourceMap) -> SourceMap {
-    remap(outer, |_source| Some(inner.clone()))
+    let fallback_source = if inner.file.is_none() {
+        let mut sources = outer.sources.iter().filter(|source| !source.is_empty());
+        match (sources.next(), sources.next()) {
+            (Some(source), None) => Some(source.clone()),
+            _ => None,
+        }
+    } else {
+        None
+    };
+
+    remap(outer, |source| {
+        if inner.file.as_deref() == Some(source) || fallback_source.as_deref() == Some(source) {
+            Some(inner.clone())
+        } else {
+            None
+        }
+    })
 }
 
 /// Per-source entry for streaming variant.
@@ -1934,6 +1950,29 @@ mod tests {
         let loc = result.original_position_for(0, 0).unwrap();
         assert_eq!(result.source(loc.source), "a.js");
         assert_eq!(loc.line, 1);
+    }
+
+    #[test]
+    fn remap_chain_only_composes_matching_inner_file() {
+        let inner = SourceMap::from_json(
+            r#"{"version":3,"file":"intermediate.js","sources":["original.js"],"names":[],"mappings":"AAAA"}"#,
+        )
+        .unwrap();
+        let outer = SourceMap::from_json(
+            r#"{"version":3,"file":"output.js","sources":["intermediate.js","passthrough.js"],"names":[],"mappings":"AAAA,KCAA"}"#,
+        )
+        .unwrap();
+
+        let result = remap_chain(&[&outer, &inner]).unwrap();
+
+        assert!(result.sources.contains(&"original.js".to_string()));
+        assert!(result.sources.contains(&"passthrough.js".to_string()));
+
+        let remapped = result.original_position_for(0, 0).unwrap();
+        assert_eq!(result.source(remapped.source), "original.js");
+
+        let passthrough = result.original_position_for(0, 5).unwrap();
+        assert_eq!(result.source(passthrough.source), "passthrough.js");
     }
 
     // ── Empty-string source filtering ────────────────────────────
