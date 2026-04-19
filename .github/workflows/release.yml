@@ -165,14 +165,14 @@ jobs:
           CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER: ${{ matrix.settings.linker || '' }}
 
       - name: Upload codec artifact
-        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: codec-bindings-${{ matrix.settings.target }}
           path: packages/codec/*.node
           if-no-files-found: error
 
       - name: Upload sourcemap artifact
-        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: sourcemap-bindings-${{ matrix.settings.target }}
           path: packages/sourcemap/*.node
@@ -250,56 +250,56 @@ jobs:
           rm -f packages/symbolicate-wasm/pkg/.gitignore packages/symbolicate-wasm/web/.gitignore
 
       - name: Upload sourcemap-wasm pkg artifact
-        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: wasm-sourcemap-package
           path: packages/sourcemap-wasm/pkg/
           if-no-files-found: error
 
       - name: Upload sourcemap-wasm web artifact
-        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: wasm-sourcemap-web
           path: packages/sourcemap-wasm/web/
           if-no-files-found: error
 
       - name: Upload generator-wasm pkg artifact
-        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: wasm-generator-package
           path: packages/generator-wasm/pkg/
           if-no-files-found: error
 
       - name: Upload generator-wasm web artifact
-        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: wasm-generator-web
           path: packages/generator-wasm/web/
           if-no-files-found: error
 
       - name: Upload remapping-wasm pkg artifact
-        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: wasm-remapping-package
           path: packages/remapping-wasm/pkg/
           if-no-files-found: error
 
       - name: Upload remapping-wasm web artifact
-        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: wasm-remapping-web
           path: packages/remapping-wasm/web/
           if-no-files-found: error
 
       - name: Upload symbolicate-wasm pkg artifact
-        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: wasm-symbolicate-package
           path: packages/symbolicate-wasm/pkg/
           if-no-files-found: error
 
       - name: Upload symbolicate-wasm web artifact
-        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: wasm-symbolicate-web
           path: packages/symbolicate-wasm/web/
