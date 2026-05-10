@@ -23,7 +23,7 @@ serde_json = { version = "1", features = ["raw_value"] }
 simd-json = "0.14"
 sonic-rs = "0.3"
 rayon = "1"
-napi = { version = "2", default-features = false, features = ["napi6"] }
+napi = { version = "3", default-features = false, features = ["napi6"] }
 napi-derive = "2"
 napi-build = "2"
 wasm-bindgen = "0.2"
