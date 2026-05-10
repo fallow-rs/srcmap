@@ -24,7 +24,7 @@ simd-json = "0.14"
 sonic-rs = "0.3"
 rayon = "1"
 napi = { version = "2", default-features = false, features = ["napi6"] }
-napi-derive = "2"
+napi-derive = "3"
 napi-build = "2"
 wasm-bindgen = "0.2"
 js-sys = "0.3"
