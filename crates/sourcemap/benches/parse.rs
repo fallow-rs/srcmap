@@ -182,6 +182,21 @@ fn generate_sourcemap_json_no_content(
     )
 }
 
+fn clone_via_from_parts(sm: &SourceMap) -> SourceMap {
+    SourceMap::from_parts_with_extensions(
+        sm.file.clone(),
+        sm.source_root.clone(),
+        sm.sources.clone(),
+        sm.sources_content.clone(),
+        sm.names.clone(),
+        sm.all_mappings().to_vec(),
+        sm.ignore_list.clone(),
+        sm.debug_id.clone(),
+        sm.scopes.clone(),
+        sm.extensions.clone(),
+    )
+}
+
 fn bench_parse(c: &mut Criterion) {
     let small = generate_sourcemap_json(50, 10, 3);
     let medium = generate_sourcemap_json(500, 20, 5);
@@ -205,6 +220,32 @@ fn bench_parse(c: &mut Criterion) {
     group.bench_function("large no sourcesContent", |b| {
         b.iter(|| SourceMap::from_json(black_box(&large_no_content)).unwrap())
     });
+
+    group.finish();
+}
+
+/// Interop benchmark for producers that already have decoded source-map parts.
+/// This compares the old JSON interchange path with the structured constructor.
+fn bench_from_parts_interop(c: &mut Criterion) {
+    let small = SourceMap::from_json(&generate_sourcemap_json(50, 10, 3)).unwrap();
+    let medium = SourceMap::from_json(&generate_sourcemap_json(500, 20, 5)).unwrap();
+    let large = SourceMap::from_json(&generate_sourcemap_json(2000, 50, 10)).unwrap();
+    let fixtures =
+        [("small (500 segs)", small), ("medium (10K segs)", medium), ("large (100K segs)", large)];
+
+    let mut group = c.benchmark_group("from_parts_interop");
+
+    for (label, sm) in &fixtures {
+        group.bench_function(format!("{label} / JSON serialize + parse"), |b| {
+            b.iter(|| {
+                let json = black_box(sm).to_json();
+                SourceMap::from_json(black_box(&json)).unwrap()
+            })
+        });
+        group.bench_function(format!("{label} / from_parts"), |b| {
+            b.iter(|| clone_via_from_parts(black_box(sm)))
+        });
+    }
 
     group.finish();
 }
@@ -453,6 +494,7 @@ fn bench_vlq_only(c: &mut Criterion) {
 criterion_group!(
     benches,
     bench_parse,
+    bench_from_parts_interop,
     bench_lookup,
     bench_vlq_only,
     bench_parse_backends,

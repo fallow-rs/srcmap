@@ -1363,6 +1363,47 @@ impl SourceMap {
         }
     }
 
+    /// Construct a `SourceMap` from pre-built parts and extension fields.
+    ///
+    /// This is the structured interop path for compilers and instrumenters that
+    /// already have decoded source-map-v3 data in memory and should not need to
+    /// serialize to JSON before using lookup or remapping APIs.
+    ///
+    /// Mappings must be sorted by (generated_line, generated_column). Use
+    /// `u32::MAX` for `source` and `name` fields to indicate absence. Extension
+    /// fields are filtered the same way as JSON parsing: only keys with `x_` or
+    /// `x-` prefixes are retained.
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "constructor-style API mirrors source-map-v3 fields"
+    )]
+    pub fn from_parts_with_extensions(
+        file: Option<String>,
+        source_root: Option<String>,
+        sources: Vec<String>,
+        sources_content: Vec<Option<String>>,
+        names: Vec<String>,
+        mappings: Vec<Mapping>,
+        ignore_list: Vec<u32>,
+        debug_id: Option<String>,
+        scopes: Option<ScopeInfo>,
+        extensions: HashMap<String, serde_json::Value>,
+    ) -> Self {
+        let mut sm = Self::from_parts(
+            file,
+            source_root,
+            sources,
+            sources_content,
+            names,
+            mappings,
+            ignore_list,
+            debug_id,
+            scopes,
+        );
+        sm.extensions = filter_extensions(extensions);
+        sm
+    }
+
     /// Build a source map from pre-parsed components and a VLQ mappings string.
     ///
     /// This is the fast path for WASM: JS does `JSON.parse()` (V8-native speed),
@@ -3241,9 +3282,11 @@ pub struct SourceMapBuilder {
     ignore_list: Vec<u32>,
     debug_id: Option<String>,
     scopes: Option<ScopeInfo>,
+    extensions: HashMap<String, serde_json::Value>,
 }
 
 impl SourceMapBuilder {
+    /// Create an empty source map builder.
     pub fn new() -> Self {
         Self {
             file: None,
@@ -3255,24 +3298,29 @@ impl SourceMapBuilder {
             ignore_list: Vec::new(),
             debug_id: None,
             scopes: None,
+            extensions: HashMap::new(),
         }
     }
 
+    /// Set the generated file name.
     pub fn file(mut self, file: impl Into<String>) -> Self {
         self.file = Some(file.into());
         self
     }
 
+    /// Set the source root prefix.
     pub fn source_root(mut self, root: impl Into<String>) -> Self {
         self.source_root = Some(root.into());
         self
     }
 
+    /// Replace the source list.
     pub fn sources(mut self, sources: impl IntoIterator<Item = impl Into<String>>) -> Self {
         self.sources = sources.into_iter().map(Into::into).collect();
         self
     }
 
+    /// Replace the source content list. Entries are parallel to `sources`.
     pub fn sources_content(
         mut self,
         content: impl IntoIterator<Item = Option<impl Into<String>>>,
@@ -3281,28 +3329,57 @@ impl SourceMapBuilder {
         self
     }
 
+    /// Replace the name list.
     pub fn names(mut self, names: impl IntoIterator<Item = impl Into<String>>) -> Self {
         self.names = names.into_iter().map(Into::into).collect();
         self
     }
 
+    /// Replace the decoded mapping list.
+    ///
+    /// Mappings must be sorted by (generated_line, generated_column).
     pub fn mappings(mut self, mappings: impl IntoIterator<Item = Mapping>) -> Self {
         self.mappings = mappings.into_iter().collect();
         self
     }
 
+    /// Replace the ignore-list source indices.
     pub fn ignore_list(mut self, list: impl IntoIterator<Item = u32>) -> Self {
         self.ignore_list = list.into_iter().collect();
         self
     }
 
+    /// Set the source map debug ID.
     pub fn debug_id(mut self, id: impl Into<String>) -> Self {
         self.debug_id = Some(id.into());
         self
     }
 
+    /// Set ECMA-426 scopes data.
     pub fn scopes(mut self, scopes: ScopeInfo) -> Self {
         self.scopes = Some(scopes);
+        self
+    }
+
+    /// Add one extension field.
+    ///
+    /// Only `x_` and `x-` extension keys are retained in the built `SourceMap`,
+    /// matching JSON parsing behavior.
+    pub fn extension(mut self, key: impl Into<String>, value: serde_json::Value) -> Self {
+        self.extensions.insert(key.into(), value);
+        self
+    }
+
+    /// Replace extension fields.
+    ///
+    /// Only `x_` and `x-` extension keys are retained in the built `SourceMap`,
+    /// matching JSON parsing behavior.
+    pub fn extensions<K, I>(mut self, extensions: I) -> Self
+    where
+        K: Into<String>,
+        I: IntoIterator<Item = (K, serde_json::Value)>,
+    {
+        self.extensions = extensions.into_iter().map(|(k, v)| (k.into(), v)).collect();
         self
     }
 
@@ -3310,7 +3387,7 @@ impl SourceMapBuilder {
     ///
     /// Mappings must be sorted by (generated_line, generated_column).
     pub fn build(self) -> SourceMap {
-        SourceMap::from_parts(
+        SourceMap::from_parts_with_extensions(
             self.file,
             self.source_root,
             self.sources,
@@ -3320,6 +3397,7 @@ impl SourceMapBuilder {
             self.ignore_list,
             self.debug_id,
             self.scopes,
+            self.extensions,
         )
     }
 }
@@ -5014,6 +5092,49 @@ mod tests {
         let loc = sm.original_position_for(0, 0).unwrap();
         assert_eq!(loc.name, Some(0));
         assert_eq!(sm.name(0), "myVar");
+    }
+
+    #[test]
+    fn from_parts_with_extensions_preserves_source_map_extensions() {
+        let mut extensions = HashMap::new();
+        extensions.insert("x_google_linecount".to_string(), serde_json::json!(7));
+        extensions.insert("x-custom".to_string(), serde_json::json!({ "producer": "oxc" }));
+        extensions.insert("vendorField".to_string(), serde_json::json!("ignored"));
+
+        let sm = SourceMap::from_parts_with_extensions(
+            Some("out.js".to_string()),
+            Some("src/".to_string()),
+            vec!["src/input.ts".to_string()],
+            vec![Some("export const value = 1;".to_string())],
+            vec!["value".to_string()],
+            vec![Mapping {
+                generated_line: 0,
+                generated_column: 0,
+                source: 0,
+                original_line: 0,
+                original_column: 13,
+                name: 0,
+                is_range_mapping: false,
+            }],
+            vec![0],
+            Some("85314830-023f-4cf1-a267-535f4e37bb17".to_string()),
+            None,
+            extensions,
+        );
+
+        assert_eq!(sm.file.as_deref(), Some("out.js"));
+        assert_eq!(sm.source_root.as_deref(), Some("src/"));
+        assert_eq!(sm.ignore_list, vec![0]);
+        assert_eq!(sm.debug_id.as_deref(), Some("85314830-023f-4cf1-a267-535f4e37bb17"));
+        assert_eq!(sm.extensions.get("x_google_linecount"), Some(&serde_json::json!(7)));
+        assert!(sm.extensions.contains_key("x-custom"));
+        assert!(!sm.extensions.contains_key("vendorField"));
+
+        let json = sm.to_json();
+        let parsed = SourceMap::from_json(&json).unwrap();
+        assert_eq!(parsed.mapping_count(), sm.mapping_count());
+        assert_eq!(parsed.extensions, sm.extensions);
+        assert_eq!(parsed.original_position_for(0, 0).unwrap().column, 13);
     }
 
     #[test]
@@ -6787,6 +6908,28 @@ mod tests {
 
         assert_eq!(sm.ignore_list, vec![1]);
         assert_eq!(sm.debug_id.as_deref(), Some("85314830-023f-4cf1-a267-535f4e37bb17"));
+    }
+
+    #[test]
+    fn builder_extensions_match_json_extension_filtering() {
+        let sm = SourceMap::builder()
+            .sources(["input.ts"])
+            .mappings([Mapping {
+                generated_line: 0,
+                generated_column: 0,
+                source: 0,
+                original_line: 0,
+                original_column: 0,
+                name: u32::MAX,
+                is_range_mapping: false,
+            }])
+            .extension("x_google_ignoreList", serde_json::json!([0]))
+            .extension("notExtension", serde_json::json!(true))
+            .build();
+
+        assert!(sm.extensions.contains_key("x_google_ignoreList"));
+        assert!(!sm.extensions.contains_key("notExtension"));
+        assert!(sm.original_position_for(0, 0).is_some());
     }
 
     #[test]

@@ -45,6 +45,7 @@ assert_eq!(pos.column, 0);
 | `from_json(json) -> Result<SourceMap>` | Parse a source map from a JSON string (regular or indexed) |
 | `from_json_no_content(json) -> Result<SourceMap>` | Parse JSON without allocating `sourcesContent` strings |
 | `from_parts(file, source_root, sources, ...) -> SourceMap` | Build from pre-decoded components and mappings |
+| `from_parts_with_extensions(file, source_root, sources, ..., extensions) -> SourceMap` | Build from pre-decoded components while preserving `x_` / `x-` extension fields |
 | `from_vlq(mappings_str, sources, names, ...) -> Result<SourceMap>` | Build from pre-parsed components and a VLQ mappings string |
 | `from_vlq_with_range_mappings(mappings_str, ..., range_mappings_str) -> Result<SourceMap>` | Build from VLQ mappings and optional range mappings strings |
 | `from_json_lines(json, start_line, end_line) -> Result<SourceMap>` | Parse and decode only the given generated-line range |
@@ -102,6 +103,51 @@ assert_eq!(pos.column, 0);
 | `MappingsIter<'a>` | Zero-allocation streaming iterator over VLQ-encoded mappings |
 | `SourceMappingUrl` | Parsed sourceMappingURL: `Inline(String)` or `External(String)` |
 | `ParseError` | Errors that can occur during source map parsing |
+
+### Building From Decoded Parts
+
+Compiler and coverage-instrumentation pipelines often already have source-map
+parts in memory: generated file, sources, names, source content, decoded
+mappings, ignore list, debug ID, and custom `x_` extension fields. Use
+`SourceMap::from_parts_with_extensions` or `SourceMap::builder()` to pass those
+parts directly into `srcmap-sourcemap` without serializing to source-map JSON and
+parsing it back before lookup or `srcmap-remapping` composition.
+
+For example, an Oxc-based coverage instrumenter can convert Oxc's emitted
+source-map fields into a `SourceMap`, apply preamble offsetting, and compose
+with an upstream `inputSourceMap` without using JSON as the interchange format.
+
+```rust
+use std::collections::HashMap;
+
+use srcmap_sourcemap::{Mapping, SourceMap};
+
+let mut extensions = HashMap::new();
+extensions.insert("x_google_linecount".to_string(), serde_json::json!(1));
+
+let sm = SourceMap::from_parts_with_extensions(
+    Some("out.js".to_string()),
+    None,
+    vec!["src/input.ts".to_string()],
+    vec![Some("export const value = 1;".to_string())],
+    vec!["value".to_string()],
+    vec![Mapping {
+        generated_line: 0,
+        generated_column: 0,
+        source: 0,
+        original_line: 0,
+        original_column: 13,
+        name: 0,
+        is_range_mapping: false,
+    }],
+    vec![],
+    None,
+    None,
+    extensions,
+);
+
+assert_eq!(sm.original_position_for(0, 0).unwrap().column, 13);
+```
 
 ### Free Functions
 

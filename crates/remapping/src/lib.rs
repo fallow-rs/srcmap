@@ -1287,6 +1287,57 @@ mod tests {
     }
 
     #[test]
+    fn remap_accepts_source_map_built_from_parts() {
+        let outer = SourceMap::from_parts(
+            Some("output.js".to_string()),
+            None,
+            vec!["intermediate.js".to_string()],
+            vec![],
+            vec![],
+            vec![srcmap_sourcemap::Mapping {
+                generated_line: 0,
+                generated_column: 0,
+                source: 0,
+                original_line: 0,
+                original_column: 0,
+                name: u32::MAX,
+                is_range_mapping: false,
+            }],
+            vec![],
+            None,
+            None,
+        );
+        let inner = SourceMap::builder()
+            .file("intermediate.js")
+            .sources(["original.ts"])
+            .sources_content([Some("export const value = 1;")])
+            .mappings([srcmap_sourcemap::Mapping {
+                generated_line: 0,
+                generated_column: 0,
+                source: 0,
+                original_line: 3,
+                original_column: 12,
+                name: u32::MAX,
+                is_range_mapping: false,
+            }])
+            .build();
+
+        let result =
+            remap(
+                &outer,
+                |source| {
+                    if source == "intermediate.js" { Some(inner.clone()) } else { None }
+                },
+            );
+
+        let loc = result.original_position_for(0, 0).unwrap();
+        assert_eq!(result.source(loc.source), "original.ts");
+        assert_eq!(loc.line, 3);
+        assert_eq!(loc.column, 12);
+        assert_eq!(result.sources_content, vec![Some("export const value = 1;".to_string())]);
+    }
+
+    #[test]
     fn remap_no_upstream_passthrough() {
         let outer = SourceMap::from_json(
             r#"{"version":3,"sources":["already-original.js"],"names":[],"mappings":"AAAA"}"#,
