@@ -9,7 +9,7 @@ importers:
   .:
     devDependencies:
       fallow:
-        specifier: ^2.40.3
+        specifier: 2.40.3
         version: 2.40.3
       oxfmt:
         specifier: 0.44.0
@@ -1793,48 +1793,6 @@ snapshots:
     optional: true
 
   '@oxlint/binding-win32-x64-msvc@1.60.0':
-    optional: true
-
-  '@srcmap/codec-darwin-arm64@0.3.6':
-    optional: true
-
-  '@srcmap/codec-darwin-x64@0.3.6':
-    optional: true
-
-  '@srcmap/codec-linux-arm64-gnu@0.3.6':
-    optional: true
-
-  '@srcmap/codec-linux-arm64-musl@0.3.6':
-    optional: true
-
-  '@srcmap/codec-linux-x64-gnu@0.3.6':
-    optional: true
-
-  '@srcmap/codec-linux-x64-musl@0.3.6':
-    optional: true
-
-  '@srcmap/codec-win32-x64-msvc@0.3.6':
-    optional: true
-
-  '@srcmap/sourcemap-darwin-arm64@0.3.6':
-    optional: true
-
-  '@srcmap/sourcemap-darwin-x64@0.3.6':
-    optional: true
-
-  '@srcmap/sourcemap-linux-arm64-gnu@0.3.6':
-    optional: true
-
-  '@srcmap/sourcemap-linux-arm64-musl@0.3.6':
-    optional: true
-
-  '@srcmap/sourcemap-linux-x64-gnu@0.3.6':
-    optional: true
-
-  '@srcmap/sourcemap-linux-x64-musl@0.3.6':
-    optional: true
-
-  '@srcmap/sourcemap-win32-x64-msvc@0.3.6':
     optional: true
 
   '@srcmap/codec-darwin-arm64@0.3.6':
