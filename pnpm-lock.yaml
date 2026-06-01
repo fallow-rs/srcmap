@@ -40,8 +40,8 @@ importers:
         version: 2.1.2
     devDependencies:
       '@napi-rs/cli':
-        specifier: ^3.0.0
-        version: 3.6.1(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)
+        specifier: ^3.6.2
+        version: 3.7.0(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)
     optionalDependencies:
       '@srcmap/codec-darwin-arm64':
         specifier: 0.3.6
@@ -104,8 +104,8 @@ importers:
         version: 2.1.2
     devDependencies:
       '@napi-rs/cli':
-        specifier: ^3.0.0
-        version: 3.6.1(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)
+        specifier: ^3.6.2
+        version: 3.7.0(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)
     optionalDependencies:
       '@srcmap/sourcemap-darwin-arm64':
         specifier: 0.3.6
@@ -342,8 +342,8 @@ packages:
   '@jridgewell/trace-mapping@0.3.31':
     resolution: {integrity: sha512-zzNR+SdQSDJzc8joaeP8QQoCQr8NuYx2dIIytl1QeBEZHJ9uW6hebsrYgbz8hJwUQao3TWCMtmfV8Nu1twOLAw==}
 
-  '@napi-rs/cli@3.6.1':
-    resolution: {integrity: sha512-xOrDmCdtXfJ2XzknJAyEAMUe4SHT02PHY3JG8/vXFAB+EPF7Pgv0q182Vmw2zAlhAvnfofccvJlHrZpNPDbypA==}
+  '@napi-rs/cli@3.7.0':
+    resolution: {integrity: sha512-3d3+rmxlOIV/G1zPWeX4PCxuYnhcCQM2BvY9rtimC8RO0dFR9gtYP+Grov+WoduZtfWRj5N1XvytWeRxxCk5zw==}
     engines: {node: '>= 16'}
     hasBin: true
     peerDependencies:
@@ -1106,8 +1106,8 @@ packages:
     resolution: {integrity: sha512-Btj2BOOO83o3WyH59e8MgXsxEQVcarkUOpEYrubB0urwnN10yQ364rsiByU11nZlqWYZm05i/of7io4mzihBtQ==}
     engines: {node: '>=8'}
 
-  emnapi@1.9.2:
-    resolution: {integrity: sha512-OdUoQe/8so7FvubnE/DNV9sNNSFwDYQiK4ZCAz4agMnD1s6faLuDn2gzxfJrmMoKfxZhhsckqGNwqPnS5K140A==}
+  emnapi@1.10.0:
+    resolution: {integrity: sha512-swoyZjupDvLoe/KC3HZ4SY1JUN+tviT6eOZ3Px28TZAYdBHtRIiMWWrIUUH+2/9CYY4fNTID1YhYZ+kdFHszHg==}
     peerDependencies:
       node-addon-api: '>= 6.1.0'
     peerDependenciesMeta:
@@ -1352,7 +1352,7 @@ snapshots:
       '@jridgewell/resolve-uri': 3.1.2
       '@jridgewell/sourcemap-codec': 1.5.5
 
-  '@napi-rs/cli@3.6.1(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)':
+  '@napi-rs/cli@3.7.0(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)':
     dependencies:
       '@inquirer/prompts': 8.4.1
       '@napi-rs/cross-toolchain': 1.0.3(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)
@@ -1360,7 +1360,7 @@ snapshots:
       '@octokit/rest': 22.0.1
       clipanion: 4.0.0-rc.4(typanion@3.14.0)
       colorette: 2.0.20
-      emnapi: 1.9.2
+      emnapi: 1.10.0
       es-toolkit: 1.45.1
       js-yaml: 4.1.1
       obug: 2.1.1
@@ -1862,7 +1862,7 @@ snapshots:
 
   detect-libc@2.1.2: {}
 
-  emnapi@1.9.2: {}
+  emnapi@1.10.0: {}
 
   es-toolkit@1.45.1: {}
 
