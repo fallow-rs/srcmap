@@ -21,6 +21,7 @@ crate-type = ["lib"]
 workspace = true
 
 [dependencies]
+memchr = { workspace = true }
 rayon = { workspace = true, optional = true }
 
 [dev-dependencies]

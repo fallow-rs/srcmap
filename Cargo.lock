@@ -1265,6 +1265,7 @@ name = "srcmap-codec"
 version = "0.3.7"
 dependencies = [
  "criterion",
+ "memchr",
  "rayon",
 ]
 
