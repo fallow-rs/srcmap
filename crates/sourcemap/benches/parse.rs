@@ -1,4 +1,6 @@
-use criterion::{Criterion, black_box, criterion_group, criterion_main};
+use std::hint::black_box;
+
+use criterion::{Criterion, criterion_group, criterion_main};
 use serde::Deserialize;
 use srcmap_codec::Segment;
 use srcmap_sourcemap::{LazySourceMap, SourceMap};

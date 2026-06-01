@@ -1,4 +1,6 @@
-use criterion::{Criterion, black_box, criterion_group, criterion_main};
+use std::hint::black_box;
+
+use criterion::{Criterion, criterion_group, criterion_main};
 use srcmap_generator::{SourceMapGenerator, StreamingGenerator};
 
 fn build_generator(lines: u32, cols_per_line: u32, with_content: bool) -> SourceMapGenerator {
