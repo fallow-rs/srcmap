@@ -71,7 +71,7 @@ fn main() {
     println!("Cached lookup: generated(1, 0) → original");
     let loc2 = lazy.original_position_for(1, 0).expect("mapping should exist");
 
-    println!("  → {}:{}:{}", lazy.source(loc2.source), loc2.line, loc2.column,);
+    println!("  → {}:{}:{}", lazy.source(loc2.source), loc2.line, loc2.column);
     assert_eq!(lazy.source(loc2.source), "src/app.ts");
     assert_eq!(loc2.line, 1);
     assert_eq!(loc2.column, 0);

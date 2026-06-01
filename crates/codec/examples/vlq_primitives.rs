@@ -159,7 +159,7 @@ fn main() {
         let signed_str = std::str::from_utf8(&signed_buf).unwrap();
         let unsigned_str = std::str::from_utf8(&unsigned_buf).unwrap();
 
-        println!("  {value:>10}  {signed_str:>8}  {unsigned_str:>10}",);
+        println!("  {value:>10}  {signed_str:>8}  {unsigned_str:>10}");
 
         // Unsigned is always <= signed in byte count for non-negative values
         assert!(

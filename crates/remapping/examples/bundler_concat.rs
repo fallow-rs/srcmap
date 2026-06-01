@@ -306,7 +306,7 @@ fn main() {
         combined.ignore_list.contains(&header_idx),
         "header.js (index {header_idx}) should be in the ignoreList",
     );
-    println!("  header.js (index {}) is in ignoreList: yes", header_idx,);
+    println!("  header.js (index {}) is in ignoreList: yes", header_idx);
 
     // app.ts and footer.js should NOT be in the ignore list
     let other_sources: Vec<_> =

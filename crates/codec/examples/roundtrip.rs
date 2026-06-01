@@ -64,7 +64,7 @@ fn main() {
             // Segment implements Deref<Target=[i64]>, so len() and indexing work
             match segment.len() {
                 1 => {
-                    println!("    [{seg_idx}] 1-field: generated_col={}", segment[0],);
+                    println!("    [{seg_idx}] 1-field: generated_col={}", segment[0]);
                 }
                 4 => {
                     println!(
