@@ -1,3 +1,5 @@
+use napi::JsValue;
+use napi::bindgen_prelude::JsObjectValue;
 use napi_derive::napi;
 
 // ── ConcatBuilder ────────────────────────────────────────────────
@@ -41,7 +43,10 @@ impl JsConcatBuilder {
 ///
 /// Returns the remapped source map as a JSON string.
 #[napi]
-pub fn remap(outer_json: String, loader_map: napi::JsObject) -> napi::Result<String> {
+pub fn remap(
+    outer_json: String,
+    loader_map: napi::bindgen_prelude::Object<'_>,
+) -> napi::Result<String> {
     let outer = srcmap_sourcemap::SourceMap::from_json(&outer_json)
         .map_err(|e| napi::Error::from_reason(e.to_string()))?;
 
@@ -51,7 +56,7 @@ pub fn remap(outer_json: String, loader_map: napi::JsObject) -> napi::Result<Str
 
     for source in &outer.sources {
         if !upstream_maps.contains_key(source) {
-            let val: Option<napi::JsUnknown> = loader_map.get_named_property(source).ok();
+            let val: Option<napi::Unknown<'_>> = loader_map.get_named_property(source).ok();
             let upstream = val.and_then(|v| {
                 let val_type = v.get_type().ok()?;
                 if val_type == napi::ValueType::Null || val_type == napi::ValueType::Undefined {
