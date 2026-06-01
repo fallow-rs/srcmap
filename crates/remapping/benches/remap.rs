@@ -1,4 +1,6 @@
-use criterion::{Criterion, black_box, criterion_group, criterion_main};
+use std::hint::black_box;
+
+use criterion::{Criterion, criterion_group, criterion_main};
 use srcmap_generator::SourceMapGenerator;
 use srcmap_remapping::{remap, remap_streaming};
 use srcmap_sourcemap::{MappingsIter, SourceMap};
