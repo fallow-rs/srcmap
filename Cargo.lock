@@ -1379,6 +1379,7 @@ name = "srcmap-sourcemap"
 version = "0.3.7"
 dependencies = [
  "criterion",
+ "memchr",
  "serde",
  "serde_json",
  "simd-json",
