@@ -27,13 +27,6 @@
 use rustc_hash::FxHashMap;
 use srcmap_codec::{vlq_encode_unchecked, vlq_encode_unsigned};
 
-/// Check whether mappings are already sorted by (generated_line, generated_column).
-#[inline]
-fn is_sorted_by_position(mappings: &[Mapping]) -> bool {
-    mappings.windows(2).all(|w| {
-        (w[0].generated_line, w[0].generated_column) <= (w[1].generated_line, w[1].generated_column)
-    })
-}
 use srcmap_scopes::ScopeInfo;
 
 use std::io;
@@ -117,6 +110,10 @@ pub struct SourceMapGenerator {
     debug_id: Option<String>,
     scopes: Option<ScopeInfo>,
     assume_sorted: bool,
+    // Tracks whether `mappings` is non-decreasing by (generated_line,
+    // generated_column), maintained incrementally on every push so the encode
+    // path can skip the O(n) `is_sorted_by_position` re-scan.
+    mappings_in_order: bool,
 
     // Dedup maps for O(1) lookup
     source_map: FxHashMap<String, u32>,
@@ -137,6 +134,7 @@ impl SourceMapGenerator {
             debug_id: None,
             scopes: None,
             assume_sorted: false,
+            mappings_in_order: true,
             source_map: FxHashMap::default(),
             name_map: FxHashMap::default(),
         }
@@ -158,6 +156,7 @@ impl SourceMapGenerator {
             debug_id: None,
             scopes: None,
             assume_sorted: false,
+            mappings_in_order: true,
             source_map: FxHashMap::default(),
             name_map: FxHashMap::default(),
         }
@@ -229,8 +228,26 @@ impl SourceMapGenerator {
     }
 
     /// Add a mapping with no source information (generated-only).
+    /// Push a mapping, maintaining the incremental `mappings_in_order` flag.
+    ///
+    /// Single choke point for every mapping insertion: keeping the
+    /// non-decreasing-position invariant updated here lets the encode path
+    /// avoid an O(n) sortedness scan. Mirrors `is_sorted_by_position`'s
+    /// `(generated_line, generated_column)` ordering exactly.
+    #[inline]
+    fn push_mapping(&mut self, mapping: Mapping) {
+        if self.mappings_in_order
+            && let Some(last) = self.mappings.last()
+            && (mapping.generated_line, mapping.generated_column)
+                < (last.generated_line, last.generated_column)
+        {
+            self.mappings_in_order = false;
+        }
+        self.mappings.push(mapping);
+    }
+
     pub fn add_generated_mapping(&mut self, generated_line: u32, generated_column: u32) {
-        self.mappings.push(Mapping {
+        self.push_mapping(Mapping {
             generated_line,
             generated_column,
             source: None,
@@ -250,7 +267,7 @@ impl SourceMapGenerator {
         original_line: u32,
         original_column: u32,
     ) {
-        self.mappings.push(Mapping {
+        self.push_mapping(Mapping {
             generated_line,
             generated_column,
             source: Some(source),
@@ -271,7 +288,7 @@ impl SourceMapGenerator {
         original_column: u32,
         name: u32,
     ) {
-        self.mappings.push(Mapping {
+        self.push_mapping(Mapping {
             generated_line,
             generated_column,
             source: Some(source),
@@ -295,7 +312,7 @@ impl SourceMapGenerator {
         original_line: u32,
         original_column: u32,
     ) {
-        self.mappings.push(Mapping {
+        self.push_mapping(Mapping {
             generated_line,
             generated_column,
             source: Some(source),
@@ -316,7 +333,7 @@ impl SourceMapGenerator {
         original_column: u32,
         name: u32,
     ) {
-        self.mappings.push(Mapping {
+        self.push_mapping(Mapping {
             generated_line,
             generated_column,
             source: Some(source),
@@ -361,7 +378,7 @@ impl SourceMapGenerator {
 
         // Fast path: skip sort when mappings are already in order (common case
         // for bundlers that emit mappings sequentially).
-        if self.assume_sorted || is_sorted_by_position(&self.mappings) {
+        if self.assume_sorted || self.mappings_in_order {
             #[cfg(feature = "parallel")]
             if self.mappings.len() >= 4096 {
                 let refs: Vec<&Mapping> = self.mappings.iter().collect();
@@ -400,7 +417,7 @@ impl SourceMapGenerator {
 
         // Fast path: skip sort when mappings are already in order (common case
         // for bundlers that emit mappings sequentially).
-        if self.assume_sorted || is_sorted_by_position(&self.mappings) {
+        if self.assume_sorted || self.mappings_in_order {
             #[cfg(feature = "parallel")]
             if self.mappings.len() >= 4096 {
                 let refs: Vec<&Mapping> = self.mappings.iter().collect();
@@ -574,7 +591,7 @@ impl SourceMapGenerator {
             return None;
         }
 
-        let ordered: Vec<&Mapping> = if self.assume_sorted || is_sorted_by_position(&self.mappings)
+        let ordered: Vec<&Mapping> = if self.assume_sorted || self.mappings_in_order
         {
             self.mappings.iter().collect()
         } else {
@@ -801,7 +818,7 @@ impl SourceMapGenerator {
         };
 
         let sm_mappings: Vec<srcmap_sourcemap::Mapping> =
-            if self.assume_sorted || is_sorted_by_position(&self.mappings) {
+            if self.assume_sorted || self.mappings_in_order {
                 // Skip sort — iterate directly over the mappings vec
                 self.mappings.iter().map(convert_mapping).collect()
             } else {
@@ -2119,6 +2136,35 @@ mod tests {
         let loc = sm.generated_position_for("input.js", 10, 5).unwrap();
         assert_eq!(loc.line, 0);
         assert_eq!(loc.column, 0);
+    }
+
+    #[test]
+    fn out_of_order_insertion_is_sorted_on_encode() {
+        // Insert mappings in reverse position order. The incremental
+        // `mappings_in_order` flag must flip to false so encode sorts them,
+        // producing identical output to in-order insertion.
+        let mut unsorted = SourceMapGenerator::new(None);
+        let src = unsorted.add_source("input.js");
+        unsorted.add_mapping(2, 0, src, 2, 0);
+        unsorted.add_mapping(0, 5, src, 0, 5);
+        unsorted.add_mapping(0, 0, src, 0, 0);
+        unsorted.add_mapping(1, 0, src, 1, 0);
+
+        let mut sorted = SourceMapGenerator::new(None);
+        let src = sorted.add_source("input.js");
+        sorted.add_mapping(0, 0, src, 0, 0);
+        sorted.add_mapping(0, 5, src, 0, 5);
+        sorted.add_mapping(1, 0, src, 1, 0);
+        sorted.add_mapping(2, 0, src, 2, 0);
+
+        assert_eq!(unsorted.encode_mappings(), sorted.encode_mappings());
+
+        // And the decoded map resolves the reordered positions correctly.
+        let sm = unsorted.to_decoded_map();
+        let loc = sm.original_position_for(0, 5).unwrap();
+        assert_eq!((loc.line, loc.column), (0, 5));
+        let loc = sm.original_position_for(2, 0).unwrap();
+        assert_eq!((loc.line, loc.column), (2, 0));
     }
 
     #[test]
