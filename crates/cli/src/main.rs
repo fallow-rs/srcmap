@@ -419,8 +419,8 @@ fn write_output(output: &Option<PathBuf>, content: &str) -> Result<(), CliError>
 }
 
 fn http_get(url: &str) -> Result<String, CliError> {
-    let response = ureq::get(url)
-        .set("User-Agent", concat!("srcmap-cli/", env!("CARGO_PKG_VERSION")))
+    let mut response = ureq::get(url)
+        .header("User-Agent", concat!("srcmap-cli/", env!("CARGO_PKG_VERSION")))
         .call()
         .map_err(|e| CliError::fetch_error(format!("failed to fetch {url}: {e}")))?;
 
@@ -430,7 +430,8 @@ fn http_get(url: &str) -> Result<String, CliError> {
     }
 
     response
-        .into_string()
+        .body_mut()
+        .read_to_string()
         .map_err(|e| CliError::fetch_error(format!("failed to read response body from {url}: {e}")))
 }
 
