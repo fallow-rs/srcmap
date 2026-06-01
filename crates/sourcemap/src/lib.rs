@@ -33,9 +33,11 @@ use srcmap_codec::{DecodeError, vlq_encode_unsigned};
 use srcmap_scopes::{Binding, CallSite, GeneratedRange, OriginalScope, Position, ScopeInfo};
 
 pub mod js_identifiers;
+pub mod offset_lookup;
 pub mod source_view;
 pub mod utils;
 
+pub use offset_lookup::{GeneratedOffsetLookup, OriginalPositionLookup};
 pub use source_view::SourceView;
 
 // ── Constants ──────────────────────────────────────────────────────

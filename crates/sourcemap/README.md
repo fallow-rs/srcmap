@@ -98,6 +98,7 @@ assert_eq!(pos.column, 0);
 | `Mapping` | A single decoded mapping entry (28 bytes) |
 | `OriginalLocation` | Result of a forward lookup (source, line, column, name) |
 | `GeneratedLocation` | Result of a reverse lookup (line, column) |
+| `GeneratedOffsetLookup<'a>` | Reusable V8 coverage byte-offset to generated-position lookup |
 | `MappedRange` | Original start/end positions for a generated range |
 | `Bias` | Search bias: `GreatestLowerBound` or `LeastUpperBound` |
 | `MappingsIter<'a>` | Zero-allocation streaming iterator over VLQ-encoded mappings |
@@ -148,6 +149,39 @@ let sm = SourceMap::from_parts_with_extensions(
 
 assert_eq!(sm.original_position_for(0, 0).unwrap().column, 13);
 ```
+
+### Runtime Coverage Offsets
+
+V8 coverage ranges commonly start from generated UTF-8 byte offsets. Source-map
+lookups use generated `line,column` pairs where the column is a UTF-16 JavaScript
+code-unit offset. Build one `GeneratedOffsetLookup` per generated asset and
+reuse it for function ranges or beacon batches.
+
+```rust
+use srcmap_sourcemap::{GeneratedOffsetLookup, SourceMap};
+
+let generated_code = "alpha();\nbeta();\n";
+let map_json = r#"{
+    "version": 3,
+    "sources": ["input.ts"],
+    "names": ["lineOne", "lineTwo"],
+    "mappings": "AAAAA;AACAC"
+}"#;
+
+let sm = SourceMap::from_json(map_json).unwrap();
+let lookup = GeneratedOffsetLookup::new(generated_code);
+
+let start_offset = "alpha();\n".len() as u32;
+let generated = lookup.byte_offset_to_position(start_offset).unwrap();
+assert_eq!((generated.line, generated.column), (1, 0));
+
+let original = lookup.original_position_for_offset(&sm, start_offset).unwrap();
+assert_eq!(sm.source(original.source), "input.ts");
+assert_eq!((original.line, original.column), (1, 0));
+```
+
+`GeneratedOffsetLookup` works with both `SourceMap` and `LazySourceMap` through
+the `OriginalPositionLookup` trait.
 
 ### Free Functions
 
