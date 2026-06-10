@@ -10,6 +10,11 @@
   "categories": {
     "correctness": "deny"
   },
+  "ignorePatterns": [
+    "**/pkg/**",
+    "**/web/**",
+    "**/bundler/**"
+  ],
   "rules": {},
   "env": {
     "builtin": true
