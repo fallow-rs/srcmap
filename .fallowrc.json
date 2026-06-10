@@ -24,7 +24,7 @@
     "@srcmap/generator-wasm",
     "@srcmap/sourcemap-wasm",
     "@srcmap/remapping-wasm",
-    "**/pkg/srcmap_*_wasm.js"
+    "**/srcmap_*_wasm.js"
   ],
   "ignorePatterns": [
     ".fallow/**",
