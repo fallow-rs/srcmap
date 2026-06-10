@@ -20,6 +20,10 @@ updates:
     groups:
       napi-toolchain:
         patterns: ["@napi-rs/*"]
+    ignore:
+      # Self-published platform binaries; bumped in lockstep by the release
+      # process to match the package version, never independently by Dependabot.
+      - dependency-name: "@srcmap/*"
     open-pull-requests-limit: 5
 
   - package-ecosystem: github-actions
