@@ -6,6 +6,9 @@ updates:
       interval: weekly
     cooldown:
       default-days: 7
+    groups:
+      napi:
+        patterns: ["napi", "napi-derive", "napi-build"]
     open-pull-requests-limit: 10
 
   - package-ecosystem: npm
@@ -14,6 +17,9 @@ updates:
       interval: weekly
     cooldown:
       default-days: 7
+    groups:
+      napi-toolchain:
+        patterns: ["@napi-rs/*"]
     open-pull-requests-limit: 5
 
   - package-ecosystem: github-actions
