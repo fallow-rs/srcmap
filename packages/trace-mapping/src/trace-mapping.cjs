@@ -5,7 +5,6 @@ try {
   SourceMap = require("@srcmap/sourcemap-wasm").SourceMap;
 } catch {
   // Fallback for monorepo development
-  // fallow-ignore-next-line unresolved-import
   SourceMap = require("../../sourcemap-wasm/pkg/srcmap_sourcemap_wasm.js").SourceMap;
 }
 

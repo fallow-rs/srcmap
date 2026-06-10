@@ -15,7 +15,16 @@
     "@srcmap/sourcemap-linux-arm64-musl",
     "@srcmap/sourcemap-linux-x64-gnu",
     "@srcmap/sourcemap-linux-x64-musl",
-    "@srcmap/sourcemap-win32-x64-msvc"
+    "@srcmap/sourcemap-win32-x64-msvc",
+    "@srcmap/generator-wasm",
+    "@srcmap/sourcemap-wasm",
+    "@srcmap/remapping-wasm"
+  ],
+  "ignoreUnresolvedImports": [
+    "@srcmap/generator-wasm",
+    "@srcmap/sourcemap-wasm",
+    "@srcmap/remapping-wasm",
+    "**/pkg/srcmap_*_wasm.js"
   ],
   "ignorePatterns": [
     ".fallow/**",

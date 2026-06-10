@@ -9,9 +9,7 @@ import {
 } from "../coverage.mjs";
 
 const require = createRequire(import.meta.url);
-// fallow-ignore-next-line unresolved-import
 const { SourceMap: WasmSourceMap } = require("../pkg/srcmap_sourcemap_wasm.js");
-// fallow-ignore-next-line unresolved-import
 const { SourceMap: NapiSourceMap } = require("../../sourcemap/index.js");
 
 const SOURCE = "const cafe = 'cafe';\nconst emoji = '😀';\n";
