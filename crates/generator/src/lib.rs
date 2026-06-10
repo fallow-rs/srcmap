@@ -591,8 +591,7 @@ impl SourceMapGenerator {
             return None;
         }
 
-        let ordered: Vec<&Mapping> = if self.assume_sorted || self.mappings_in_order
-        {
+        let ordered: Vec<&Mapping> = if self.assume_sorted || self.mappings_in_order {
             self.mappings.iter().collect()
         } else {
             let mut sorted: Vec<&Mapping> = self.mappings.iter().collect();
