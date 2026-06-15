@@ -171,11 +171,7 @@ impl IndexedRamBundle {
             return Err(RamBundleError::TooShort);
         }
 
-        let startup_code = std::str::from_utf8(&data[startup_start..startup_end])
-            .map_err(|e| {
-                RamBundleError::InvalidEntry(format!("startup code is not valid UTF-8: {e}"))
-            })?
-            .to_owned();
+        let startup_code = parse_startup_code(data, startup_start, startup_end)?;
 
         // The base offset for module data is right after startup code
         let modules_base = startup_end;
@@ -239,6 +235,18 @@ impl IndexedRamBundle {
     pub fn startup_code(&self) -> &str {
         &self.startup_code
     }
+}
+
+fn parse_startup_code(
+    data: &[u8],
+    startup_start: usize,
+    startup_end: usize,
+) -> Result<String, RamBundleError> {
+    std::str::from_utf8(&data[startup_start..startup_end])
+        .map_err(|e| {
+            RamBundleError::InvalidEntry(format!("startup code is not valid UTF-8: {e}"))
+        })
+        .map(str::to_owned)
 }
 
 /// Check if data starts with the RAM bundle magic number.
