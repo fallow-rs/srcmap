@@ -183,42 +183,7 @@ impl<'a> ScopesEncoder<'a> {
     }
 
     fn encode_generated_range(&mut self, range: &GeneratedRange) {
-        // E item: range start
-        self.emit_comma();
-        self.emit_tag(TAG_GENERATED_RANGE_START);
-
-        let line_delta = range.start.line - self.gr_line;
-
-        let mut flags: u64 = 0;
-        if line_delta != 0 {
-            flags |= crate::GR_FLAG_HAS_LINE;
-        }
-        if range.definition.is_some() {
-            flags |= crate::GR_FLAG_HAS_DEFINITION;
-        }
-        if range.is_stack_frame {
-            flags |= crate::GR_FLAG_IS_STACK_FRAME;
-        }
-        if range.is_hidden {
-            flags |= crate::GR_FLAG_IS_HIDDEN;
-        }
-        self.emit_unsigned(flags);
-
-        if line_delta != 0 {
-            self.emit_unsigned(line_delta as u64);
-        }
-        self.gr_line = range.start.line;
-
-        let col =
-            if line_delta != 0 { range.start.column } else { range.start.column - self.gr_col };
-        self.emit_unsigned(col as u64);
-        self.gr_col = range.start.column;
-
-        if let Some(def) = range.definition {
-            let def_val = def as i64;
-            self.emit_signed(def_val - self.gr_def);
-            self.gr_def = def_val;
-        }
+        self.encode_generated_range_start(range);
 
         // G item: bindings
         if !range.bindings.is_empty() {
@@ -323,6 +288,44 @@ impl<'a> ScopesEncoder<'a> {
         let col = if line_delta != 0 { range.end.column } else { range.end.column - self.gr_col };
         self.emit_unsigned(col as u64);
         self.gr_col = range.end.column;
+    }
+
+    fn encode_generated_range_start(&mut self, range: &GeneratedRange) {
+        self.emit_comma();
+        self.emit_tag(TAG_GENERATED_RANGE_START);
+
+        let line_delta = range.start.line - self.gr_line;
+
+        let mut flags: u64 = 0;
+        if line_delta != 0 {
+            flags |= crate::GR_FLAG_HAS_LINE;
+        }
+        if range.definition.is_some() {
+            flags |= crate::GR_FLAG_HAS_DEFINITION;
+        }
+        if range.is_stack_frame {
+            flags |= crate::GR_FLAG_IS_STACK_FRAME;
+        }
+        if range.is_hidden {
+            flags |= crate::GR_FLAG_IS_HIDDEN;
+        }
+        self.emit_unsigned(flags);
+
+        if line_delta != 0 {
+            self.emit_unsigned(line_delta as u64);
+        }
+        self.gr_line = range.start.line;
+
+        let col =
+            if line_delta != 0 { range.start.column } else { range.start.column - self.gr_col };
+        self.emit_unsigned(col as u64);
+        self.gr_col = range.start.column;
+
+        if let Some(def) = range.definition {
+            let def_val = def as i64;
+            self.emit_signed(def_val - self.gr_def);
+            self.gr_def = def_val;
+        }
     }
 }
 
