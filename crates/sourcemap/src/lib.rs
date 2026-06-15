@@ -249,6 +249,32 @@ fn validate_section_order(sections: &[RawSection]) -> Result<(), ParseError> {
     Ok(())
 }
 
+fn remap_section_sources(
+    sources: &[String],
+    sources_content: &[Option<String>],
+    all_sources: &mut Vec<String>,
+    all_sources_content: &mut Vec<Option<String>>,
+    all_scopes: &mut Vec<Option<OriginalScope>>,
+    source_index_map: &mut HashMap<String, u32>,
+) -> Vec<u32> {
+    sources
+        .iter()
+        .enumerate()
+        .map(|(i, source)| {
+            if let Some(&existing) = source_index_map.get(source) {
+                existing
+            } else {
+                let idx = all_sources.len() as u32;
+                all_sources.push(source.clone());
+                all_sources_content.push(sources_content.get(i).cloned().unwrap_or(None));
+                all_scopes.push(None);
+                source_index_map.insert(source.clone(), idx);
+                idx
+            }
+        })
+        .collect()
+}
+
 /// Retain only extension fields that use an `x_*` or `x-*` prefix.
 fn filter_extensions(
     extensions: HashMap<String, serde_json::Value>,
@@ -650,26 +676,14 @@ impl SourceMap {
             let line_offset = section.offset.line;
             let col_offset = section.offset.column;
 
-            // Map section source indices to global indices
-            let source_remap: Vec<u32> = sub
-                .sources
-                .iter()
-                .enumerate()
-                .map(|(i, s)| {
-                    if let Some(&existing) = source_index_map.get(s) {
-                        existing
-                    } else {
-                        let idx = all_sources.len() as u32;
-                        all_sources.push(s.clone());
-                        // Add sourcesContent if available
-                        let content = sub.sources_content.get(i).cloned().unwrap_or(None);
-                        all_sources_content.push(content);
-                        all_scopes.push(None);
-                        source_index_map.insert(s.clone(), idx);
-                        idx
-                    }
-                })
-                .collect();
+            let source_remap = remap_section_sources(
+                &sub.sources,
+                &sub.sources_content,
+                &mut all_sources,
+                &mut all_sources_content,
+                &mut all_scopes,
+                &mut source_index_map,
+            );
 
             // Map section name indices to global indices
             let name_remap: Vec<u32> = sub
