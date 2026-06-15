@@ -1142,6 +1142,44 @@ fn load_directory_upstream(
     None
 }
 
+fn print_remap_dry_run(
+    outer: &SourceMap,
+    result: &SourceMap,
+    found: &[String],
+    skipped: &[String],
+    json: bool,
+) {
+    if json {
+        let obj = serde_json::json!({
+            "dryRun": true,
+            "outerSources": outer.sources.len(),
+            "upstreamMapsFound": found,
+            "skippedSources": skipped,
+            "result": {
+                "sources": result.sources.len(),
+                "mappings": result.mapping_count(),
+                "lines": result.line_count(),
+            },
+        });
+        println!("{}", serde_json::to_string_pretty(&obj).unwrap());
+    } else {
+        eprintln!(
+            "Dry run: would remap {} sources → {} upstream maps found",
+            outer.sources.len(),
+            found.len(),
+        );
+        if !skipped.is_empty() {
+            eprintln!("  Skipped (invalid source names): {}", skipped.join(", "));
+        }
+        eprintln!(
+            "  Result: {} sources, {} mappings, {} lines",
+            result.sources.len(),
+            result.mapping_count(),
+            result.line_count(),
+        );
+    }
+}
+
 fn cmd_remap(
     file: &PathBuf,
     dir: &Option<PathBuf>,
@@ -1191,35 +1229,7 @@ fn cmd_remap(
     let skipped = skipped_sources.into_inner();
 
     if dry_run {
-        if json {
-            let obj = serde_json::json!({
-                "dryRun": true,
-                "outerSources": outer.sources.len(),
-                "upstreamMapsFound": found,
-                "skippedSources": skipped,
-                "result": {
-                    "sources": result.sources.len(),
-                    "mappings": result.mapping_count(),
-                    "lines": result.line_count(),
-                },
-            });
-            println!("{}", serde_json::to_string_pretty(&obj).unwrap());
-        } else {
-            eprintln!(
-                "Dry run: would remap {} sources → {} upstream maps found",
-                outer.sources.len(),
-                found.len(),
-            );
-            if !skipped.is_empty() {
-                eprintln!("  Skipped (invalid source names): {}", skipped.join(", "));
-            }
-            eprintln!(
-                "  Result: {} sources, {} mappings, {} lines",
-                result.sources.len(),
-                result.mapping_count(),
-                result.line_count(),
-            );
-        }
+        print_remap_dry_run(&outer, &result, &found, &skipped, json);
         return Ok(());
     }
 
