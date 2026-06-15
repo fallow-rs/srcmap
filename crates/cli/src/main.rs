@@ -1511,6 +1511,36 @@ fn fetch_conventional_source_map(
     }
 }
 
+fn print_fetch_result(
+    url: &str,
+    bundle_path: &Path,
+    bundle_len: usize,
+    map_result: &Option<(String, usize, String)>,
+    json: bool,
+) {
+    if json {
+        let obj = serde_json::json!({
+            "bundle": {
+                "url": url,
+                "file": bundle_path.display().to_string(),
+                "size": bundle_len,
+            },
+            "sourceMap": map_result.as_ref().map(|(path, size, source_url)| {
+                serde_json::json!({
+                    "url": source_url,
+                    "file": path,
+                    "size": size,
+                })
+            }),
+        });
+        println!("{}", serde_json::to_string_pretty(&obj).unwrap());
+    } else if map_result.is_none() {
+        println!("Fetched {} (no source map found)", bundle_path.display());
+    } else {
+        println!("Done");
+    }
+}
+
 fn cmd_fetch(url: &str, output: &Option<PathBuf>, json: bool) -> Result<(), CliError> {
     validate_fetch_url(url)?;
 
@@ -1528,27 +1558,7 @@ fn cmd_fetch(url: &str, output: &Option<PathBuf>, json: bool) -> Result<(), CliE
         None => fetch_conventional_source_map(url, &bundle_filename, &output_dir)?,
     };
 
-    if json {
-        let obj = serde_json::json!({
-            "bundle": {
-                "url": url,
-                "file": bundle_path.display().to_string(),
-                "size": bundle_body.len(),
-            },
-            "sourceMap": map_result.as_ref().map(|(path, size, source_url)| {
-                serde_json::json!({
-                    "url": source_url,
-                    "file": path,
-                    "size": size,
-                })
-            }),
-        });
-        println!("{}", serde_json::to_string_pretty(&obj).unwrap());
-    } else if map_result.is_none() {
-        println!("Fetched {} (no source map found)", bundle_path.display());
-    } else {
-        println!("Done");
-    }
+    print_fetch_result(url, &bundle_path, bundle_body.len(), &map_result, json);
 
     Ok(())
 }
