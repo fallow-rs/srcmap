@@ -1,6 +1,14 @@
 use crate::vlq::vlq_decode;
 use crate::{DecodeError, Line, Segment, SourceMapMappings};
 
+#[derive(Default)]
+struct DecodeState {
+    source_index: i64,
+    original_line: i64,
+    original_column: i64,
+    name_index: i64,
+}
+
 /// Decode a VLQ-encoded source map mappings string into structured data.
 ///
 /// The mappings string uses `;` to separate lines and `,` to separate
@@ -30,12 +38,7 @@ pub fn decode(input: &str) -> Result<SourceMapMappings, DecodeError> {
     let (line_count, avg_segments_per_line) = decode_capacity_hints(bytes);
     let mut mappings: SourceMapMappings = Vec::with_capacity(line_count);
 
-    // Cumulative state across the entire mappings string
-    let mut source_index: i64 = 0;
-    let mut original_line: i64 = 0;
-    let mut original_column: i64 = 0;
-    let mut name_index: i64 = 0;
-
+    let mut state = DecodeState::default();
     let mut pos: usize = 0;
 
     loop {
@@ -65,46 +68,7 @@ pub fn decode(input: &str) -> Result<SourceMapMappings, DecodeError> {
 
             // Build segment with exact allocation (1, 4, or 5 fields)
             let segment: Segment = if pos < len && bytes[pos] != b',' && bytes[pos] != b';' {
-                // Field 2: source index
-                let (delta, consumed) = vlq_decode(bytes, pos)?;
-                source_index += delta;
-                pos += consumed;
-
-                // Reject 2-field segments (only 1, 4, or 5 are valid per ECMA-426)
-                if pos >= len || bytes[pos] == b',' || bytes[pos] == b';' {
-                    return Err(DecodeError::InvalidSegmentLength { fields: 2, offset: pos });
-                }
-
-                // Field 3: original line
-                let (delta, consumed) = vlq_decode(bytes, pos)?;
-                original_line += delta;
-                pos += consumed;
-
-                // Reject 3-field segments (only 1, 4, or 5 are valid per ECMA-426)
-                if pos >= len || bytes[pos] == b',' || bytes[pos] == b';' {
-                    return Err(DecodeError::InvalidSegmentLength { fields: 3, offset: pos });
-                }
-
-                // Field 4: original column
-                let (delta, consumed) = vlq_decode(bytes, pos)?;
-                original_column += delta;
-                pos += consumed;
-
-                // Field 5: name index (optional)
-                if pos < len && bytes[pos] != b',' && bytes[pos] != b';' {
-                    let (delta, consumed) = vlq_decode(bytes, pos)?;
-                    name_index += delta;
-                    pos += consumed;
-                    Segment::five(
-                        generated_column,
-                        source_index,
-                        original_line,
-                        original_column,
-                        name_index,
-                    )
-                } else {
-                    Segment::four(generated_column, source_index, original_line, original_column)
-                }
+                decode_sourced_segment(bytes, &mut pos, generated_column, &mut state)?
             } else {
                 Segment::one(generated_column)
             };
@@ -128,4 +92,51 @@ fn decode_capacity_hints(bytes: &[u8]) -> (usize, usize) {
     let line_count = semicolons + 1;
     let approx_segments = commas + line_count;
     (line_count, approx_segments / line_count)
+}
+
+fn decode_sourced_segment(
+    bytes: &[u8],
+    pos: &mut usize,
+    generated_column: i64,
+    state: &mut DecodeState,
+) -> Result<Segment, DecodeError> {
+    let (delta, consumed) = vlq_decode(bytes, *pos)?;
+    state.source_index += delta;
+    *pos += consumed;
+
+    if *pos >= bytes.len() || bytes[*pos] == b',' || bytes[*pos] == b';' {
+        return Err(DecodeError::InvalidSegmentLength { fields: 2, offset: *pos });
+    }
+
+    let (delta, consumed) = vlq_decode(bytes, *pos)?;
+    state.original_line += delta;
+    *pos += consumed;
+
+    if *pos >= bytes.len() || bytes[*pos] == b',' || bytes[*pos] == b';' {
+        return Err(DecodeError::InvalidSegmentLength { fields: 3, offset: *pos });
+    }
+
+    let (delta, consumed) = vlq_decode(bytes, *pos)?;
+    state.original_column += delta;
+    *pos += consumed;
+
+    if *pos < bytes.len() && bytes[*pos] != b',' && bytes[*pos] != b';' {
+        let (delta, consumed) = vlq_decode(bytes, *pos)?;
+        state.name_index += delta;
+        *pos += consumed;
+        return Ok(Segment::five(
+            generated_column,
+            state.source_index,
+            state.original_line,
+            state.original_column,
+            state.name_index,
+        ));
+    }
+
+    Ok(Segment::four(
+        generated_column,
+        state.source_index,
+        state.original_line,
+        state.original_column,
+    ))
 }
