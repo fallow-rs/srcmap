@@ -893,6 +893,38 @@ fn print_mappings_json(
     println!("{}", serde_json::to_string_pretty(&obj).unwrap());
 }
 
+fn print_mappings_table(sm: &SourceMap, filtered: &[&Mapping], total: usize, offset: usize, limit: usize) {
+    println!(
+        "{:<8} {:<8} {:<30} {:<8} {:<8} {:<6} name",
+        "gen.ln", "gen.col", "source", "orig.ln", "orig.col", "range"
+    );
+    println!("{:-<86}", "");
+    for m in filtered {
+        let source = if m.source != u32::MAX { sm.source(m.source) } else { "-" };
+        let name = if m.name != u32::MAX { sm.name(m.name) } else { "" };
+        let range_marker = if m.is_range_mapping { "R" } else { "" };
+        println!(
+            "{:<8} {:<8} {:<30} {:<8} {:<8} {:<6} {}",
+            m.generated_line,
+            m.generated_column,
+            source,
+            m.original_line,
+            m.original_column,
+            range_marker,
+            name
+        );
+    }
+
+    if offset + limit < total {
+        println!();
+        println!(
+            "Showing {}-{} of {total}. Use --offset and --limit to paginate.",
+            offset,
+            offset + filtered.len()
+        );
+    }
+}
+
 fn cmd_mappings(
     file: &PathBuf,
     source_filter: &Option<String>,
@@ -920,35 +952,7 @@ fn cmd_mappings(
     if json {
         print_mappings_json(&sm, &filtered, total, offset, limit);
     } else {
-        println!(
-            "{:<8} {:<8} {:<30} {:<8} {:<8} {:<6} name",
-            "gen.ln", "gen.col", "source", "orig.ln", "orig.col", "range"
-        );
-        println!("{:-<86}", "");
-        for m in &filtered {
-            let source = if m.source != u32::MAX { sm.source(m.source) } else { "-" };
-            let name = if m.name != u32::MAX { sm.name(m.name) } else { "" };
-            let range_marker = if m.is_range_mapping { "R" } else { "" };
-            println!(
-                "{:<8} {:<8} {:<30} {:<8} {:<8} {:<6} {}",
-                m.generated_line,
-                m.generated_column,
-                source,
-                m.original_line,
-                m.original_column,
-                range_marker,
-                name
-            );
-        }
-
-        if offset + limit < total {
-            println!();
-            println!(
-                "Showing {}-{} of {total}. Use --offset and --limit to paginate.",
-                offset,
-                offset + filtered.len()
-            );
-        }
+        print_mappings_table(&sm, &filtered, total, offset, limit);
     }
 
     Ok(())
