@@ -1484,6 +1484,33 @@ fn fetch_external_source_map(
     Ok((map_path.display().to_string(), map_body.len(), map_url))
 }
 
+fn fetch_conventional_source_map(
+    url: &str,
+    bundle_filename: &str,
+    output_dir: &Path,
+) -> Result<Option<(String, usize, String)>, CliError> {
+    let map_url = format!("{url}.map");
+    eprintln!("No sourceMappingURL found, trying {map_url}...");
+    match http_get(&map_url) {
+        Ok(map_body) => {
+            let map_filename = format!("{bundle_filename}.map");
+            let map_path = output_dir.join(&map_filename);
+            fs::write(&map_path, &map_body)
+                .map_err(|e| CliError::io(format!("failed to write {}: {e}", map_path.display())))?;
+            eprintln!(
+                "  Saved {} (convention, {})",
+                map_path.display(),
+                format_size(map_body.len())
+            );
+            Ok(Some((map_path.display().to_string(), map_body.len(), map_url)))
+        }
+        Err(_) => {
+            eprintln!("  No source map found");
+            Ok(None)
+        }
+    }
+}
+
 fn cmd_fetch(url: &str, output: &Option<PathBuf>, json: bool) -> Result<(), CliError> {
     validate_fetch_url(url)?;
 
@@ -1498,30 +1525,7 @@ fn cmd_fetch(url: &str, output: &Option<PathBuf>, json: bool) -> Result<(), CliE
         Some(SourceMappingUrl::External(ref map_ref)) => {
             Some(fetch_external_source_map(url, map_ref, &output_dir)?)
         }
-        None => {
-            // Try conventional .map suffix
-            let map_url = format!("{url}.map");
-            eprintln!("No sourceMappingURL found, trying {map_url}...");
-            match http_get(&map_url) {
-                Ok(map_body) => {
-                    let map_filename = format!("{bundle_filename}.map");
-                    let map_path = output_dir.join(&map_filename);
-                    fs::write(&map_path, &map_body).map_err(|e| {
-                        CliError::io(format!("failed to write {}: {e}", map_path.display()))
-                    })?;
-                    eprintln!(
-                        "  Saved {} (convention, {})",
-                        map_path.display(),
-                        format_size(map_body.len())
-                    );
-                    Some((map_path.display().to_string(), map_body.len(), map_url))
-                }
-                Err(_) => {
-                    eprintln!("  No source map found");
-                    None
-                }
-            }
-        }
+        None => fetch_conventional_source_map(url, &bundle_filename, &output_dir)?,
     };
 
     if json {
