@@ -1389,17 +1389,7 @@ impl SourceMap {
             json.push('"');
         }
 
-        if !self.ignore_list.is_empty() {
-            use std::fmt::Write;
-            json.push_str(r#","ignoreList":["#);
-            for (i, &idx) in self.ignore_list.iter().enumerate() {
-                if i > 0 {
-                    json.push(',');
-                }
-                let _ = write!(json, "{idx}");
-            }
-            json.push(']');
-        }
+        self.write_ignore_list_json(&mut json);
 
         if let Some(ref id) = self.debug_id {
             json.push_str(r#","debugId":"#);
@@ -1468,6 +1458,22 @@ impl SourceMap {
                 Some(content) => json_quote_into(json, content),
                 None => json.push_str("null"),
             }
+        }
+        json.push(']');
+    }
+
+    fn write_ignore_list_json(&self, json: &mut String) {
+        if self.ignore_list.is_empty() {
+            return;
+        }
+
+        use std::fmt::Write;
+        json.push_str(r#","ignoreList":["#);
+        for (i, &idx) in self.ignore_list.iter().enumerate() {
+            if i > 0 {
+                json.push(',');
+            }
+            let _ = write!(json, "{idx}");
         }
         json.push(']');
     }
