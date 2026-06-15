@@ -1450,6 +1450,23 @@ fn fetch_bundle(url: &str, output_dir: &Path) -> Result<(String, PathBuf, String
     Ok((bundle_filename, bundle_path, bundle_body))
 }
 
+fn save_inline_source_map(
+    bundle_filename: &str,
+    output_dir: &Path,
+    decoded_json: String,
+) -> Result<(String, usize, String), CliError> {
+    let map_filename = format!("{bundle_filename}.map");
+    let map_path = output_dir.join(&map_filename);
+    fs::write(&map_path, &decoded_json)
+        .map_err(|e| CliError::io(format!("failed to write {}: {e}", map_path.display())))?;
+    eprintln!(
+        "  Saved {} (inline, {})",
+        map_path.display(),
+        format_size(decoded_json.len())
+    );
+    Ok((map_path.display().to_string(), decoded_json.len(), "inline".to_string()))
+}
+
 fn cmd_fetch(url: &str, output: &Option<PathBuf>, json: bool) -> Result<(), CliError> {
     validate_fetch_url(url)?;
 
@@ -1459,17 +1476,7 @@ fn cmd_fetch(url: &str, output: &Option<PathBuf>, json: bool) -> Result<(), CliE
     // Extract sourceMappingURL
     let map_result = match parse_source_mapping_url(&bundle_body) {
         Some(SourceMappingUrl::Inline(decoded_json)) => {
-            let map_filename = format!("{bundle_filename}.map");
-            let map_path = output_dir.join(&map_filename);
-            fs::write(&map_path, &decoded_json).map_err(|e| {
-                CliError::io(format!("failed to write {}: {e}", map_path.display()))
-            })?;
-            eprintln!(
-                "  Saved {} (inline, {})",
-                map_path.display(),
-                format_size(decoded_json.len())
-            );
-            Some((map_path.display().to_string(), decoded_json.len(), "inline".to_string()))
+            Some(save_inline_source_map(&bundle_filename, &output_dir, decoded_json)?)
         }
         Some(SourceMappingUrl::External(ref map_ref)) => {
             let map_url = resolve_source_map_url(url, map_ref).ok_or_else(|| {
