@@ -3204,6 +3204,16 @@ impl<'a> MappingsIter<'a> {
         self.done = true;
         Some(Err(error))
     }
+
+    fn stop_with_invalid_segment(
+        &mut self,
+        fields: u8,
+    ) -> Option<Result<Mapping, DecodeError>> {
+        self.stop_with_error(DecodeError::InvalidSegmentLength {
+            fields,
+            offset: self.pos,
+        })
+    }
 }
 
 impl Iterator for MappingsIter<'_> {
@@ -3251,11 +3261,7 @@ impl Iterator for MappingsIter<'_> {
                     || self.bytes[self.pos] == b','
                     || self.bytes[self.pos] == b';'
                 {
-                    self.done = true;
-                    return Some(Err(DecodeError::InvalidSegmentLength {
-                        fields: 2,
-                        offset: self.pos,
-                    }));
+                    return self.stop_with_invalid_segment(2);
                 }
                 // Field 3: original line
                 match vlq_fast(self.bytes, &mut self.pos) {
@@ -3267,11 +3273,7 @@ impl Iterator for MappingsIter<'_> {
                     || self.bytes[self.pos] == b','
                     || self.bytes[self.pos] == b';'
                 {
-                    self.done = true;
-                    return Some(Err(DecodeError::InvalidSegmentLength {
-                        fields: 3,
-                        offset: self.pos,
-                    }));
+                    return self.stop_with_invalid_segment(3);
                 }
                 // Field 4: original column
                 match vlq_fast(self.bytes, &mut self.pos) {
