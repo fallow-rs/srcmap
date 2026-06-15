@@ -1687,6 +1687,22 @@ fn schema_encode_command() -> serde_json::Value {
     })
 }
 
+fn schema_mappings_command() -> serde_json::Value {
+    serde_json::json!({
+        "name": "mappings",
+        "description": "List all mappings in a source map with pagination",
+        "args": [
+            {"name": "file", "type": "path", "required": true, "description": "Source map file"}
+        ],
+        "flags": {
+            "--source": {"type": "string", "required": false, "description": "Filter by source filename"},
+            "--limit": {"type": "usize", "default": 50, "description": "Maximum number of mappings to show"},
+            "--offset": {"type": "usize", "default": 0, "description": "Skip first N mappings"},
+            "--json": {"type": "bool", "default": false, "description": "Output as JSON with pagination metadata"}
+        }
+    })
+}
+
 fn cmd_schema() -> Result<(), CliError> {
     let schema = serde_json::json!({
         "name": "srcmap",
@@ -1703,19 +1719,7 @@ fn cmd_schema() -> Result<(), CliError> {
             schema_resolve_command(),
             schema_decode_command(),
             schema_encode_command(),
-            {
-                "name": "mappings",
-                "description": "List all mappings in a source map with pagination",
-                "args": [
-                    {"name": "file", "type": "path", "required": true, "description": "Source map file"}
-                ],
-                "flags": {
-                    "--source": {"type": "string", "required": false, "description": "Filter by source filename"},
-                    "--limit": {"type": "usize", "default": 50, "description": "Maximum number of mappings to show"},
-                    "--offset": {"type": "usize", "default": 0, "description": "Skip first N mappings"},
-                    "--json": {"type": "bool", "default": false, "description": "Output as JSON with pagination metadata"}
-                }
-            },
+            schema_mappings_command(),
             {
                 "name": "concat",
                 "description": "Concatenate multiple source maps into one (mutating)",
