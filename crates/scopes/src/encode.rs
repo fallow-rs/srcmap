@@ -185,49 +185,7 @@ impl<'a> ScopesEncoder<'a> {
     fn encode_generated_range(&mut self, range: &GeneratedRange) {
         self.encode_generated_range_start(range);
         self.encode_generated_range_bindings(range);
-
-        // H items: sub-range bindings
-        let mut h_var_idx = 0u64;
-        for (i, binding) in range.bindings.iter().enumerate() {
-            if let Binding::SubRanges(subs) = binding
-                && subs.len() > 1
-            {
-                self.emit_comma();
-                self.emit_tag(TAG_GENERATED_RANGE_SUB_RANGE_BINDINGS);
-
-                // Variable index (relative to previous H item, or 0 for the first)
-                let var_delta = i as u64 - h_var_idx;
-                self.emit_unsigned(var_delta);
-                h_var_idx = i as u64;
-
-                // Sub-range line/col state (relative to range start)
-                let mut h_line = range.start.line;
-                let mut h_col = range.start.column;
-
-                // Skip first sub-range (that's in G), encode the rest
-                for sub in &subs[1..] {
-                    // Binding (1-based absolute)
-                    match &sub.expression {
-                        Some(expr) => {
-                            let idx = self.name_idx(expr);
-                            self.emit_unsigned(idx as u64 + 1);
-                        }
-                        None => {
-                            self.emit_unsigned(0);
-                        }
-                    }
-
-                    let sub_line_delta = sub.from.line - h_line;
-                    self.emit_unsigned(sub_line_delta as u64);
-                    h_line = sub.from.line;
-
-                    let sub_col =
-                        if sub_line_delta != 0 { sub.from.column } else { sub.from.column - h_col };
-                    self.emit_unsigned(sub_col as u64);
-                    h_col = sub.from.column;
-                }
-            }
-        }
+        self.encode_generated_range_sub_range_bindings(range);
 
         // I item: call site
         if let Some(ref cs) = range.call_site {
@@ -328,6 +286,53 @@ impl<'a> ScopesEncoder<'a> {
                         self.emit_unsigned(0);
                     }
                 }
+            }
+        }
+    }
+
+    fn encode_generated_range_sub_range_bindings(&mut self, range: &GeneratedRange) {
+        let mut h_var_idx = 0u64;
+        for (i, binding) in range.bindings.iter().enumerate() {
+            let Binding::SubRanges(subs) = binding else {
+                continue;
+            };
+            if subs.len() <= 1 {
+                continue;
+            }
+
+            self.emit_comma();
+            self.emit_tag(TAG_GENERATED_RANGE_SUB_RANGE_BINDINGS);
+
+            // Variable index (relative to previous H item, or 0 for the first)
+            let var_delta = i as u64 - h_var_idx;
+            self.emit_unsigned(var_delta);
+            h_var_idx = i as u64;
+
+            // Sub-range line/col state (relative to range start)
+            let mut h_line = range.start.line;
+            let mut h_col = range.start.column;
+
+            // Skip first sub-range (that's in G), encode the rest
+            for sub in &subs[1..] {
+                // Binding (1-based absolute)
+                match &sub.expression {
+                    Some(expr) => {
+                        let idx = self.name_idx(expr);
+                        self.emit_unsigned(idx as u64 + 1);
+                    }
+                    None => {
+                        self.emit_unsigned(0);
+                    }
+                }
+
+                let sub_line_delta = sub.from.line - h_line;
+                self.emit_unsigned(sub_line_delta as u64);
+                h_line = sub.from.line;
+
+                let sub_col =
+                    if sub_line_delta != 0 { sub.from.column } else { sub.from.column - h_col };
+                self.emit_unsigned(sub_col as u64);
+                h_col = sub.from.column;
             }
         }
     }
