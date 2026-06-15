@@ -1266,14 +1266,7 @@ impl SourceMap {
     pub fn to_json_with_options(&self, exclude_content: bool) -> String {
         let mappings = self.encode_mappings();
 
-        // Encode scopes first — this may add new names that need to be in the names array
-        let scopes_encoded = if let Some(ref scopes_info) = self.scopes {
-            let mut names_clone = self.names.clone();
-            let s = srcmap_scopes::encode_scopes(scopes_info, &mut names_clone);
-            Some((s, names_clone))
-        } else {
-            None
-        };
+        let scopes_encoded = self.encode_scopes_for_json();
         let names_for_json = match &scopes_encoded {
             Some((_, expanded_names)) => expanded_names,
             None => &self.names,
@@ -1384,6 +1377,13 @@ impl SourceMap {
 
         json.push('}');
         json
+    }
+
+    fn encode_scopes_for_json(&self) -> Option<(String, Vec<String>)> {
+        let scopes_info = self.scopes.as_ref()?;
+        let mut names = self.names.clone();
+        let scopes = srcmap_scopes::encode_scopes(scopes_info, &mut names);
+        Some((scopes, names))
     }
 
     /// Construct a `SourceMap` from pre-built parts.
