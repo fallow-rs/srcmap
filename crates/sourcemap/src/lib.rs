@@ -370,6 +370,24 @@ fn original_position_glb_index(line_mappings: &[Mapping], column: u32) -> Option
     }
 }
 
+fn original_position_lub_index(line_mappings: &[Mapping], column: u32) -> Option<usize> {
+    match line_mappings.binary_search_by_key(&column, |m| m.generated_column) {
+        // Exact match: walk forward to the latest segment sharing this column.
+        // Mirrors `@jridgewell/trace-mapping`'s LUB = latest-equal tie-break.
+        Ok(i) => {
+            let mut idx = i;
+            while idx + 1 < line_mappings.len()
+                && line_mappings[idx + 1].generated_column == column
+            {
+                idx += 1;
+            }
+            Some(idx)
+        }
+        Err(i) if i >= line_mappings.len() => None,
+        Err(i) => Some(i),
+    }
+}
+
 fn generated_only_mapping(line: u32, generated_column: i64) -> Mapping {
     Mapping {
         generated_line: line,
@@ -1010,27 +1028,7 @@ impl SourceMap {
                 Some(idx) => idx,
                 None => return self.range_mapping_fallback(line, column),
             },
-            Bias::LeastUpperBound => {
-                match line_mappings.binary_search_by_key(&column, |m| m.generated_column) {
-                    // Exact match: walk forward to the latest segment sharing this column.
-                    // Mirrors `@jridgewell/trace-mapping`'s LUB = latest-equal tie-break.
-                    Ok(i) => {
-                        let mut idx = i;
-                        while idx + 1 < line_mappings.len()
-                            && line_mappings[idx + 1].generated_column == column
-                        {
-                            idx += 1;
-                        }
-                        idx
-                    }
-                    Err(i) => {
-                        if i >= line_mappings.len() {
-                            return None;
-                        }
-                        i
-                    }
-                }
-            }
+            Bias::LeastUpperBound => original_position_lub_index(line_mappings, column)?,
         };
 
         let mapping = &line_mappings[idx];
