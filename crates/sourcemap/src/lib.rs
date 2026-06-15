@@ -3142,6 +3142,14 @@ fn decode_mappings(input: &str) -> Result<(Vec<Mapping>, Vec<u32>), DecodeError>
     Ok((mappings, line_offsets))
 }
 
+fn actual_mapping_line_count(input: &str) -> u32 {
+    if input.is_empty() {
+        return 0;
+    }
+
+    memchr::memchr_iter(b';', input.as_bytes()).count() as u32 + 1
+}
+
 /// Decode VLQ mappings for a subset of lines `[start_line, end_line)`.
 ///
 /// Walks VLQ state for all lines up to `end_line`, but only allocates Mapping
@@ -3154,12 +3162,7 @@ fn decode_mappings_range(
     end_line: u32,
 ) -> Result<(Vec<Mapping>, Vec<u32>), DecodeError> {
     // Cap end_line against actual line count to prevent OOM on pathological input.
-    // Count semicolons to determine actual line count.
-    let actual_lines = if input.is_empty() {
-        0u32
-    } else {
-        memchr::memchr_iter(b';', input.as_bytes()).count() as u32 + 1
-    };
+    let actual_lines = actual_mapping_line_count(input);
     let end_line = end_line.min(actual_lines);
 
     if input.is_empty() || start_line >= end_line {
