@@ -1288,23 +1288,7 @@ impl SourceMap {
         }
 
         self.write_sources_json(&mut json, source_root_prefix);
-
-        if !exclude_content
-            && !self.sources_content.is_empty()
-            && self.sources_content.iter().any(|c| c.is_some())
-        {
-            json.push_str(r#","sourcesContent":["#);
-            for (i, c) in self.sources_content.iter().enumerate() {
-                if i > 0 {
-                    json.push(',');
-                }
-                match c {
-                    Some(content) => json_quote_into(&mut json, content),
-                    None => json.push_str("null"),
-                }
-            }
-            json.push(']');
-        }
+        self.write_sources_content_json(&mut json, exclude_content);
 
         json.push_str(r#","names":["#);
         for (i, n) in names_for_json.iter().enumerate() {
@@ -1385,6 +1369,27 @@ impl SourceMap {
                 s
             };
             json_quote_into(json, source_name);
+        }
+        json.push(']');
+    }
+
+    fn write_sources_content_json(&self, json: &mut String, exclude_content: bool) {
+        if exclude_content
+            || self.sources_content.is_empty()
+            || !self.sources_content.iter().any(|c| c.is_some())
+        {
+            return;
+        }
+
+        json.push_str(r#","sourcesContent":["#);
+        for (i, c) in self.sources_content.iter().enumerate() {
+            if i > 0 {
+                json.push(',');
+            }
+            match c {
+                Some(content) => json_quote_into(json, content),
+                None => json.push_str("null"),
+            }
         }
         json.push(']');
     }
