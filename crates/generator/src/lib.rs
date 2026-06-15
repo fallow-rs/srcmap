@@ -1352,13 +1352,7 @@ impl StreamingGenerator {
 
         let vlq = self.vlq_str();
 
-        // Better capacity estimate to avoid reallocs
-        let sources_size: usize = self.sources.iter().map(|s| s.len() + 4).sum();
-        let names_size: usize = self.names.iter().map(|n| n.len() + 4).sum();
-        let content_size: usize =
-            self.sources_content.iter().map(|c| c.as_ref().map_or(5, |s| s.len() + 4)).sum();
-        let capacity = 100 + sources_size + names_size + vlq.len() + content_size;
-
+        let capacity = self.json_capacity_estimate(vlq.len());
         let mut json: Vec<u8> = Vec::with_capacity(capacity);
         json.extend_from_slice(br#"{"version":3"#);
 
@@ -1436,6 +1430,14 @@ impl StreamingGenerator {
         // SAFETY: all content written is valid UTF-8 — ASCII JSON syntax, base64 VLQ,
         // and original UTF-8 strings passed through json_quote_into.
         unsafe { String::from_utf8_unchecked(json) }
+    }
+
+    fn json_capacity_estimate(&self, vlq_len: usize) -> usize {
+        let sources_size: usize = self.sources.iter().map(|s| s.len() + 4).sum();
+        let names_size: usize = self.names.iter().map(|n| n.len() + 4).sum();
+        let content_size: usize =
+            self.sources_content.iter().map(|c| c.as_ref().map_or(5, |s| s.len() + 4)).sum();
+        100 + sources_size + names_size + vlq_len + content_size
     }
 
     /// Directly construct a `SourceMap` from the streaming generator's state.
