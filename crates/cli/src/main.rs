@@ -1703,6 +1703,22 @@ fn schema_mappings_command() -> serde_json::Value {
     })
 }
 
+fn schema_concat_command() -> serde_json::Value {
+    serde_json::json!({
+        "name": "concat",
+        "description": "Concatenate multiple source maps into one (mutating)",
+        "args": [
+            {"name": "files", "type": "path[]", "required": true, "description": "Source map files to concatenate (in order)"}
+        ],
+        "flags": {
+            "-o, --output": {"type": "path", "required": false, "description": "Output file (stdout if omitted)"},
+            "--file_name": {"type": "string", "required": false, "description": "Output filename to embed in the map"},
+            "--json": {"type": "bool", "default": false, "description": "Output as JSON with metadata"},
+            "--dry-run": {"type": "bool", "default": false, "description": "Validate and preview result without writing"}
+        }
+    })
+}
+
 fn cmd_schema() -> Result<(), CliError> {
     let schema = serde_json::json!({
         "name": "srcmap",
@@ -1720,19 +1736,7 @@ fn cmd_schema() -> Result<(), CliError> {
             schema_decode_command(),
             schema_encode_command(),
             schema_mappings_command(),
-            {
-                "name": "concat",
-                "description": "Concatenate multiple source maps into one (mutating)",
-                "args": [
-                    {"name": "files", "type": "path[]", "required": true, "description": "Source map files to concatenate (in order)"}
-                ],
-                "flags": {
-                    "-o, --output": {"type": "path", "required": false, "description": "Output file (stdout if omitted)"},
-                    "--file_name": {"type": "string", "required": false, "description": "Output filename to embed in the map"},
-                    "--json": {"type": "bool", "default": false, "description": "Output as JSON with metadata"},
-                    "--dry-run": {"type": "bool", "default": false, "description": "Validate and preview result without writing"}
-                }
-            },
+            schema_concat_command(),
             {
                 "name": "remap",
                 "description": "Compose/remap source maps through a transform chain (mutating)",
