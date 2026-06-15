@@ -1420,9 +1420,7 @@ fn validate_fetch_url(url: &str) -> Result<(), CliError> {
     Ok(())
 }
 
-fn cmd_fetch(url: &str, output: &Option<PathBuf>, json: bool) -> Result<(), CliError> {
-    validate_fetch_url(url)?;
-
+fn fetch_output_dir(output: &Option<PathBuf>) -> Result<PathBuf, CliError> {
     let output_dir = match output {
         Some(dir) => dir.clone(),
         None => {
@@ -1435,6 +1433,14 @@ fn cmd_fetch(url: &str, output: &Option<PathBuf>, json: bool) -> Result<(), CliE
             CliError::io(format!("failed to create output directory {}: {e}", output_dir.display()))
         })?;
     }
+
+    Ok(output_dir)
+}
+
+fn cmd_fetch(url: &str, output: &Option<PathBuf>, json: bool) -> Result<(), CliError> {
+    validate_fetch_url(url)?;
+
+    let output_dir = fetch_output_dir(output)?;
 
     // Fetch the bundle
     eprintln!("Fetching {url}...");
