@@ -13,7 +13,7 @@ use clap::{Parser, Subcommand};
 use srcmap_codec::{decode, encode};
 use srcmap_remapping::{ConcatBuilder, remap};
 use srcmap_sourcemap::utils::resolve_source_map_url;
-use srcmap_sourcemap::{Bias, SourceMap, SourceMappingUrl, parse_source_mapping_url};
+use srcmap_sourcemap::{Bias, OriginalLocation, SourceMap, SourceMappingUrl, parse_source_mapping_url};
 
 // ── CLI definition ───────────────────────────────────────────────
 
@@ -631,6 +631,26 @@ fn parse_bias(s: &str) -> Result<Bias, CliError> {
     }
 }
 
+type ContextLines<'a> = Option<(usize, usize, Vec<&'a str>)>;
+
+fn lookup_context_lines<'a>(
+    sm: &'a SourceMap,
+    loc: &OriginalLocation,
+    context: u32,
+) -> ContextLines<'a> {
+    if context == 0 {
+        return None;
+    }
+
+    sm.sources_content.get(loc.source as usize).and_then(|c| c.as_ref()).map(|content| {
+        let lines: Vec<&str> = content.lines().collect();
+        let target = loc.line as usize;
+        let start = target.saturating_sub(context as usize);
+        let end = (target + context as usize + 1).min(lines.len());
+        (start, target, lines[start..end].to_vec())
+    })
+}
+
 fn cmd_lookup(
     file: &PathBuf,
     line: u32,
@@ -646,21 +666,7 @@ fn cmd_lookup(
         Some(loc) => {
             let source = sm.source(loc.source);
             let name = loc.name.map(|n| sm.name(n).to_string());
-
-            // Extract context lines from sourcesContent if requested
-            let context_lines = if context > 0 {
-                sm.sources_content.get(loc.source as usize).and_then(|c| c.as_ref()).map(
-                    |content| {
-                        let lines: Vec<&str> = content.lines().collect();
-                        let target = loc.line as usize;
-                        let start = target.saturating_sub(context as usize);
-                        let end = (target + context as usize + 1).min(lines.len());
-                        (start, target, lines[start..end].to_vec())
-                    },
-                )
-            } else {
-                None
-            };
+            let context_lines = lookup_context_lines(&sm, &loc, context);
 
             if json {
                 let mut obj = serde_json::json!({
