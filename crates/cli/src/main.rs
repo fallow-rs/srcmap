@@ -1644,6 +1644,23 @@ fn schema_lookup_command() -> serde_json::Value {
     })
 }
 
+fn schema_resolve_command() -> serde_json::Value {
+    serde_json::json!({
+        "name": "resolve",
+        "description": "Find generated position for an original position (reverse mapping)",
+        "args": [
+            {"name": "file", "type": "path", "required": true, "description": "Source map file"},
+            {"name": "line", "type": "u32", "required": true, "description": "Original line (0-based)"},
+            {"name": "column", "type": "u32", "required": true, "description": "Original column (0-based)"}
+        ],
+        "flags": {
+            "--source": {"type": "string", "required": true, "description": "Source filename to look up"},
+            "--bias": {"type": "string", "default": "lub", "description": "Search bias: lub (least upper bound) or glb (greatest lower bound)"},
+            "--json": {"type": "bool", "default": false, "description": "Output as JSON"}
+        }
+    })
+}
+
 fn cmd_schema() -> Result<(), CliError> {
     let schema = serde_json::json!({
         "name": "srcmap",
@@ -1657,20 +1674,7 @@ fn cmd_schema() -> Result<(), CliError> {
             schema_info_command(),
             schema_validate_command(),
             schema_lookup_command(),
-            {
-                "name": "resolve",
-                "description": "Find generated position for an original position (reverse mapping)",
-                "args": [
-                    {"name": "file", "type": "path", "required": true, "description": "Source map file"},
-                    {"name": "line", "type": "u32", "required": true, "description": "Original line (0-based)"},
-                    {"name": "column", "type": "u32", "required": true, "description": "Original column (0-based)"}
-                ],
-                "flags": {
-                    "--source": {"type": "string", "required": true, "description": "Source filename to look up"},
-                    "--bias": {"type": "string", "default": "lub", "description": "Search bias: lub (least upper bound) or glb (greatest lower bound)"},
-                    "--json": {"type": "bool", "default": false, "description": "Output as JSON"}
-                }
-            },
+            schema_resolve_command(),
             {
                 "name": "decode",
                 "description": "Decode a VLQ mappings string to JSON array",
