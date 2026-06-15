@@ -295,6 +295,19 @@ fn remap_section_names(
         .collect()
 }
 
+fn merge_section_ignore_list(
+    ignore_list: &[u32],
+    source_remap: &[u32],
+    all_ignore_list: &mut Vec<u32>,
+) {
+    for &idx in ignore_list {
+        let global_idx = source_remap[idx as usize];
+        if !all_ignore_list.contains(&global_idx) {
+            all_ignore_list.push(global_idx);
+        }
+    }
+}
+
 /// Retain only extension fields that use an `x_*` or `x-*` prefix.
 fn filter_extensions(
     extensions: HashMap<String, serde_json::Value>,
@@ -707,13 +720,7 @@ impl SourceMap {
 
             let name_remap = remap_section_names(&sub.names, &mut all_names, &mut name_index_map);
 
-            // Add ignore_list entries (remapped to global source indices)
-            for &idx in &sub.ignore_list {
-                let global_idx = source_remap[idx as usize];
-                if !all_ignore_list.contains(&global_idx) {
-                    all_ignore_list.push(global_idx);
-                }
-            }
+            merge_section_ignore_list(&sub.ignore_list, &source_remap, &mut all_ignore_list);
 
             if let Some(section_scopes) = &sub.scopes {
                 pending_scopes.push((
