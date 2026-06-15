@@ -84,20 +84,7 @@ impl ConcatBuilder {
     /// `line_offset` is the number of lines to shift all mappings by
     /// (i.e. the line at which this chunk starts in the output).
     pub fn add_map(&mut self, sm: &SourceMap, line_offset: u32) {
-        // Pre-build source index remap table (once per input map, not per mapping)
-        let source_indices: Vec<u32> = sm
-            .sources
-            .iter()
-            .enumerate()
-            .map(|(i, s)| {
-                let idx = self.builder.add_source(s);
-                if let Some(Some(content)) = sm.sources_content.get(i) {
-                    self.builder.set_source_content(idx, content.clone());
-                }
-                idx
-            })
-            .collect();
-
+        let source_indices = add_concat_sources(&mut self.builder, sm);
         // Pre-build name index remap table (once per input map)
         let name_indices: Vec<u32> = sm.names.iter().map(|n| self.builder.add_name(n)).collect();
 
@@ -161,6 +148,20 @@ impl ConcatBuilder {
     pub fn build(&self) -> SourceMap {
         self.builder.to_decoded_map()
     }
+}
+
+fn add_concat_sources(builder: &mut SourceMapGenerator, sm: &SourceMap) -> Vec<u32> {
+    sm.sources
+        .iter()
+        .enumerate()
+        .map(|(i, s)| {
+            let idx = builder.add_source(s);
+            if let Some(Some(content)) = sm.sources_content.get(i) {
+                builder.set_source_content(idx, content.clone());
+            }
+            idx
+        })
+        .collect()
 }
 
 // ── Composition / Remapping ───────────────────────────────────────
