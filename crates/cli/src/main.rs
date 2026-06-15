@@ -1719,6 +1719,23 @@ fn schema_concat_command() -> serde_json::Value {
     })
 }
 
+fn schema_remap_command() -> serde_json::Value {
+    serde_json::json!({
+        "name": "remap",
+        "description": "Compose/remap source maps through a transform chain (mutating)",
+        "args": [
+            {"name": "file", "type": "path", "required": true, "description": "Outer (final transform) source map"}
+        ],
+        "flags": {
+            "--dir": {"type": "path", "required": false, "description": "Directory to search for upstream source maps"},
+            "--upstream": {"type": "string[]", "required": false, "description": "Explicit upstream mappings (SOURCE=PATH pairs, repeatable)"},
+            "-o, --output": {"type": "path", "required": false, "description": "Output file (stdout if omitted)"},
+            "--json": {"type": "bool", "default": false, "description": "Output as JSON with metadata"},
+            "--dry-run": {"type": "bool", "default": false, "description": "Validate and preview result without writing"}
+        }
+    })
+}
+
 fn cmd_schema() -> Result<(), CliError> {
     let schema = serde_json::json!({
         "name": "srcmap",
@@ -1737,20 +1754,7 @@ fn cmd_schema() -> Result<(), CliError> {
             schema_encode_command(),
             schema_mappings_command(),
             schema_concat_command(),
-            {
-                "name": "remap",
-                "description": "Compose/remap source maps through a transform chain (mutating)",
-                "args": [
-                    {"name": "file", "type": "path", "required": true, "description": "Outer (final transform) source map"}
-                ],
-                "flags": {
-                    "--dir": {"type": "path", "required": false, "description": "Directory to search for upstream source maps"},
-                    "--upstream": {"type": "string[]", "required": false, "description": "Explicit upstream mappings (SOURCE=PATH pairs, repeatable)"},
-                    "-o, --output": {"type": "path", "required": false, "description": "Output file (stdout if omitted)"},
-                    "--json": {"type": "bool", "default": false, "description": "Output as JSON with metadata"},
-                    "--dry-run": {"type": "bool", "default": false, "description": "Validate and preview result without writing"}
-                }
-            },
+            schema_remap_command(),
             {
                 "name": "symbolicate",
                 "description": "Symbolicate a stack trace using source maps",
