@@ -308,6 +308,39 @@ fn merge_section_ignore_list(
     }
 }
 
+fn append_section_mappings(
+    mappings: &[Mapping],
+    source_remap: &[u32],
+    name_remap: &[u32],
+    line_offset: u32,
+    col_offset: u32,
+    all_mappings: &mut Vec<Mapping>,
+    max_line: &mut u32,
+) {
+    for m in mappings {
+        let gen_line = m.generated_line + line_offset;
+        let gen_col = if m.generated_line == 0 {
+            m.generated_column + col_offset
+        } else {
+            m.generated_column
+        };
+
+        all_mappings.push(Mapping {
+            generated_line: gen_line,
+            generated_column: gen_col,
+            source: if m.source == NO_SOURCE { NO_SOURCE } else { source_remap[m.source as usize] },
+            original_line: m.original_line,
+            original_column: m.original_column,
+            name: if m.name == NO_NAME { NO_NAME } else { name_remap[m.name as usize] },
+            is_range_mapping: m.is_range_mapping,
+        });
+
+        if gen_line > *max_line {
+            *max_line = gen_line;
+        }
+    }
+}
+
 /// Retain only extension fields that use an `x_*` or `x-*` prefix.
 fn filter_extensions(
     extensions: HashMap<String, serde_json::Value>,
@@ -731,33 +764,15 @@ impl SourceMap {
                 ));
             }
 
-            // Remap and offset all mappings from this section
-            for m in &sub.mappings {
-                let gen_line = m.generated_line + line_offset;
-                let gen_col = if m.generated_line == 0 {
-                    m.generated_column + col_offset
-                } else {
-                    m.generated_column
-                };
-
-                all_mappings.push(Mapping {
-                    generated_line: gen_line,
-                    generated_column: gen_col,
-                    source: if m.source == NO_SOURCE {
-                        NO_SOURCE
-                    } else {
-                        source_remap[m.source as usize]
-                    },
-                    original_line: m.original_line,
-                    original_column: m.original_column,
-                    name: if m.name == NO_NAME { NO_NAME } else { name_remap[m.name as usize] },
-                    is_range_mapping: m.is_range_mapping,
-                });
-
-                if gen_line > max_line {
-                    max_line = gen_line;
-                }
-            }
+            append_section_mappings(
+                &sub.mappings,
+                &source_remap,
+                &name_remap,
+                line_offset,
+                col_offset,
+                &mut all_mappings,
+                &mut max_line,
+            );
         }
 
         for (section_scopes, source_remap, _, _) in &pending_scopes {
