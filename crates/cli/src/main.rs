@@ -1522,6 +1522,13 @@ fn cmd_fetch(url: &str, output: &Option<PathBuf>, json: bool) -> Result<(), CliE
     Ok(())
 }
 
+fn source_output_dir(output: &Option<PathBuf>) -> Result<PathBuf, CliError> {
+    match output {
+        Some(dir) => Ok(dir.clone()),
+        None => std::env::current_dir().map_err(|e| CliError::io(format!("cannot get cwd: {e}"))),
+    }
+}
+
 fn cmd_sources(
     file: &PathBuf,
     extract: bool,
@@ -1529,14 +1536,8 @@ fn cmd_sources(
     json: bool,
 ) -> Result<(), CliError> {
     let (sm, _) = parse_source_map(file)?;
-
     if extract {
-        let output_dir = match output {
-            Some(dir) => dir.clone(),
-            None => {
-                std::env::current_dir().map_err(|e| CliError::io(format!("cannot get cwd: {e}")))?
-            }
-        };
+        let output_dir = source_output_dir(output)?;
 
         let mut extracted = Vec::new();
         let mut skipped = Vec::new();
