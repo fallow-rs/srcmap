@@ -846,6 +846,17 @@ fn cmd_encode(file: Option<PathBuf>, json: bool) -> Result<(), CliError> {
     Ok(())
 }
 
+fn mapping_source_index(sm: &SourceMap, source_filter: &Option<String>) -> Result<Option<u32>, CliError> {
+    if let Some(name) = source_filter {
+        reject_control_chars(name, "source filter")?;
+        return sm
+            .source_index(name)
+            .map(Some)
+            .ok_or_else(|| CliError::not_found(format!("source not found: {name}")));
+    }
+    Ok(None)
+}
+
 fn cmd_mappings(
     file: &PathBuf,
     source_filter: &Option<String>,
@@ -853,26 +864,18 @@ fn cmd_mappings(
     offset: usize,
     json: bool,
 ) -> Result<(), CliError> {
-    if let Some(name) = source_filter {
-        reject_control_chars(name, "source filter")?;
-    }
     let (sm, _) = parse_source_map(file)?;
 
     let all = sm.all_mappings();
+    let source_idx = mapping_source_index(&sm, source_filter)?;
 
-    let total = if let Some(source_name) = source_filter {
-        let source_idx = sm
-            .source_index(source_name)
-            .ok_or_else(|| CliError::not_found(format!("source not found: {source_name}")))?;
+    let total = if let Some(source_idx) = source_idx {
         all.iter().filter(|m| m.source == source_idx).count()
     } else {
         sm.mapping_count()
     };
 
-    let filtered: Vec<_> = if let Some(source_name) = source_filter {
-        let source_idx = sm
-            .source_index(source_name)
-            .ok_or_else(|| CliError::not_found(format!("source not found: {source_name}")))?;
+    let filtered: Vec<_> = if let Some(source_idx) = source_idx {
         all.iter().filter(|m| m.source == source_idx).skip(offset).take(limit).collect()
     } else {
         all.iter().skip(offset).take(limit).collect()
