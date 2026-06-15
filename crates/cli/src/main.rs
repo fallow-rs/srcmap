@@ -1437,12 +1437,7 @@ fn fetch_output_dir(output: &Option<PathBuf>) -> Result<PathBuf, CliError> {
     Ok(output_dir)
 }
 
-fn cmd_fetch(url: &str, output: &Option<PathBuf>, json: bool) -> Result<(), CliError> {
-    validate_fetch_url(url)?;
-
-    let output_dir = fetch_output_dir(output)?;
-
-    // Fetch the bundle
+fn fetch_bundle(url: &str, output_dir: &Path) -> Result<(String, PathBuf, String), CliError> {
     eprintln!("Fetching {url}...");
     let bundle_body = http_get(url)?;
     let bundle_filename = url_filename(url);
@@ -1451,6 +1446,15 @@ fn cmd_fetch(url: &str, output: &Option<PathBuf>, json: bool) -> Result<(), CliE
     fs::write(&bundle_path, &bundle_body)
         .map_err(|e| CliError::io(format!("failed to write {}: {e}", bundle_path.display())))?;
     eprintln!("  Saved {} ({})", bundle_path.display(), format_size(bundle_body.len()));
+
+    Ok((bundle_filename, bundle_path, bundle_body))
+}
+
+fn cmd_fetch(url: &str, output: &Option<PathBuf>, json: bool) -> Result<(), CliError> {
+    validate_fetch_url(url)?;
+
+    let output_dir = fetch_output_dir(output)?;
+    let (bundle_filename, bundle_path, bundle_body) = fetch_bundle(url, &output_dir)?;
 
     // Extract sourceMappingURL
     let map_result = match parse_source_mapping_url(&bundle_body) {
