@@ -175,43 +175,7 @@ impl IndexedRamBundle {
 
         // The base offset for module data is right after startup code
         let modules_base = startup_end;
-
-        let mut modules = Vec::with_capacity(module_count as usize);
-
-        for i in 0..module_count as usize {
-            let entry_offset = HEADER_SIZE + i * MODULE_ENTRY_SIZE;
-            let offset = read_u32_le(data, entry_offset).unwrap() as usize;
-            let length = read_u32_le(data, entry_offset + 4).unwrap() as usize;
-
-            if offset == 0 && length == 0 {
-                modules.push(None);
-                continue;
-            }
-
-            let abs_start = modules_base.checked_add(offset).ok_or_else(|| {
-                RamBundleError::InvalidEntry(format!("module {i} offset overflows"))
-            })?;
-            let abs_end = abs_start.checked_add(length).ok_or_else(|| {
-                RamBundleError::InvalidEntry(format!("module {i} length overflows"))
-            })?;
-
-            if abs_end > data.len() {
-                return Err(RamBundleError::InvalidEntry(format!(
-                    "module {i} extends beyond data (offset={offset}, length={length}, data_len={})",
-                    data.len()
-                )));
-            }
-
-            let source_code = std::str::from_utf8(&data[abs_start..abs_end])
-                .map_err(|e| {
-                    RamBundleError::InvalidEntry(format!(
-                        "module {i} source is not valid UTF-8: {e}"
-                    ))
-                })?
-                .to_owned();
-
-            modules.push(Some(RamBundleModule { id: i as u32, source_code }));
-        }
+        let modules = parse_ram_modules(data, module_count, modules_base)?;
 
         Ok(Self { module_count, startup_code, modules })
     }
@@ -235,6 +199,49 @@ impl IndexedRamBundle {
     pub fn startup_code(&self) -> &str {
         &self.startup_code
     }
+}
+
+fn parse_ram_modules(
+    data: &[u8],
+    module_count: u32,
+    modules_base: usize,
+) -> Result<Vec<Option<RamBundleModule>>, RamBundleError> {
+    let mut modules = Vec::with_capacity(module_count as usize);
+
+    for i in 0..module_count as usize {
+        let entry_offset = HEADER_SIZE + i * MODULE_ENTRY_SIZE;
+        let offset = read_u32_le(data, entry_offset).unwrap() as usize;
+        let length = read_u32_le(data, entry_offset + 4).unwrap() as usize;
+
+        if offset == 0 && length == 0 {
+            modules.push(None);
+            continue;
+        }
+
+        let abs_start = modules_base
+            .checked_add(offset)
+            .ok_or_else(|| RamBundleError::InvalidEntry(format!("module {i} offset overflows")))?;
+        let abs_end = abs_start
+            .checked_add(length)
+            .ok_or_else(|| RamBundleError::InvalidEntry(format!("module {i} length overflows")))?;
+
+        if abs_end > data.len() {
+            return Err(RamBundleError::InvalidEntry(format!(
+                "module {i} extends beyond data (offset={offset}, length={length}, data_len={})",
+                data.len()
+            )));
+        }
+
+        let source_code = std::str::from_utf8(&data[abs_start..abs_end])
+            .map_err(|e| {
+                RamBundleError::InvalidEntry(format!("module {i} source is not valid UTF-8: {e}"))
+            })?
+            .to_owned();
+
+        modules.push(Some(RamBundleModule { id: i as u32, source_code }));
+    }
+
+    Ok(modules)
 }
 
 fn parse_startup_code(
