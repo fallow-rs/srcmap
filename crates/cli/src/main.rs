@@ -994,6 +994,23 @@ fn cmd_concat(
     Ok(())
 }
 
+fn parse_upstream_paths(
+    upstreams: &[String],
+) -> Result<std::collections::HashMap<String, PathBuf>, CliError> {
+    let mut upstream_paths: std::collections::HashMap<String, PathBuf> =
+        std::collections::HashMap::new();
+
+    for entry in upstreams {
+        let (source, path) = entry.split_once('=').ok_or_else(|| {
+            CliError::validation(format!("invalid upstream format: {entry} (expected SOURCE=PATH)"))
+        })?;
+        reject_control_chars(source, "upstream source")?;
+        upstream_paths.insert(source.to_string(), PathBuf::from(path));
+    }
+
+    Ok(upstream_paths)
+}
+
 fn cmd_remap(
     file: &PathBuf,
     dir: &Option<PathBuf>,
@@ -1012,17 +1029,7 @@ fn cmd_remap(
     let cwd = std::env::current_dir().map_err(|e| CliError::io(format!("cannot get cwd: {e}")))?;
     let safe_dir = if let Some(d) = dir { Some(validate_safe_path(d, &cwd)?) } else { None };
 
-    // Build explicit upstream map: source name → file path
-    let mut upstream_paths: std::collections::HashMap<String, PathBuf> =
-        std::collections::HashMap::new();
-
-    for entry in upstreams {
-        let (source, path) = entry.split_once('=').ok_or_else(|| {
-            CliError::validation(format!("invalid upstream format: {entry} (expected SOURCE=PATH)"))
-        })?;
-        reject_control_chars(source, "upstream source")?;
-        upstream_paths.insert(source.to_string(), PathBuf::from(path));
-    }
+    let upstream_paths = parse_upstream_paths(upstreams)?;
 
     // Track which upstream maps were found
     let found_upstreams: std::cell::RefCell<Vec<String>> = std::cell::RefCell::new(Vec::new());
