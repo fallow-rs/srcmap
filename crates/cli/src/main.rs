@@ -1613,6 +1613,20 @@ fn schema_info_command() -> serde_json::Value {
     })
 }
 
+fn schema_validate_command() -> serde_json::Value {
+    serde_json::json!({
+        "name": "validate",
+        "description": "Validate a source map file and report structure",
+        "args": [
+            {"name": "file", "type": "path", "required": true, "description": "Source map file (use `-` for stdin)"}
+        ],
+        "flags": {
+            "--json": {"type": "bool", "default": false, "description": "Output as JSON"}
+        },
+        "exitCodes": {"0": "valid", "1": "invalid or error"}
+    })
+}
+
 fn cmd_schema() -> Result<(), CliError> {
     let schema = serde_json::json!({
         "name": "srcmap",
@@ -1624,17 +1638,7 @@ fn cmd_schema() -> Result<(), CliError> {
         },
         "commands": [
             schema_info_command(),
-            {
-                "name": "validate",
-                "description": "Validate a source map file and report structure",
-                "args": [
-                    {"name": "file", "type": "path", "required": true, "description": "Source map file (use `-` for stdin)"}
-                ],
-                "flags": {
-                    "--json": {"type": "bool", "default": false, "description": "Output as JSON"}
-                },
-                "exitCodes": {"0": "valid", "1": "invalid or error"}
-            },
+            schema_validate_command(),
             {
                 "name": "lookup",
                 "description": "Find original position for a generated position (forward mapping)",
