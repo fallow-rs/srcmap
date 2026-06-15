@@ -1778,6 +1778,21 @@ fn schema_fetch_command() -> serde_json::Value {
     })
 }
 
+fn schema_sources_command() -> serde_json::Value {
+    serde_json::json!({
+        "name": "sources",
+        "description": "List or extract original sources embedded in a source map",
+        "args": [
+            {"name": "file", "type": "path", "required": true, "description": "Source map file"}
+        ],
+        "flags": {
+            "--extract": {"type": "bool", "default": false, "description": "Extract sourcesContent to files on disk"},
+            "-o, --output": {"type": "path", "required": false, "description": "Output directory for extracted files (default: current directory)"},
+            "--json": {"type": "bool", "default": false, "description": "Output as JSON"}
+        }
+    })
+}
+
 fn cmd_schema() -> Result<(), CliError> {
     let schema = serde_json::json!({
         "name": "srcmap",
@@ -1800,18 +1815,7 @@ fn cmd_schema() -> Result<(), CliError> {
             schema_symbolicate_command(),
             schema_scopes_command(),
             schema_fetch_command(),
-            {
-                "name": "sources",
-                "description": "List or extract original sources embedded in a source map",
-                "args": [
-                    {"name": "file", "type": "path", "required": true, "description": "Source map file"}
-                ],
-                "flags": {
-                    "--extract": {"type": "bool", "default": false, "description": "Extract sourcesContent to files on disk"},
-                    "-o, --output": {"type": "path", "required": false, "description": "Output directory for extracted files (default: current directory)"},
-                    "--json": {"type": "bool", "default": false, "description": "Output as JSON"}
-                }
-            },
+            schema_sources_command(),
             {
                 "name": "schema",
                 "description": "Describe all commands and their arguments as JSON (this output)",
