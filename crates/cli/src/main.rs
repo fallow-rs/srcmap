@@ -1627,6 +1627,23 @@ fn schema_validate_command() -> serde_json::Value {
     })
 }
 
+fn schema_lookup_command() -> serde_json::Value {
+    serde_json::json!({
+        "name": "lookup",
+        "description": "Find original position for a generated position (forward mapping)",
+        "args": [
+            {"name": "file", "type": "path", "required": true, "description": "Source map file"},
+            {"name": "line", "type": "u32", "required": true, "description": "Generated line (0-based)"},
+            {"name": "column", "type": "u32", "required": true, "description": "Generated column (0-based)"}
+        ],
+        "flags": {
+            "--bias": {"type": "string", "default": "glb", "description": "Search bias: glb (greatest lower bound) or lub (least upper bound)"},
+            "--context": {"type": "u32", "default": 0, "description": "Number of context lines to show around the matched position"},
+            "--json": {"type": "bool", "default": false, "description": "Output as JSON"}
+        }
+    })
+}
+
 fn cmd_schema() -> Result<(), CliError> {
     let schema = serde_json::json!({
         "name": "srcmap",
@@ -1639,20 +1656,7 @@ fn cmd_schema() -> Result<(), CliError> {
         "commands": [
             schema_info_command(),
             schema_validate_command(),
-            {
-                "name": "lookup",
-                "description": "Find original position for a generated position (forward mapping)",
-                "args": [
-                    {"name": "file", "type": "path", "required": true, "description": "Source map file"},
-                    {"name": "line", "type": "u32", "required": true, "description": "Generated line (0-based)"},
-                    {"name": "column", "type": "u32", "required": true, "description": "Generated column (0-based)"}
-                ],
-                "flags": {
-                    "--bias": {"type": "string", "default": "glb", "description": "Search bias: glb (greatest lower bound) or lub (least upper bound)"},
-                    "--context": {"type": "u32", "default": 0, "description": "Number of context lines to show around the matched position"},
-                    "--json": {"type": "bool", "default": false, "description": "Output as JSON"}
-                }
-            },
+            schema_lookup_command(),
             {
                 "name": "resolve",
                 "description": "Find generated position for an original position (reverse mapping)",
