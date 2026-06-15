@@ -237,6 +237,18 @@ fn build_mapping_line_offsets(mappings: &[Mapping], line_count: usize) -> Vec<u3
     line_offsets
 }
 
+fn validate_section_order(sections: &[RawSection]) -> Result<(), ParseError> {
+    for i in 1..sections.len() {
+        let prev = &sections[i - 1].offset;
+        let curr = &sections[i].offset;
+        if (curr.line, curr.column) <= (prev.line, prev.column) {
+            return Err(ParseError::SectionsNotOrdered);
+        }
+    }
+
+    Ok(())
+}
+
 /// Retain only extension fields that use an `x_*` or `x-*` prefix.
 fn filter_extensions(
     extensions: HashMap<String, serde_json::Value>,
@@ -629,14 +641,7 @@ impl SourceMap {
         let mut source_index_map: HashMap<String, u32> = HashMap::new();
         let mut name_index_map: HashMap<String, u32> = HashMap::new();
 
-        // Validate section ordering (must be in ascending line, column order)
-        for i in 1..sections.len() {
-            let prev = &sections[i - 1].offset;
-            let curr = &sections[i].offset;
-            if (curr.line, curr.column) <= (prev.line, prev.column) {
-                return Err(ParseError::SectionsNotOrdered);
-            }
-        }
+        validate_section_order(&sections)?;
 
         for section in &sections {
             // Section maps must not be indexed maps themselves (ECMA-426)
