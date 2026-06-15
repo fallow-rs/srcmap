@@ -379,6 +379,19 @@ fn build_section_definition_remap(
     definition_remap
 }
 
+fn append_section_ranges(
+    section_scopes: &ScopeInfo,
+    source_remap: &[u32],
+    line_offset: u32,
+    col_offset: u32,
+    definition_remap: &[u32],
+    all_ranges: &mut Vec<GeneratedRange>,
+) {
+    all_ranges.extend(section_scopes.ranges.iter().map(|range| {
+        remap_generated_range(range, line_offset, col_offset, definition_remap, source_remap)
+    }));
+}
+
 /// Retain only extension fields that use an `x_*` or `x-*` prefix.
 fn filter_extensions(
     extensions: HashMap<String, serde_json::Value>,
@@ -820,15 +833,14 @@ impl SourceMap {
             let definition_remap =
                 build_section_definition_remap(&section_scopes, &source_remap, &global_bases);
 
-            all_ranges.extend(section_scopes.ranges.iter().map(|range| {
-                remap_generated_range(
-                    range,
-                    line_offset,
-                    col_offset,
-                    &definition_remap,
-                    &source_remap,
-                )
-            }));
+            append_section_ranges(
+                &section_scopes,
+                &source_remap,
+                line_offset,
+                col_offset,
+                &definition_remap,
+                &mut all_ranges,
+            );
         }
 
         // Sort mappings by (generated_line, generated_column)
