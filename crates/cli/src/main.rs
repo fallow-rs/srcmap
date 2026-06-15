@@ -566,6 +566,22 @@ fn print_info_sources(sm: &SourceMap) {
     }
 }
 
+fn print_info_names(sm: &SourceMap) {
+    if sm.names.is_empty() {
+        return;
+    }
+
+    println!();
+    println!("Names ({}):", sm.names.len());
+    let display_count = sm.names.len().min(20);
+    for name in &sm.names[..display_count] {
+        println!("  {name}");
+    }
+    if sm.names.len() > 20 {
+        println!("  ... and {} more", sm.names.len() - 20);
+    }
+}
+
 fn cmd_info(file: &PathBuf, json: bool) -> Result<(), CliError> {
     let (sm, raw) = parse_source_map(file)?;
 
@@ -574,18 +590,7 @@ fn cmd_info(file: &PathBuf, json: bool) -> Result<(), CliError> {
     } else {
         print_info_summary(&sm, raw.len());
         print_info_sources(&sm);
-
-        if !sm.names.is_empty() {
-            println!();
-            println!("Names ({}):", sm.names.len());
-            let display_count = sm.names.len().min(20);
-            for name in &sm.names[..display_count] {
-                println!("  {name}");
-            }
-            if sm.names.len() > 20 {
-                println!("  ... and {} more", sm.names.len() - 20);
-            }
-        }
+        print_info_names(&sm);
     }
 
     Ok(())
