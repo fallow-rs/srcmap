@@ -1661,6 +1661,19 @@ fn schema_resolve_command() -> serde_json::Value {
     })
 }
 
+fn schema_decode_command() -> serde_json::Value {
+    serde_json::json!({
+        "name": "decode",
+        "description": "Decode a VLQ mappings string to JSON array",
+        "args": [
+            {"name": "mappings", "type": "string", "required": false, "description": "VLQ-encoded mappings string (reads stdin if omitted)"}
+        ],
+        "flags": {
+            "--compact": {"type": "bool", "default": false, "description": "Output as compact single-line JSON"}
+        }
+    })
+}
+
 fn cmd_schema() -> Result<(), CliError> {
     let schema = serde_json::json!({
         "name": "srcmap",
@@ -1675,16 +1688,7 @@ fn cmd_schema() -> Result<(), CliError> {
             schema_validate_command(),
             schema_lookup_command(),
             schema_resolve_command(),
-            {
-                "name": "decode",
-                "description": "Decode a VLQ mappings string to JSON array",
-                "args": [
-                    {"name": "mappings", "type": "string", "required": false, "description": "VLQ-encoded mappings string (reads stdin if omitted)"}
-                ],
-                "flags": {
-                    "--compact": {"type": "bool", "default": false, "description": "Output as compact single-line JSON"}
-                }
-            },
+            schema_decode_command(),
             {
                 "name": "encode",
                 "description": "Encode decoded mappings JSON back to a VLQ string",
