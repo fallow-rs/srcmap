@@ -1674,6 +1674,19 @@ fn schema_decode_command() -> serde_json::Value {
     })
 }
 
+fn schema_encode_command() -> serde_json::Value {
+    serde_json::json!({
+        "name": "encode",
+        "description": "Encode decoded mappings JSON back to a VLQ string",
+        "args": [
+            {"name": "file", "type": "path", "required": false, "description": "JSON file with decoded mappings (reads stdin if omitted)"}
+        ],
+        "flags": {
+            "--json": {"type": "bool", "default": false, "description": "Wrap result in JSON object {\"vlq\": \"...\"}"}
+        }
+    })
+}
+
 fn cmd_schema() -> Result<(), CliError> {
     let schema = serde_json::json!({
         "name": "srcmap",
@@ -1689,16 +1702,7 @@ fn cmd_schema() -> Result<(), CliError> {
             schema_lookup_command(),
             schema_resolve_command(),
             schema_decode_command(),
-            {
-                "name": "encode",
-                "description": "Encode decoded mappings JSON back to a VLQ string",
-                "args": [
-                    {"name": "file", "type": "path", "required": false, "description": "JSON file with decoded mappings (reads stdin if omitted)"}
-                ],
-                "flags": {
-                    "--json": {"type": "bool", "default": false, "description": "Wrap result in JSON object {\"vlq\": \"...\"}"}
-                }
-            },
+            schema_encode_command(),
             {
                 "name": "mappings",
                 "description": "List all mappings in a source map with pagination",
