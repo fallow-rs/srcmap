@@ -650,15 +650,7 @@ impl SourceMapGenerator {
 
         let (scopes_str, names_for_json) = self.scopes_and_names_for_json();
 
-        // Estimate capacity for JSON output
-        let sources_size: usize = self.sources.iter().map(|s| s.len() + 4).sum();
-        let names_size: usize = names_for_json.iter().map(|n| n.len() + 4).sum();
-        let content_size: usize =
-            self.sources_content.iter().map(|c| c.as_ref().map_or(5, |s| s.len() + 4)).sum();
-        // Estimate mapping size: ~6 bytes per mapping on average
-        let mappings_estimate = self.mappings.len() * 6;
-        let capacity = 100 + sources_size + names_size + mappings_estimate + content_size;
-
+        let capacity = self.json_capacity_estimate(names_for_json.as_ref());
         let mut json: Vec<u8> = Vec::with_capacity(capacity);
         json.extend_from_slice(br#"{"version":3"#);
 
@@ -785,6 +777,15 @@ impl SourceMapGenerator {
         }
 
         (None, std::borrow::Cow::Borrowed(&self.names))
+    }
+
+    fn json_capacity_estimate(&self, names: &[String]) -> usize {
+        let sources_size: usize = self.sources.iter().map(|s| s.len() + 4).sum();
+        let names_size: usize = names.iter().map(|n| n.len() + 4).sum();
+        let content_size: usize =
+            self.sources_content.iter().map(|c| c.as_ref().map_or(5, |s| s.len() + 4)).sum();
+        let mappings_estimate = self.mappings.len() * 6;
+        100 + sources_size + names_size + mappings_estimate + content_size
     }
 
     /// Get the number of mappings.
