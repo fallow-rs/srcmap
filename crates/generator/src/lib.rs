@@ -523,17 +523,7 @@ impl SourceMapGenerator {
             .expect("encode_parallel_impl requires non-empty sorted slice")
             .generated_line as usize;
 
-        // Build line ranges: (start_idx, end_idx) into sorted slice
-        let mut line_ranges: Vec<(usize, usize)> = vec![(0, 0); max_line + 1];
-        let mut i = 0;
-        while i < sorted.len() {
-            let line = sorted[i].generated_line as usize;
-            let start = i;
-            while i < sorted.len() && sorted[i].generated_line as usize == line {
-                i += 1;
-            }
-            line_ranges[line] = (start, i);
-        }
+        let line_ranges = Self::parallel_line_ranges(sorted, max_line);
 
         // Sequential scan: compute cumulative state at each line boundary
         let mut states: Vec<(i64, i64, i64, i64)> = Vec::with_capacity(max_line + 1);
@@ -582,6 +572,21 @@ impl SourceMapGenerator {
         // and we only add b';' — all valid UTF-8.
         debug_assert!(out.is_ascii());
         unsafe { String::from_utf8_unchecked(out) }
+    }
+
+    #[cfg(feature = "parallel")]
+    fn parallel_line_ranges(sorted: &[&Mapping], max_line: usize) -> Vec<(usize, usize)> {
+        let mut line_ranges: Vec<(usize, usize)> = vec![(0, 0); max_line + 1];
+        let mut i = 0;
+        while i < sorted.len() {
+            let line = sorted[i].generated_line as usize;
+            let start = i;
+            while i < sorted.len() && sorted[i].generated_line as usize == line {
+                i += 1;
+            }
+            line_ranges[line] = (start, i);
+        }
+        line_ranges
     }
 
     /// Encode range mappings to a VLQ string.
