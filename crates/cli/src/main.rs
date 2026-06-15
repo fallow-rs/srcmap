@@ -1111,6 +1111,37 @@ fn load_explicit_upstream(
     Some(sm)
 }
 
+fn load_directory_upstream(
+    source: &str,
+    search_dir: &Path,
+    found_upstreams: &std::cell::RefCell<Vec<String>>,
+) -> Option<SourceMap> {
+    let map_path = search_dir.join(format!("{source}.map"));
+    if let Ok(canonical) = map_path.canonicalize()
+        && canonical.starts_with(search_dir)
+        && let Ok(content) = fs::read_to_string(&canonical)
+        && let Ok(sm) = SourceMap::from_json(&content)
+    {
+        found_upstreams.borrow_mut().push(source.to_string());
+        return Some(sm);
+    }
+
+    let source_path = Path::new(source);
+    let stem = source_path.file_stem()?;
+    let map_name = format!("{}.map", stem.to_string_lossy());
+    let map_path = search_dir.join(map_name);
+    if let Ok(canonical) = map_path.canonicalize()
+        && canonical.starts_with(search_dir)
+        && let Ok(content) = fs::read_to_string(&canonical)
+        && let Ok(sm) = SourceMap::from_json(&content)
+    {
+        found_upstreams.borrow_mut().push(source.to_string());
+        return Some(sm);
+    }
+
+    None
+}
+
 fn cmd_remap(
     file: &PathBuf,
     dir: &Option<PathBuf>,
@@ -1148,30 +1179,8 @@ fn cmd_remap(
 
         // Try directory search: look for source.map next to the source
         if let Some(ref search_dir) = safe_dir {
-            // Try <source>.map
-            let map_path = search_dir.join(format!("{source}.map"));
-            if let Ok(canonical) = map_path.canonicalize()
-                && canonical.starts_with(search_dir)
-                && let Ok(content) = fs::read_to_string(&canonical)
-                && let Ok(sm) = SourceMap::from_json(&content)
-            {
-                found_upstreams.borrow_mut().push(source.to_string());
+            if let Some(sm) = load_directory_upstream(source, search_dir, &found_upstreams) {
                 return Some(sm);
-            }
-
-            // Try replacing extension with .map
-            let source_path = Path::new(source);
-            if let Some(stem) = source_path.file_stem() {
-                let map_name = format!("{}.map", stem.to_string_lossy());
-                let map_path = search_dir.join(map_name);
-                if let Ok(canonical) = map_path.canonicalize()
-                    && canonical.starts_with(search_dir)
-                    && let Ok(content) = fs::read_to_string(&canonical)
-                    && let Ok(sm) = SourceMap::from_json(&content)
-                {
-                    found_upstreams.borrow_mut().push(source.to_string());
-                    return Some(sm);
-                }
             }
         }
 
