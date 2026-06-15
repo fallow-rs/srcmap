@@ -517,45 +517,49 @@ fn print_info_json(sm: &SourceMap, raw_len: usize) {
     println!("{}", serde_json::to_string_pretty(&obj).unwrap());
 }
 
+fn print_info_summary(sm: &SourceMap, raw_len: usize) {
+    if let Some(ref f) = sm.file {
+        println!("File:         {f}");
+    }
+    if let Some(ref root) = sm.source_root {
+        println!("Source root:   {root}");
+    }
+    println!("Sources:      {}", sm.sources.len());
+    println!("Names:        {}", sm.names.len());
+    println!("Mappings:     {}", sm.mapping_count());
+    if sm.has_range_mappings() {
+        println!("  Range:      {} range mappings", sm.range_mapping_count());
+    }
+    println!("Lines:        {}", sm.line_count());
+    println!("File size:    {}", format_size(raw_len));
+
+    let has_content = sm.sources_content.iter().filter(|c| c.is_some()).count();
+    if has_content > 0 {
+        let content_size: usize =
+            sm.sources_content.iter().filter_map(|c| c.as_ref()).map(|s| s.len()).sum();
+        println!(
+            "Content:      {has_content}/{} sources ({})",
+            sm.sources.len(),
+            format_size(content_size)
+        );
+    }
+
+    if let Some(ref id) = sm.debug_id {
+        println!("Debug ID:     {id}");
+    }
+
+    if !sm.ignore_list.is_empty() {
+        println!("Ignore list:  {} sources", sm.ignore_list.len());
+    }
+}
+
 fn cmd_info(file: &PathBuf, json: bool) -> Result<(), CliError> {
     let (sm, raw) = parse_source_map(file)?;
 
     if json {
         print_info_json(&sm, raw.len());
     } else {
-        if let Some(ref f) = sm.file {
-            println!("File:         {f}");
-        }
-        if let Some(ref root) = sm.source_root {
-            println!("Source root:   {root}");
-        }
-        println!("Sources:      {}", sm.sources.len());
-        println!("Names:        {}", sm.names.len());
-        println!("Mappings:     {}", sm.mapping_count());
-        if sm.has_range_mappings() {
-            println!("  Range:      {} range mappings", sm.range_mapping_count());
-        }
-        println!("Lines:        {}", sm.line_count());
-        println!("File size:    {}", format_size(raw.len()));
-
-        let has_content = sm.sources_content.iter().filter(|c| c.is_some()).count();
-        if has_content > 0 {
-            let content_size: usize =
-                sm.sources_content.iter().filter_map(|c| c.as_ref()).map(|s| s.len()).sum();
-            println!(
-                "Content:      {has_content}/{} sources ({})",
-                sm.sources.len(),
-                format_size(content_size)
-            );
-        }
-
-        if let Some(ref id) = sm.debug_id {
-            println!("Debug ID:     {id}");
-        }
-
-        if !sm.ignore_list.is_empty() {
-            println!("Ignore list:  {} sources", sm.ignore_list.len());
-        }
+        print_info_summary(&sm, raw.len());
 
         println!();
         println!("Sources:");
