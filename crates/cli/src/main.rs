@@ -1736,6 +1736,21 @@ fn schema_remap_command() -> serde_json::Value {
     })
 }
 
+fn schema_symbolicate_command() -> serde_json::Value {
+    serde_json::json!({
+        "name": "symbolicate",
+        "description": "Symbolicate a stack trace using source maps",
+        "args": [
+            {"name": "file", "type": "path", "required": true, "description": "File containing the stack trace (use `-` for stdin)"}
+        ],
+        "flags": {
+            "--dir": {"type": "path", "required": false, "description": "Directory to search for source maps"},
+            "--map": {"type": "string[]", "required": false, "description": "Explicit source map files (SOURCE=PATH pairs, repeatable)"},
+            "--json": {"type": "bool", "default": false, "description": "Output as JSON"}
+        }
+    })
+}
+
 fn cmd_schema() -> Result<(), CliError> {
     let schema = serde_json::json!({
         "name": "srcmap",
@@ -1755,18 +1770,7 @@ fn cmd_schema() -> Result<(), CliError> {
             schema_mappings_command(),
             schema_concat_command(),
             schema_remap_command(),
-            {
-                "name": "symbolicate",
-                "description": "Symbolicate a stack trace using source maps",
-                "args": [
-                    {"name": "file", "type": "path", "required": true, "description": "File containing the stack trace (use `-` for stdin)"}
-                ],
-                "flags": {
-                    "--dir": {"type": "path", "required": false, "description": "Directory to search for source maps"},
-                    "--map": {"type": "string[]", "required": false, "description": "Explicit source map files (SOURCE=PATH pairs, repeatable)"},
-                    "--json": {"type": "bool", "default": false, "description": "Output as JSON"}
-                }
-            },
+            schema_symbolicate_command(),
             {
                 "name": "scopes",
                 "description": "Inspect ECMA-426 scopes and variable bindings in a source map",
