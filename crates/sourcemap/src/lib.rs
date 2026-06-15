@@ -3218,6 +3218,18 @@ impl<'a> MappingsIter<'a> {
     fn at_segment_delimiter(&self) -> bool {
         self.pos >= self.len || self.bytes[self.pos] == b',' || self.bytes[self.pos] == b';'
     }
+
+    fn generated_only_mapping(&self) -> Mapping {
+        Mapping {
+            generated_line: self.generated_line,
+            generated_column: self.generated_column as u32,
+            source: NO_SOURCE,
+            original_line: 0,
+            original_column: 0,
+            name: NO_NAME,
+            is_range_mapping: false,
+        }
+    }
 }
 
 impl Iterator for MappingsIter<'_> {
@@ -3303,15 +3315,7 @@ impl Iterator for MappingsIter<'_> {
                 }));
             } else {
                 // 1-field segment: no source info
-                return Some(Ok(Mapping {
-                    generated_line: self.generated_line,
-                    generated_column: self.generated_column as u32,
-                    source: NO_SOURCE,
-                    original_line: 0,
-                    original_column: 0,
-                    name: NO_NAME,
-                    is_range_mapping: false,
-                }));
+                return Some(Ok(self.generated_only_mapping()));
             }
         }
     }
