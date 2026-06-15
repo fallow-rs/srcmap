@@ -1074,32 +1074,7 @@ impl SourceMap {
         // line only, so both GLB and LUB must be constrained to the same line.
         match bias {
             Bias::GreatestLowerBound => {
-                // partition_point gives us the first element >= target.
-                // For GLB, we want the element at or before on the SAME line.
-                if idx < reverse_index.len() {
-                    let mapping = &self.mappings[reverse_index[idx] as usize];
-                    if mapping.source == source_idx
-                        && mapping.original_line == line
-                        && mapping.original_column == column
-                    {
-                        return Some(GeneratedLocation {
-                            line: mapping.generated_line,
-                            column: mapping.generated_column,
-                        });
-                    }
-                }
-                // No exact match: use the element before (greatest lower bound)
-                if idx == 0 {
-                    return None;
-                }
-                let mapping = &self.mappings[reverse_index[idx - 1] as usize];
-                if mapping.source != source_idx || mapping.original_line != line {
-                    return None;
-                }
-                Some(GeneratedLocation {
-                    line: mapping.generated_line,
-                    column: mapping.generated_column,
-                })
+                self.generated_position_glb(reverse_index, idx, source_idx, line, column)
             }
             Bias::LeastUpperBound => {
                 if idx >= reverse_index.len() {
@@ -1138,6 +1113,43 @@ impl SourceMap {
                 })
             }
         }
+    }
+
+    fn generated_position_glb(
+        &self,
+        reverse_index: &[u32],
+        idx: usize,
+        source_idx: u32,
+        line: u32,
+        column: u32,
+    ) -> Option<GeneratedLocation> {
+        // partition_point gives us the first element >= target.
+        // For GLB, we want the element at or before on the SAME line.
+        if idx < reverse_index.len() {
+            let mapping = &self.mappings[reverse_index[idx] as usize];
+            if mapping.source == source_idx
+                && mapping.original_line == line
+                && mapping.original_column == column
+            {
+                return Some(GeneratedLocation {
+                    line: mapping.generated_line,
+                    column: mapping.generated_column,
+                });
+            }
+        }
+
+        if idx == 0 {
+            return None;
+        }
+
+        let mapping = &self.mappings[reverse_index[idx - 1] as usize];
+        if mapping.source != source_idx || mapping.original_line != line {
+            return None;
+        }
+        Some(GeneratedLocation {
+            line: mapping.generated_line,
+            column: mapping.generated_column,
+        })
     }
 
     /// Find all generated positions for an original source position.
