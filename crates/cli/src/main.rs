@@ -2017,23 +2017,7 @@ fn cmd_schema() -> Result<(), CliError> {
 
 fn main() -> ExitCode {
     let cli = Cli::parse();
-
-    // Determine if --json is active for structured error output
-    let json_mode = matches!(
-        &cli.command,
-        Command::Info { json: true, .. }
-            | Command::Validate { json: true, .. }
-            | Command::Lookup { json: true, .. }
-            | Command::Resolve { json: true, .. }
-            | Command::Encode { json: true, .. }
-            | Command::Mappings { json: true, .. }
-            | Command::Concat { json: true, .. }
-            | Command::Remap { json: true, .. }
-            | Command::Symbolicate { json: true, .. }
-            | Command::Scopes { json: true, .. }
-            | Command::Fetch { json: true, .. }
-            | Command::Sources { json: true, .. }
-    );
+    let json_mode = command_json_mode(&cli.command);
 
     let result = match &cli.command {
         Command::Info { file, json } => cmd_info(file, *json),
@@ -2079,4 +2063,22 @@ fn main() -> ExitCode {
             ExitCode::FAILURE
         }
     }
+}
+
+fn command_json_mode(command: &Command) -> bool {
+    matches!(
+        command,
+        Command::Info { json: true, .. }
+            | Command::Validate { json: true, .. }
+            | Command::Lookup { json: true, .. }
+            | Command::Resolve { json: true, .. }
+            | Command::Encode { json: true, .. }
+            | Command::Mappings { json: true, .. }
+            | Command::Concat { json: true, .. }
+            | Command::Remap { json: true, .. }
+            | Command::Symbolicate { json: true, .. }
+            | Command::Scopes { json: true, .. }
+            | Command::Fetch { json: true, .. }
+            | Command::Sources { json: true, .. }
+    )
 }
