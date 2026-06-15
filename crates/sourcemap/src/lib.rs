@@ -3265,6 +3265,18 @@ impl<'a> MappingsIter<'a> {
             is_range_mapping: false,
         }
     }
+
+    fn sourced_mapping(&self, name: u32) -> Mapping {
+        Mapping {
+            generated_line: self.generated_line,
+            generated_column: self.generated_column as u32,
+            source: self.source_index as u32,
+            original_line: self.original_line as u32,
+            original_column: self.original_column as u32,
+            name,
+            is_range_mapping: false,
+        }
+    }
 }
 
 impl Iterator for MappingsIter<'_> {
@@ -3339,15 +3351,7 @@ impl Iterator for MappingsIter<'_> {
                     NO_NAME
                 };
 
-                return Some(Ok(Mapping {
-                    generated_line: self.generated_line,
-                    generated_column: self.generated_column as u32,
-                    source: self.source_index as u32,
-                    original_line: self.original_line as u32,
-                    original_column: self.original_column as u32,
-                    name,
-                    is_range_mapping: false,
-                }));
+                return Some(Ok(self.sourced_mapping(name)));
             } else {
                 // 1-field segment: no source info
                 return Some(Ok(self.generated_only_mapping()));
