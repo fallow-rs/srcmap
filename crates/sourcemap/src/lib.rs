@@ -403,6 +403,29 @@ fn append_section_ranges(
     }));
 }
 
+fn merge_section_scopes_and_ranges(
+    pending_scopes: Vec<(ScopeInfo, Vec<u32>, u32, u32)>,
+    all_scopes: &mut [Option<OriginalScope>],
+    all_ranges: &mut Vec<GeneratedRange>,
+) {
+    merge_section_original_scopes(&pending_scopes, all_scopes);
+
+    let global_bases = definition_bases(all_scopes);
+    for (section_scopes, source_remap, line_offset, col_offset) in pending_scopes {
+        let definition_remap =
+            build_section_definition_remap(&section_scopes, &source_remap, &global_bases);
+
+        append_section_ranges(
+            &section_scopes,
+            &source_remap,
+            line_offset,
+            col_offset,
+            &definition_remap,
+            all_ranges,
+        );
+    }
+}
+
 /// Retain only extension fields that use an `x_*` or `x-*` prefix.
 fn filter_extensions(
     extensions: HashMap<String, serde_json::Value>,
@@ -837,22 +860,7 @@ impl SourceMap {
             );
         }
 
-        merge_section_original_scopes(&pending_scopes, &mut all_scopes);
-
-        let global_bases = definition_bases(&all_scopes);
-        for (section_scopes, source_remap, line_offset, col_offset) in pending_scopes {
-            let definition_remap =
-                build_section_definition_remap(&section_scopes, &source_remap, &global_bases);
-
-            append_section_ranges(
-                &section_scopes,
-                &source_remap,
-                line_offset,
-                col_offset,
-                &definition_remap,
-                &mut all_ranges,
-            );
-        }
+        merge_section_scopes_and_ranges(pending_scopes, &mut all_scopes, &mut all_ranges);
 
         let line_offsets = finish_section_mappings(&mut all_mappings, max_line);
 
