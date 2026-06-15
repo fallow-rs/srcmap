@@ -1413,11 +1413,15 @@ fn cmd_scopes(file: &PathBuf, json: bool) -> Result<(), CliError> {
     Ok(())
 }
 
-fn cmd_fetch(url: &str, output: &Option<PathBuf>, json: bool) -> Result<(), CliError> {
-    // Validate URL
+fn validate_fetch_url(url: &str) -> Result<(), CliError> {
     if !url.starts_with("http://") && !url.starts_with("https://") {
         return Err(CliError::invalid_input("URL must start with http:// or https://"));
     }
+    Ok(())
+}
+
+fn cmd_fetch(url: &str, output: &Option<PathBuf>, json: bool) -> Result<(), CliError> {
+    validate_fetch_url(url)?;
 
     let output_dir = match output {
         Some(dir) => dir.clone(),
