@@ -3199,6 +3199,11 @@ impl<'a> MappingsIter<'a> {
             done: false,
         }
     }
+
+    fn stop_with_error(&mut self, error: DecodeError) -> Option<Result<Mapping, DecodeError>> {
+        self.done = true;
+        Some(Err(error))
+    }
 }
 
 impl Iterator for MappingsIter<'_> {
@@ -3232,20 +3237,14 @@ impl Iterator for MappingsIter<'_> {
             // Field 1: generated column
             match vlq_fast(self.bytes, &mut self.pos) {
                 Ok(delta) => self.generated_column += delta,
-                Err(e) => {
-                    self.done = true;
-                    return Some(Err(e));
-                }
+                Err(e) => return self.stop_with_error(e),
             }
 
             if self.pos < self.len && self.bytes[self.pos] != b',' && self.bytes[self.pos] != b';' {
                 // Field 2: source index
                 match vlq_fast(self.bytes, &mut self.pos) {
                     Ok(delta) => self.source_index += delta,
-                    Err(e) => {
-                        self.done = true;
-                        return Some(Err(e));
-                    }
+                    Err(e) => return self.stop_with_error(e),
                 }
                 // Reject 2-field segments (only 1, 4, or 5 are valid per ECMA-426)
                 if self.pos >= self.len
@@ -3261,10 +3260,7 @@ impl Iterator for MappingsIter<'_> {
                 // Field 3: original line
                 match vlq_fast(self.bytes, &mut self.pos) {
                     Ok(delta) => self.original_line += delta,
-                    Err(e) => {
-                        self.done = true;
-                        return Some(Err(e));
-                    }
+                    Err(e) => return self.stop_with_error(e),
                 }
                 // Reject 3-field segments (only 1, 4, or 5 are valid per ECMA-426)
                 if self.pos >= self.len
@@ -3280,10 +3276,7 @@ impl Iterator for MappingsIter<'_> {
                 // Field 4: original column
                 match vlq_fast(self.bytes, &mut self.pos) {
                     Ok(delta) => self.original_column += delta,
-                    Err(e) => {
-                        self.done = true;
-                        return Some(Err(e));
-                    }
+                    Err(e) => return self.stop_with_error(e),
                 }
 
                 // Field 5: name (optional)
@@ -3296,10 +3289,7 @@ impl Iterator for MappingsIter<'_> {
                             self.name_index += delta;
                             self.name_index as u32
                         }
-                        Err(e) => {
-                            self.done = true;
-                            return Some(Err(e));
-                        }
+                        Err(e) => return self.stop_with_error(e),
                     }
                 } else {
                     NO_NAME
