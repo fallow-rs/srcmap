@@ -27,11 +27,7 @@ pub fn decode(input: &str) -> Result<SourceMapMappings, DecodeError> {
     // Pre-count lines and segments for capacity hints. memchr's count is
     // SIMD-accelerated; the equivalent scalar byte loop is not auto-vectorized
     // and measured ~7x slower.
-    let semicolons = memchr::memchr_iter(b';', bytes).count();
-    let commas = memchr::memchr_iter(b',', bytes).count();
-    let line_count = semicolons + 1;
-    let approx_segments = commas + line_count;
-    let avg_segments_per_line = approx_segments / line_count;
+    let (line_count, avg_segments_per_line) = decode_capacity_hints(bytes);
     let mut mappings: SourceMapMappings = Vec::with_capacity(line_count);
 
     // Cumulative state across the entire mappings string
@@ -124,4 +120,12 @@ pub fn decode(input: &str) -> Result<SourceMapMappings, DecodeError> {
     }
 
     Ok(mappings)
+}
+
+fn decode_capacity_hints(bytes: &[u8]) -> (usize, usize) {
+    let semicolons = memchr::memchr_iter(b';', bytes).count();
+    let commas = memchr::memchr_iter(b',', bytes).count();
+    let line_count = semicolons + 1;
+    let approx_segments = commas + line_count;
+    (line_count, approx_segments / line_count)
 }
