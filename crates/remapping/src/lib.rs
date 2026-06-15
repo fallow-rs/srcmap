@@ -945,31 +945,17 @@ where
             continue;
         }
 
-        // Load upstream map if not yet cached
-        if matches!(source_entries[si], StreamingSourceEntry::Unloaded) {
-            let source_name = &sources[si];
-            if source_name.is_empty() {
-                source_entries[si] = StreamingSourceEntry::EmptySource;
-            } else {
-                match loader(source_name) {
-                    Some(upstream_sm) => {
-                        let cache = build_upstream_cache(&upstream_sm);
-                        source_entries[si] =
-                            StreamingSourceEntry::Upstream { map: Box::new(upstream_sm), cache };
-                    }
-                    None => {
-                        let idx = builder.add_source(source_name);
-                        if let Some(Some(content)) = sources_content.get(si) {
-                            builder.set_source_content(idx, content.clone());
-                        }
-                        if outer_ignore_set.contains(&m.source) && ignored_sources.insert(idx) {
-                            builder.add_to_ignore_list(idx);
-                        }
-                        source_entries[si] = StreamingSourceEntry::Passthrough { builder_src: idx };
-                    }
-                }
-            }
-        }
+        load_streaming_source_entry(
+            &mut source_entries,
+            si,
+            sources,
+            sources_content,
+            m.source,
+            &mut builder,
+            &outer_ignore_set,
+            &mut ignored_sources,
+            &loader,
+        );
 
         match &mut source_entries[si] {
             StreamingSourceEntry::Upstream { map, cache } => {
@@ -1022,6 +1008,47 @@ where
     }
 
     builder.to_decoded_map().expect("streaming VLQ should be valid")
+}
+
+fn load_streaming_source_entry<F>(
+    source_entries: &mut [StreamingSourceEntry],
+    si: usize,
+    sources: &[String],
+    sources_content: &[Option<String>],
+    outer_source_idx: u32,
+    builder: &mut StreamingGenerator,
+    outer_ignore_set: &HashSet<u32>,
+    ignored_sources: &mut HashSet<u32>,
+    loader: &F,
+) where
+    F: Fn(&str) -> Option<SourceMap>,
+{
+    if !matches!(source_entries[si], StreamingSourceEntry::Unloaded) {
+        return;
+    }
+
+    let source_name = &sources[si];
+    if source_name.is_empty() {
+        source_entries[si] = StreamingSourceEntry::EmptySource;
+        return;
+    }
+
+    match loader(source_name) {
+        Some(upstream_sm) => {
+            let cache = build_upstream_cache(&upstream_sm);
+            source_entries[si] = StreamingSourceEntry::Upstream { map: Box::new(upstream_sm), cache };
+        }
+        None => {
+            let idx = builder.add_source(source_name);
+            if let Some(Some(content)) = sources_content.get(si) {
+                builder.set_source_content(idx, content.clone());
+            }
+            if outer_ignore_set.contains(&outer_source_idx) && ignored_sources.insert(idx) {
+                builder.add_to_ignore_list(idx);
+            }
+            source_entries[si] = StreamingSourceEntry::Passthrough { builder_src: idx };
+        }
+    }
 }
 
 #[inline]
