@@ -1287,20 +1287,7 @@ impl SourceMap {
             json_quote_into(&mut json, root);
         }
 
-        // Strip sourceRoot prefix from sources to avoid double-application on roundtrip
-        json.push_str(r#","sources":["#);
-        for (i, s) in self.sources.iter().enumerate() {
-            if i > 0 {
-                json.push(',');
-            }
-            let source_name = if !source_root_prefix.is_empty() {
-                s.strip_prefix(source_root_prefix).unwrap_or(s)
-            } else {
-                s
-            };
-            json_quote_into(&mut json, source_name);
-        }
-        json.push(']');
+        self.write_sources_json(&mut json, source_root_prefix);
 
         if !exclude_content
             && !self.sources_content.is_empty()
@@ -1384,6 +1371,22 @@ impl SourceMap {
         let mut names = self.names.clone();
         let scopes = srcmap_scopes::encode_scopes(scopes_info, &mut names);
         Some((scopes, names))
+    }
+
+    fn write_sources_json(&self, json: &mut String, source_root_prefix: &str) {
+        json.push_str(r#","sources":["#);
+        for (i, s) in self.sources.iter().enumerate() {
+            if i > 0 {
+                json.push(',');
+            }
+            let source_name = if !source_root_prefix.is_empty() {
+                s.strip_prefix(source_root_prefix).unwrap_or(s)
+            } else {
+                s
+            };
+            json_quote_into(json, source_name);
+        }
+        json.push(']');
     }
 
     /// Construct a `SourceMap` from pre-built parts.
