@@ -679,14 +679,8 @@ impl SourceMapGenerator {
             json_quote_into(&mut json, root);
         }
 
-        // sources
         json.extend_from_slice(br#","sources":["#);
-        for (i, s) in self.sources.iter().enumerate() {
-            if i > 0 {
-                json.push(b',');
-            }
-            json_quote_into(&mut json, s);
-        }
+        write_json_string_array(&mut json, &self.sources);
         json.push(b']');
 
         // sourcesContent (only if any content is set)
@@ -742,14 +736,8 @@ impl SourceMapGenerator {
             json.push(b']');
         }
 
-        // names
         json.extend_from_slice(br#","names":["#);
-        for (i, n) in names_for_json.iter().enumerate() {
-            if i > 0 {
-                json.push(b',');
-            }
-            json_quote_into(&mut json, n);
-        }
+        write_json_string_array(&mut json, names_for_json.as_ref());
         json.push(b']');
 
         // mappings — VLQ string is pure base64/,/; so no escaping needed.
@@ -1739,6 +1727,15 @@ fn json_quote_into(out: &mut Vec<u8>, s: &str) {
 
     out.extend_from_slice(&bytes[start..]);
     out.push(b'"');
+}
+
+fn write_json_string_array(out: &mut Vec<u8>, items: &[String]) {
+    for (i, item) in items.iter().enumerate() {
+        if i > 0 {
+            out.push(b',');
+        }
+        json_quote_into(out, item);
+    }
 }
 
 /// JSON-quote a string, returning a new String (used in parallel contexts).
