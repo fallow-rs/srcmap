@@ -259,6 +259,16 @@ fn build_section_scope_info(
     Some(ScopeInfo { scopes, ranges })
 }
 
+fn filter_section_source_root(source_root: Option<String>, sources: &[String]) -> Option<String> {
+    source_root.filter(|root| {
+        root.is_empty()
+            || sources
+                .iter()
+                .filter(|source| !source.is_empty())
+                .all(|source| source.starts_with(root))
+    })
+}
+
 fn validate_section_order(sections: &[RawSection]) -> Result<(), ParseError> {
     for i in 1..sections.len() {
         let prev = &sections[i - 1].offset;
@@ -878,13 +888,7 @@ impl SourceMap {
         let source_map = build_source_map(&all_sources);
         let has_range_mappings = all_mappings.iter().any(|m| m.is_range_mapping);
         let scopes = build_section_scope_info(all_scopes, all_ranges);
-        let source_root = source_root.filter(|root| {
-            root.is_empty()
-                || all_sources
-                    .iter()
-                    .filter(|source| !source.is_empty())
-                    .all(|source| source.starts_with(root))
-        });
+        let source_root = filter_section_source_root(source_root, &all_sources);
 
         Ok(Self {
             file,
