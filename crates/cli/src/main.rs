@@ -1099,6 +1099,18 @@ fn parse_upstream_paths(
     Ok(upstream_paths)
 }
 
+fn load_explicit_upstream(
+    source: &str,
+    upstream_paths: &std::collections::HashMap<String, PathBuf>,
+    found_upstreams: &std::cell::RefCell<Vec<String>>,
+) -> Option<SourceMap> {
+    let path = upstream_paths.get(source)?;
+    let content = fs::read_to_string(path).ok()?;
+    let sm = SourceMap::from_json(&content).ok()?;
+    found_upstreams.borrow_mut().push(source.to_string());
+    Some(sm)
+}
+
 fn cmd_remap(
     file: &PathBuf,
     dir: &Option<PathBuf>,
@@ -1124,11 +1136,7 @@ fn cmd_remap(
     let skipped_sources: std::cell::RefCell<Vec<String>> = std::cell::RefCell::new(Vec::new());
 
     let result = remap(&outer, |source| {
-        // Try explicit upstream first
-        if let Some(path) = upstream_paths.get(source) {
-            let content = fs::read_to_string(path).ok()?;
-            let sm = SourceMap::from_json(&content).ok()?;
-            found_upstreams.borrow_mut().push(source.to_string());
+        if let Some(sm) = load_explicit_upstream(source, &upstream_paths, &found_upstreams) {
             return Some(sm);
         }
 
