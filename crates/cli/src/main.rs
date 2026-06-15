@@ -1572,6 +1572,28 @@ fn extract_source_contents(
     Ok((extracted, skipped))
 }
 
+fn print_extracted_sources(
+    sm: &SourceMap,
+    output_dir: &Path,
+    extracted: &[serde_json::Value],
+    skipped: &[String],
+) {
+    println!(
+        "Extracted {}/{} sources to {}",
+        extracted.len(),
+        sm.sources.len(),
+        output_dir.display()
+    );
+    for entry in extracted {
+        let source = entry["source"].as_str().unwrap();
+        let size = entry["size"].as_u64().unwrap() as usize;
+        println!("  {source} [{}]", format_size(size));
+    }
+    if !skipped.is_empty() {
+        println!("Skipped {} sources without content", skipped.len());
+    }
+}
+
 fn cmd_sources(
     file: &PathBuf,
     extract: bool,
@@ -1591,20 +1613,7 @@ fn cmd_sources(
             });
             println!("{}", serde_json::to_string_pretty(&obj).unwrap());
         } else {
-            println!(
-                "Extracted {}/{} sources to {}",
-                extracted.len(),
-                sm.sources.len(),
-                output_dir.display()
-            );
-            for entry in &extracted {
-                let source = entry["source"].as_str().unwrap();
-                let size = entry["size"].as_u64().unwrap() as usize;
-                println!("  {source} [{}]", format_size(size));
-            }
-            if !skipped.is_empty() {
-                println!("Skipped {} sources without content", skipped.len());
-            }
+            print_extracted_sources(&sm, &output_dir, &extracted, &skipped);
         }
     } else {
         // List mode
