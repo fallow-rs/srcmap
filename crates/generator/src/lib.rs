@@ -646,8 +646,6 @@ impl SourceMapGenerator {
 
     /// Generate the source map as a JSON string.
     pub fn to_json(&self) -> String {
-        use std::io::Write;
-
         let (scopes_str, names_for_json) = self.scopes_and_names_for_json();
 
         let capacity = self.json_capacity_estimate(names_for_json.as_ref());
@@ -681,16 +679,7 @@ impl SourceMapGenerator {
         json.push(b'"');
 
         // ignoreList
-        if !self.ignore_list.is_empty() {
-            json.extend_from_slice(br#","ignoreList":["#);
-            for (i, &idx) in self.ignore_list.iter().enumerate() {
-                if i > 0 {
-                    json.push(b',');
-                }
-                let _ = write!(json, "{idx}");
-            }
-            json.push(b']');
-        }
+        self.write_ignore_list_json(&mut json);
 
         // rangeMappings (only if any range mappings exist)
         if let Some(ref range_mappings) = self.encode_range_mappings() {
@@ -820,6 +809,22 @@ impl SourceMapGenerator {
             }
         }
         writer.write_all(b"]")
+    }
+
+    fn write_ignore_list_json(&self, json: &mut Vec<u8>) {
+        if self.ignore_list.is_empty() {
+            return;
+        }
+
+        use std::io::Write;
+        json.extend_from_slice(br#","ignoreList":["#);
+        for (i, &idx) in self.ignore_list.iter().enumerate() {
+            if i > 0 {
+                json.push(b',');
+            }
+            let _ = write!(json, "{idx}");
+        }
+        json.push(b']');
     }
 
     /// Get the number of mappings.
@@ -1356,8 +1361,6 @@ impl StreamingGenerator {
 
     /// Generate the source map as a JSON string.
     pub fn to_json(&self) -> String {
-        use std::io::Write;
-
         let vlq = self.vlq_str();
 
         let capacity = self.json_capacity_estimate(vlq.len());
@@ -1404,16 +1407,7 @@ impl StreamingGenerator {
         json.extend_from_slice(vlq.as_bytes());
         json.push(b'"');
 
-        if !self.ignore_list.is_empty() {
-            json.extend_from_slice(br#","ignoreList":["#);
-            for (i, &idx) in self.ignore_list.iter().enumerate() {
-                if i > 0 {
-                    json.push(b',');
-                }
-                let _ = write!(json, "{idx}");
-            }
-            json.push(b']');
-        }
+        self.write_ignore_list_json(&mut json);
 
         if let Some(ref range_mappings) = self.encode_range_mappings() {
             json.extend_from_slice(br#","rangeMappings":""#);
@@ -1461,6 +1455,22 @@ impl StreamingGenerator {
             write_json_quoted(writer, s)?;
         }
         writer.write_all(b"]")
+    }
+
+    fn write_ignore_list_json(&self, json: &mut Vec<u8>) {
+        if self.ignore_list.is_empty() {
+            return;
+        }
+
+        use std::io::Write;
+        json.extend_from_slice(br#","ignoreList":["#);
+        for (i, &idx) in self.ignore_list.iter().enumerate() {
+            if i > 0 {
+                json.push(b',');
+            }
+            let _ = write!(json, "{idx}");
+        }
+        json.push(b']');
     }
 
     /// Directly construct a `SourceMap` from the streaming generator's state.
