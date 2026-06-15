@@ -958,13 +958,7 @@ fn cmd_mappings(
     Ok(())
 }
 
-fn cmd_concat(
-    files: &[PathBuf],
-    output: &Option<PathBuf>,
-    file_name: Option<String>,
-    json: bool,
-    dry_run: bool,
-) -> Result<(), CliError> {
+fn validate_concat_inputs(files: &[PathBuf], output: &Option<PathBuf>) -> Result<(), CliError> {
     if files.is_empty() {
         return Err(CliError::validation("at least one source map file is required"));
     }
@@ -972,6 +966,17 @@ fn cmd_concat(
     if let Some(path) = output {
         validate_output_path(path)?;
     }
+    Ok(())
+}
+
+fn cmd_concat(
+    files: &[PathBuf],
+    output: &Option<PathBuf>,
+    file_name: Option<String>,
+    json: bool,
+    dry_run: bool,
+) -> Result<(), CliError> {
+    validate_concat_inputs(files, output)?;
 
     let mut builder = ConcatBuilder::new(file_name);
     let mut line_offset: u32 = 0;
