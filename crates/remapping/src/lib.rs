@@ -957,57 +957,78 @@ where
             &loader,
         );
 
-        match &mut source_entries[si] {
-            StreamingSourceEntry::Upstream { map, cache } => {
-                if let Some(upstream_m) = lookup_upstream(map, m.original_line, m.original_column) {
-                    trace_and_emit_upstream(
-                        &mut builder,
-                        &mut dedup,
-                        UpstreamEmitContext {
-                            gen_line: m.generated_line,
-                            gen_col: m.generated_column,
-                            upstream_m,
-                            cache,
-                            upstream_map: map,
-                            outer_name_remap: &mut outer_name_remap,
-                            outer_name_idx: m.name,
-                            names,
-                            ignored_sources: &mut ignored_sources,
-                            is_range: m.is_range_mapping,
-                        },
-                    );
-                }
-            }
-            StreamingSourceEntry::Passthrough { builder_src } => {
-                trace_and_emit_passthrough(
-                    &mut builder,
-                    &mut dedup,
-                    PassthroughEmitContext {
+        trace_streaming_source_entry(
+            &mut source_entries[si],
+            &m,
+            StreamingTraceContext {
+                builder: &mut builder,
+                dedup: &mut dedup,
+                outer_name_remap: &mut outer_name_remap,
+                names,
+                ignored_sources: &mut ignored_sources,
+            },
+        );
+    }
+
+    builder.to_decoded_map().expect("streaming VLQ should be valid")
+}
+
+struct StreamingTraceContext<'a> {
+    builder: &'a mut StreamingGenerator,
+    dedup: &'a mut DedupeState,
+    outer_name_remap: &'a mut [Option<u32>],
+    names: &'a [String],
+    ignored_sources: &'a mut HashSet<u32>,
+}
+
+fn trace_streaming_source_entry(
+    entry: &mut StreamingSourceEntry,
+    m: &srcmap_sourcemap::Mapping,
+    ctx: StreamingTraceContext<'_>,
+) {
+    match entry {
+        StreamingSourceEntry::Upstream { map, cache } => {
+            if let Some(upstream_m) = lookup_upstream(map, m.original_line, m.original_column) {
+                trace_and_emit_upstream(
+                    ctx.builder,
+                    ctx.dedup,
+                    UpstreamEmitContext {
                         gen_line: m.generated_line,
                         gen_col: m.generated_column,
-                        orig_line: m.original_line,
-                        orig_col: m.original_column,
-                        builder_src: *builder_src,
-                        outer_name_remap: &mut outer_name_remap,
+                        upstream_m,
+                        cache,
+                        upstream_map: map,
+                        outer_name_remap: ctx.outer_name_remap,
                         outer_name_idx: m.name,
-                        names,
+                        names: ctx.names,
+                        ignored_sources: ctx.ignored_sources,
                         is_range: m.is_range_mapping,
                     },
                 );
             }
-            StreamingSourceEntry::EmptySource => {
-                trace_and_emit_sourceless(
-                    &mut builder,
-                    &mut dedup,
-                    m.generated_line,
-                    m.generated_column,
-                );
-            }
-            StreamingSourceEntry::Unloaded => unreachable!(),
         }
+        StreamingSourceEntry::Passthrough { builder_src } => {
+            trace_and_emit_passthrough(
+                ctx.builder,
+                ctx.dedup,
+                PassthroughEmitContext {
+                    gen_line: m.generated_line,
+                    gen_col: m.generated_column,
+                    orig_line: m.original_line,
+                    orig_col: m.original_column,
+                    builder_src: *builder_src,
+                    outer_name_remap: ctx.outer_name_remap,
+                    outer_name_idx: m.name,
+                    names: ctx.names,
+                    is_range: m.is_range_mapping,
+                },
+            );
+        }
+        StreamingSourceEntry::EmptySource => {
+            trace_and_emit_sourceless(ctx.builder, ctx.dedup, m.generated_line, m.generated_column);
+        }
+        StreamingSourceEntry::Unloaded => unreachable!(),
     }
-
-    builder.to_decoded_map().expect("streaming VLQ should be valid")
 }
 
 fn load_streaming_source_entry<F>(
