@@ -648,14 +648,7 @@ impl SourceMapGenerator {
     pub fn to_json(&self) -> String {
         use std::io::Write;
 
-        // Encode scopes (may introduce names not yet in self.names)
-        let (scopes_str, names_for_json) = if let Some(ref scopes_info) = self.scopes {
-            let mut names = self.names.clone();
-            let s = srcmap_scopes::encode_scopes(scopes_info, &mut names);
-            (Some(s), std::borrow::Cow::Owned(names))
-        } else {
-            (None, std::borrow::Cow::Borrowed(&self.names))
-        };
+        let (scopes_str, names_for_json) = self.scopes_and_names_for_json();
 
         // Estimate capacity for JSON output
         let sources_size: usize = self.sources.iter().map(|s| s.len() + 4).sum();
@@ -782,6 +775,16 @@ impl SourceMapGenerator {
         // SAFETY: all content written is valid UTF-8 — ASCII JSON syntax, base64 VLQ,
         // and original UTF-8 strings passed through json_quote_into.
         unsafe { String::from_utf8_unchecked(json) }
+    }
+
+    fn scopes_and_names_for_json(&self) -> (Option<String>, std::borrow::Cow<'_, Vec<String>>) {
+        if let Some(ref scopes_info) = self.scopes {
+            let mut names = self.names.clone();
+            let scopes = srcmap_scopes::encode_scopes(scopes_info, &mut names);
+            return (Some(scopes), std::borrow::Cow::Owned(names));
+        }
+
+        (None, std::borrow::Cow::Borrowed(&self.names))
     }
 
     /// Get the number of mappings.
