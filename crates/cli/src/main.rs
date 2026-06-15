@@ -13,7 +13,9 @@ use clap::{Parser, Subcommand};
 use srcmap_codec::{decode, encode};
 use srcmap_remapping::{ConcatBuilder, remap};
 use srcmap_sourcemap::utils::resolve_source_map_url;
-use srcmap_sourcemap::{Bias, OriginalLocation, SourceMap, SourceMappingUrl, parse_source_mapping_url};
+use srcmap_sourcemap::{
+    Bias, Mapping, OriginalLocation, SourceMap, SourceMappingUrl, parse_source_mapping_url,
+};
 
 // ── CLI definition ───────────────────────────────────────────────
 
@@ -857,6 +859,40 @@ fn mapping_source_index(sm: &SourceMap, source_filter: &Option<String>) -> Resul
     Ok(None)
 }
 
+fn print_mappings_json(
+    sm: &SourceMap,
+    filtered: &[&Mapping],
+    total: usize,
+    offset: usize,
+    limit: usize,
+) {
+    let entries: Vec<serde_json::Value> = filtered
+        .iter()
+        .map(|m| {
+            let source = if m.source != u32::MAX { Some(sm.source(m.source).to_string()) } else { None };
+            let name = if m.name != u32::MAX { Some(sm.name(m.name).to_string()) } else { None };
+            serde_json::json!({
+                "generatedLine": m.generated_line,
+                "generatedColumn": m.generated_column,
+                "source": source,
+                "originalLine": m.original_line,
+                "originalColumn": m.original_column,
+                "name": name,
+                "isRangeMapping": m.is_range_mapping,
+            })
+        })
+        .collect();
+
+    let obj = serde_json::json!({
+        "mappings": entries,
+        "total": total,
+        "offset": offset,
+        "limit": limit,
+        "hasMore": offset + filtered.len() < total,
+    });
+    println!("{}", serde_json::to_string_pretty(&obj).unwrap());
+}
+
 fn cmd_mappings(
     file: &PathBuf,
     source_filter: &Option<String>,
@@ -882,33 +918,7 @@ fn cmd_mappings(
     };
 
     if json {
-        let entries: Vec<serde_json::Value> = filtered
-            .iter()
-            .map(|m| {
-                let source =
-                    if m.source != u32::MAX { Some(sm.source(m.source).to_string()) } else { None };
-                let name =
-                    if m.name != u32::MAX { Some(sm.name(m.name).to_string()) } else { None };
-                serde_json::json!({
-                    "generatedLine": m.generated_line,
-                    "generatedColumn": m.generated_column,
-                    "source": source,
-                    "originalLine": m.original_line,
-                    "originalColumn": m.original_column,
-                    "name": name,
-                    "isRangeMapping": m.is_range_mapping,
-                })
-            })
-            .collect();
-
-        let obj = serde_json::json!({
-            "mappings": entries,
-            "total": total,
-            "offset": offset,
-            "limit": limit,
-            "hasMore": offset + filtered.len() < total,
-        });
-        println!("{}", serde_json::to_string_pretty(&obj).unwrap());
+        print_mappings_json(&sm, &filtered, total, offset, limit);
     } else {
         println!(
             "{:<8} {:<8} {:<30} {:<8} {:<8} {:<6} name",
