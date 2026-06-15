@@ -553,6 +553,19 @@ fn print_info_summary(sm: &SourceMap, raw_len: usize) {
     }
 }
 
+fn print_info_sources(sm: &SourceMap) {
+    println!();
+    println!("Sources:");
+    for (i, s) in sm.sources.iter().enumerate() {
+        let ignored = if sm.ignore_list.contains(&(i as u32)) { " (ignored)" } else { "" };
+        let content = match sm.sources_content.get(i) {
+            Some(Some(c)) => format!(" [{}]", format_size(c.len())),
+            _ => String::new(),
+        };
+        println!("  {i}: {s}{content}{ignored}");
+    }
+}
+
 fn cmd_info(file: &PathBuf, json: bool) -> Result<(), CliError> {
     let (sm, raw) = parse_source_map(file)?;
 
@@ -560,17 +573,7 @@ fn cmd_info(file: &PathBuf, json: bool) -> Result<(), CliError> {
         print_info_json(&sm, raw.len());
     } else {
         print_info_summary(&sm, raw.len());
-
-        println!();
-        println!("Sources:");
-        for (i, s) in sm.sources.iter().enumerate() {
-            let ignored = if sm.ignore_list.contains(&(i as u32)) { " (ignored)" } else { "" };
-            let content = match sm.sources_content.get(i) {
-                Some(Some(c)) => format!(" [{}]", format_size(c.len())),
-                _ => String::new(),
-            };
-            println!("  {i}: {s}{content}{ignored}");
-        }
+        print_info_sources(&sm);
 
         if !sm.names.is_empty() {
             println!();
