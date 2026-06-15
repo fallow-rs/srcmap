@@ -1764,6 +1764,20 @@ fn schema_scopes_command() -> serde_json::Value {
     })
 }
 
+fn schema_fetch_command() -> serde_json::Value {
+    serde_json::json!({
+        "name": "fetch",
+        "description": "Fetch a JavaScript/CSS bundle and its source map from a URL",
+        "args": [
+            {"name": "url", "type": "string", "required": true, "description": "URL of the JavaScript or CSS file"}
+        ],
+        "flags": {
+            "-o, --output": {"type": "path", "required": false, "description": "Output directory (default: current directory)"},
+            "--json": {"type": "bool", "default": false, "description": "Output as JSON"}
+        }
+    })
+}
+
 fn cmd_schema() -> Result<(), CliError> {
     let schema = serde_json::json!({
         "name": "srcmap",
@@ -1785,17 +1799,7 @@ fn cmd_schema() -> Result<(), CliError> {
             schema_remap_command(),
             schema_symbolicate_command(),
             schema_scopes_command(),
-            {
-                "name": "fetch",
-                "description": "Fetch a JavaScript/CSS bundle and its source map from a URL",
-                "args": [
-                    {"name": "url", "type": "string", "required": true, "description": "URL of the JavaScript or CSS file"}
-                ],
-                "flags": {
-                    "-o, --output": {"type": "path", "required": false, "description": "Output directory (default: current directory)"},
-                    "--json": {"type": "bool", "default": false, "description": "Output as JSON"}
-                }
-            },
+            schema_fetch_command(),
             {
                 "name": "sources",
                 "description": "List or extract original sources embedded in a source map",
