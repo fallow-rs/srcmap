@@ -694,57 +694,78 @@ where
             &loader,
         );
 
-        match &mut source_entries[si] {
-            SourceEntry::Upstream { map, cache } => {
-                if let Some(upstream_m) = lookup_upstream(map, m.original_line, m.original_column) {
-                    trace_and_emit_upstream(
-                        &mut builder,
-                        &mut dedup,
-                        UpstreamEmitContext {
-                            gen_line: m.generated_line,
-                            gen_col: m.generated_column,
-                            upstream_m,
-                            cache,
-                            upstream_map: map,
-                            outer_name_remap: &mut outer_name_remap,
-                            outer_name_idx: m.name,
-                            names: &outer.names,
-                            ignored_sources: &mut ignored_sources,
-                            is_range: m.is_range_mapping,
-                        },
-                    );
-                }
-            }
-            SourceEntry::Passthrough { builder_src } => {
-                trace_and_emit_passthrough(
-                    &mut builder,
-                    &mut dedup,
-                    PassthroughEmitContext {
+        trace_source_entry(
+            &mut source_entries[si],
+            m,
+            RemapTraceContext {
+                builder: &mut builder,
+                dedup: &mut dedup,
+                outer_name_remap: &mut outer_name_remap,
+                names: &outer.names,
+                ignored_sources: &mut ignored_sources,
+            },
+        );
+    }
+
+    builder.to_decoded_map()
+}
+
+struct RemapTraceContext<'a> {
+    builder: &'a mut SourceMapGenerator,
+    dedup: &'a mut DedupeState,
+    outer_name_remap: &'a mut [Option<u32>],
+    names: &'a [String],
+    ignored_sources: &'a mut HashSet<u32>,
+}
+
+fn trace_source_entry(
+    entry: &mut SourceEntry,
+    m: &srcmap_sourcemap::Mapping,
+    ctx: RemapTraceContext<'_>,
+) {
+    match entry {
+        SourceEntry::Upstream { map, cache } => {
+            if let Some(upstream_m) = lookup_upstream(map, m.original_line, m.original_column) {
+                trace_and_emit_upstream(
+                    ctx.builder,
+                    ctx.dedup,
+                    UpstreamEmitContext {
                         gen_line: m.generated_line,
                         gen_col: m.generated_column,
-                        orig_line: m.original_line,
-                        orig_col: m.original_column,
-                        builder_src: *builder_src,
-                        outer_name_remap: &mut outer_name_remap,
+                        upstream_m,
+                        cache,
+                        upstream_map: map,
+                        outer_name_remap: ctx.outer_name_remap,
                         outer_name_idx: m.name,
-                        names: &outer.names,
+                        names: ctx.names,
+                        ignored_sources: ctx.ignored_sources,
                         is_range: m.is_range_mapping,
                     },
                 );
             }
-            SourceEntry::EmptySource => {
-                trace_and_emit_sourceless(
-                    &mut builder,
-                    &mut dedup,
-                    m.generated_line,
-                    m.generated_column,
-                );
-            }
-            SourceEntry::Unloaded => unreachable!(),
         }
+        SourceEntry::Passthrough { builder_src } => {
+            trace_and_emit_passthrough(
+                ctx.builder,
+                ctx.dedup,
+                PassthroughEmitContext {
+                    gen_line: m.generated_line,
+                    gen_col: m.generated_column,
+                    orig_line: m.original_line,
+                    orig_col: m.original_column,
+                    builder_src: *builder_src,
+                    outer_name_remap: ctx.outer_name_remap,
+                    outer_name_idx: m.name,
+                    names: ctx.names,
+                    is_range: m.is_range_mapping,
+                },
+            );
+        }
+        SourceEntry::EmptySource => {
+            trace_and_emit_sourceless(ctx.builder, ctx.dedup, m.generated_line, m.generated_column);
+        }
+        SourceEntry::Unloaded => unreachable!(),
     }
-
-    builder.to_decoded_map()
 }
 
 fn load_source_entry<F>(
