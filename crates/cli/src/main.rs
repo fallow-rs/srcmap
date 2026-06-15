@@ -651,6 +651,38 @@ fn lookup_context_lines<'a>(
     })
 }
 
+fn print_lookup_json(
+    source: &str,
+    loc: &OriginalLocation,
+    name: Option<&str>,
+    context_lines: &ContextLines<'_>,
+) {
+    let mut obj = serde_json::json!({
+        "source": source,
+        "line": loc.line,
+        "column": loc.column,
+        "name": name,
+    });
+
+    if let Some((start, target, lines)) = context_lines {
+        let ctx: Vec<serde_json::Value> = lines
+            .iter()
+            .enumerate()
+            .map(|(i, text)| {
+                let line_num = *start + i;
+                serde_json::json!({
+                    "line": line_num,
+                    "text": text,
+                    "highlight": line_num == *target,
+                })
+            })
+            .collect();
+        obj["context"] = serde_json::json!(ctx);
+    }
+
+    println!("{}", serde_json::to_string_pretty(&obj).unwrap());
+}
+
 fn cmd_lookup(
     file: &PathBuf,
     line: u32,
@@ -669,30 +701,7 @@ fn cmd_lookup(
             let context_lines = lookup_context_lines(&sm, &loc, context);
 
             if json {
-                let mut obj = serde_json::json!({
-                    "source": source,
-                    "line": loc.line,
-                    "column": loc.column,
-                    "name": name,
-                });
-
-                if let Some((start, target, ref lines)) = context_lines {
-                    let ctx: Vec<serde_json::Value> = lines
-                        .iter()
-                        .enumerate()
-                        .map(|(i, text)| {
-                            let line_num = start + i;
-                            serde_json::json!({
-                                "line": line_num,
-                                "text": text,
-                                "highlight": line_num == target,
-                            })
-                        })
-                        .collect();
-                    obj["context"] = serde_json::json!(ctx);
-                }
-
-                println!("{}", serde_json::to_string_pretty(&obj).unwrap());
+                print_lookup_json(source, &loc, name.as_deref(), &context_lines);
             } else {
                 println!("{source}:{line}:{col}", line = loc.line, col = loc.column);
                 if let Some(name) = name {
