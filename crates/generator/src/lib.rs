@@ -668,58 +668,7 @@ impl SourceMapGenerator {
         write_json_string_array(&mut json, &self.sources);
         json.push(b']');
 
-        // sourcesContent (only if any content is set)
-        if self.sources_content.iter().any(|c| c.is_some()) {
-            json.extend_from_slice(br#","sourcesContent":["#);
-
-            #[cfg(feature = "parallel")]
-            {
-                use rayon::prelude::*;
-
-                let total_content: usize =
-                    self.sources_content.iter().map(|c| c.as_ref().map_or(0, |s| s.len())).sum();
-
-                if self.sources_content.len() >= 8 && total_content >= 8192 {
-                    let quoted: Vec<String> = self
-                        .sources_content
-                        .par_iter()
-                        .map(|c| match c {
-                            Some(content) => json_quote(content),
-                            None => "null".to_string(),
-                        })
-                        .collect();
-                    for (i, q) in quoted.iter().enumerate() {
-                        if i > 0 {
-                            json.push(b',');
-                        }
-                        json.extend_from_slice(q.as_bytes());
-                    }
-                } else {
-                    for (i, c) in self.sources_content.iter().enumerate() {
-                        if i > 0 {
-                            json.push(b',');
-                        }
-                        match c {
-                            Some(content) => json_quote_into(&mut json, content),
-                            None => json.extend_from_slice(b"null"),
-                        }
-                    }
-                }
-            }
-
-            #[cfg(not(feature = "parallel"))]
-            for (i, c) in self.sources_content.iter().enumerate() {
-                if i > 0 {
-                    json.push(b',');
-                }
-                match c {
-                    Some(content) => json_quote_into(&mut json, content),
-                    None => json.extend_from_slice(b"null"),
-                }
-            }
-
-            json.push(b']');
-        }
+        self.write_sources_content_json(&mut json);
 
         json.extend_from_slice(br#","names":["#);
         write_json_string_array(&mut json, names_for_json.as_ref());
@@ -786,6 +735,62 @@ impl SourceMapGenerator {
             self.sources_content.iter().map(|c| c.as_ref().map_or(5, |s| s.len() + 4)).sum();
         let mappings_estimate = self.mappings.len() * 6;
         100 + sources_size + names_size + mappings_estimate + content_size
+    }
+
+    fn write_sources_content_json(&self, json: &mut Vec<u8>) {
+        if !self.sources_content.iter().any(|c| c.is_some()) {
+            return;
+        }
+
+        json.extend_from_slice(br#","sourcesContent":["#);
+
+        #[cfg(feature = "parallel")]
+        {
+            use rayon::prelude::*;
+
+            let total_content: usize =
+                self.sources_content.iter().map(|c| c.as_ref().map_or(0, |s| s.len())).sum();
+
+            if self.sources_content.len() >= 8 && total_content >= 8192 {
+                let quoted: Vec<String> = self
+                    .sources_content
+                    .par_iter()
+                    .map(|c| match c {
+                        Some(content) => json_quote(content),
+                        None => "null".to_string(),
+                    })
+                    .collect();
+                for (i, q) in quoted.iter().enumerate() {
+                    if i > 0 {
+                        json.push(b',');
+                    }
+                    json.extend_from_slice(q.as_bytes());
+                }
+            } else {
+                for (i, c) in self.sources_content.iter().enumerate() {
+                    if i > 0 {
+                        json.push(b',');
+                    }
+                    match c {
+                        Some(content) => json_quote_into(json, content),
+                        None => json.extend_from_slice(b"null"),
+                    }
+                }
+            }
+        }
+
+        #[cfg(not(feature = "parallel"))]
+        for (i, c) in self.sources_content.iter().enumerate() {
+            if i > 0 {
+                json.push(b',');
+            }
+            match c {
+                Some(content) => json_quote_into(json, content),
+                None => json.extend_from_slice(b"null"),
+            }
+        }
+
+        json.push(b']');
     }
 
     /// Get the number of mappings.
