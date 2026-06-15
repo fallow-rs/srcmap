@@ -804,6 +804,24 @@ impl SourceMapGenerator {
         writer.write_all(b"]")
     }
 
+    fn write_sources_content_to_writer(&self, writer: &mut impl io::Write) -> io::Result<()> {
+        if !self.sources_content.iter().any(|c| c.is_some()) {
+            return Ok(());
+        }
+
+        writer.write_all(br#","sourcesContent":["#)?;
+        for (i, c) in self.sources_content.iter().enumerate() {
+            if i > 0 {
+                writer.write_all(b",")?;
+            }
+            match c {
+                Some(content) => write_json_quoted(writer, content)?,
+                None => writer.write_all(b"null")?,
+            }
+        }
+        writer.write_all(b"]")
+    }
+
     /// Get the number of mappings.
     pub fn mapping_count(&self) -> usize {
         self.mappings.len()
@@ -906,20 +924,7 @@ impl SourceMapGenerator {
 
         self.write_sources_to_writer(writer)?;
 
-        // sourcesContent (only if any content is set)
-        if self.sources_content.iter().any(|c| c.is_some()) {
-            writer.write_all(br#","sourcesContent":["#)?;
-            for (i, c) in self.sources_content.iter().enumerate() {
-                if i > 0 {
-                    writer.write_all(b",")?;
-                }
-                match c {
-                    Some(content) => write_json_quoted(writer, content)?,
-                    None => writer.write_all(b"null")?,
-                }
-            }
-            writer.write_all(b"]")?;
-        }
+        self.write_sources_content_to_writer(writer)?;
 
         // names
         writer.write_all(br#","names":["#)?;
