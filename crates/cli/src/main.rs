@@ -969,15 +969,10 @@ fn validate_concat_inputs(files: &[PathBuf], output: &Option<PathBuf>) -> Result
     Ok(())
 }
 
-fn cmd_concat(
+fn build_concat_map(
     files: &[PathBuf],
-    output: &Option<PathBuf>,
     file_name: Option<String>,
-    json: bool,
-    dry_run: bool,
-) -> Result<(), CliError> {
-    validate_concat_inputs(files, output)?;
-
+) -> Result<(String, SourceMap, Vec<serde_json::Value>), CliError> {
     let mut builder = ConcatBuilder::new(file_name);
     let mut line_offset: u32 = 0;
     let mut file_stats: Vec<serde_json::Value> = Vec::new();
@@ -1001,6 +996,20 @@ fn cmd_concat(
     let map_json = builder.to_json();
     let result = SourceMap::from_json(&map_json)
         .map_err(|e| CliError::parse(format!("failed to parse generated map: {e}")))?;
+
+    Ok((map_json, result, file_stats))
+}
+
+fn cmd_concat(
+    files: &[PathBuf],
+    output: &Option<PathBuf>,
+    file_name: Option<String>,
+    json: bool,
+    dry_run: bool,
+) -> Result<(), CliError> {
+    validate_concat_inputs(files, output)?;
+
+    let (map_json, result, file_stats) = build_concat_map(files, file_name)?;
 
     if dry_run {
         if json {
