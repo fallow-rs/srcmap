@@ -1467,6 +1467,23 @@ fn save_inline_source_map(
     Ok((map_path.display().to_string(), decoded_json.len(), "inline".to_string()))
 }
 
+fn fetch_external_source_map(
+    url: &str,
+    map_ref: &str,
+    output_dir: &Path,
+) -> Result<(String, usize, String), CliError> {
+    let map_url = resolve_source_map_url(url, map_ref)
+        .ok_or_else(|| CliError::fetch_error(format!("could not resolve source map URL: {map_ref}")))?;
+    eprintln!("Fetching {map_url}...");
+    let map_body = http_get(&map_url)?;
+    let map_filename = url_filename(&map_url);
+    let map_path = output_dir.join(&map_filename);
+    fs::write(&map_path, &map_body)
+        .map_err(|e| CliError::io(format!("failed to write {}: {e}", map_path.display())))?;
+    eprintln!("  Saved {} ({})", map_path.display(), format_size(map_body.len()));
+    Ok((map_path.display().to_string(), map_body.len(), map_url))
+}
+
 fn cmd_fetch(url: &str, output: &Option<PathBuf>, json: bool) -> Result<(), CliError> {
     validate_fetch_url(url)?;
 
@@ -1479,18 +1496,7 @@ fn cmd_fetch(url: &str, output: &Option<PathBuf>, json: bool) -> Result<(), CliE
             Some(save_inline_source_map(&bundle_filename, &output_dir, decoded_json)?)
         }
         Some(SourceMappingUrl::External(ref map_ref)) => {
-            let map_url = resolve_source_map_url(url, map_ref).ok_or_else(|| {
-                CliError::fetch_error(format!("could not resolve source map URL: {map_ref}"))
-            })?;
-            eprintln!("Fetching {map_url}...");
-            let map_body = http_get(&map_url)?;
-            let map_filename = url_filename(&map_url);
-            let map_path = output_dir.join(&map_filename);
-            fs::write(&map_path, &map_body).map_err(|e| {
-                CliError::io(format!("failed to write {}: {e}", map_path.display()))
-            })?;
-            eprintln!("  Saved {} ({})", map_path.display(), format_size(map_body.len()));
-            Some((map_path.display().to_string(), map_body.len(), map_url))
+            Some(fetch_external_source_map(url, map_ref, &output_dir)?)
         }
         None => {
             // Try conventional .map suffix
