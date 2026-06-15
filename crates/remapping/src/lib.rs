@@ -683,32 +683,16 @@ where
         let si = m.source as usize;
 
         // Load upstream map if not yet cached — Vec index, no hash
-        if matches!(source_entries[si], SourceEntry::Unloaded) {
-            let source_name = outer.source(m.source);
-            // Empty-string sources (from JSON null) are treated as generated-only,
-            // matching jridgewell's `if (!source)` check in addSegmentInternal.
-            if source_name.is_empty() {
-                source_entries[si] = SourceEntry::EmptySource;
-            } else {
-                match loader(source_name) {
-                    Some(upstream_sm) => {
-                        let cache = build_upstream_cache(&upstream_sm);
-                        source_entries[si] =
-                            SourceEntry::Upstream { map: Box::new(upstream_sm), cache };
-                    }
-                    None => {
-                        let idx = builder.add_source(source_name);
-                        if let Some(Some(content)) = outer.sources_content.get(si) {
-                            builder.set_source_content(idx, content.clone());
-                        }
-                        if outer_ignore_set.contains(&m.source) && ignored_sources.insert(idx) {
-                            builder.add_to_ignore_list(idx);
-                        }
-                        source_entries[si] = SourceEntry::Passthrough { builder_src: idx };
-                    }
-                }
-            }
-        }
+        load_source_entry(
+            &mut source_entries,
+            si,
+            outer,
+            m.source,
+            &mut builder,
+            &outer_ignore_set,
+            &mut ignored_sources,
+            &loader,
+        );
 
         match &mut source_entries[si] {
             SourceEntry::Upstream { map, cache } => {
@@ -761,6 +745,48 @@ where
     }
 
     builder.to_decoded_map()
+}
+
+fn load_source_entry<F>(
+    source_entries: &mut [SourceEntry],
+    si: usize,
+    outer: &SourceMap,
+    outer_source_idx: u32,
+    builder: &mut SourceMapGenerator,
+    outer_ignore_set: &HashSet<u32>,
+    ignored_sources: &mut HashSet<u32>,
+    loader: &F,
+) where
+    F: Fn(&str) -> Option<SourceMap>,
+{
+    if !matches!(source_entries[si], SourceEntry::Unloaded) {
+        return;
+    }
+
+    let source_name = outer.source(outer_source_idx);
+    // Empty-string sources (from JSON null) are treated as generated-only,
+    // matching jridgewell's `if (!source)` check in addSegmentInternal.
+    if source_name.is_empty() {
+        source_entries[si] = SourceEntry::EmptySource;
+        return;
+    }
+
+    match loader(source_name) {
+        Some(upstream_sm) => {
+            let cache = build_upstream_cache(&upstream_sm);
+            source_entries[si] = SourceEntry::Upstream { map: Box::new(upstream_sm), cache };
+        }
+        None => {
+            let idx = builder.add_source(source_name);
+            if let Some(Some(content)) = outer.sources_content.get(si) {
+                builder.set_source_content(idx, content.clone());
+            }
+            if outer_ignore_set.contains(&outer_source_idx) && ignored_sources.insert(idx) {
+                builder.add_to_ignore_list(idx);
+            }
+            source_entries[si] = SourceEntry::Passthrough { builder_src: idx };
+        }
+    }
 }
 
 /// Compose a chain of pre-parsed source maps into a single source map.
