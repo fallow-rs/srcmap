@@ -215,6 +215,28 @@ fn build_source_map(sources: &[String]) -> HashMap<String, u32> {
     sources.iter().enumerate().map(|(i, s)| (s.clone(), i as u32)).collect()
 }
 
+fn build_mapping_line_offsets(mappings: &[Mapping], line_count: usize) -> Vec<u32> {
+    let mut line_offsets: Vec<u32> = vec![0; line_count + 1];
+    let mut current_line: usize = 0;
+    for (i, m) in mappings.iter().enumerate() {
+        while current_line < m.generated_line as usize {
+            current_line += 1;
+            if current_line < line_offsets.len() {
+                line_offsets[current_line] = i as u32;
+            }
+        }
+    }
+
+    if !line_offsets.is_empty() {
+        let last = mappings.len() as u32;
+        for offset in line_offsets.iter_mut().skip(current_line + 1) {
+            *offset = last;
+        }
+    }
+
+    line_offsets
+}
+
 /// Retain only extension fields that use an `x_*` or `x-*` prefix.
 fn filter_extensions(
     extensions: HashMap<String, serde_json::Value>,
@@ -751,25 +773,8 @@ impl SourceMap {
                 .then(a.generated_column.cmp(&b.generated_column))
         });
 
-        // Build line_offsets
         let line_count = if all_mappings.is_empty() { 0 } else { max_line as usize + 1 };
-        let mut line_offsets: Vec<u32> = vec![0; line_count + 1];
-        let mut current_line: usize = 0;
-        for (i, m) in all_mappings.iter().enumerate() {
-            while current_line < m.generated_line as usize {
-                current_line += 1;
-                if current_line < line_offsets.len() {
-                    line_offsets[current_line] = i as u32;
-                }
-            }
-        }
-        // Fill sentinel
-        if !line_offsets.is_empty() {
-            let last = all_mappings.len() as u32;
-            for offset in line_offsets.iter_mut().skip(current_line + 1) {
-                *offset = last;
-            }
-        }
+        let line_offsets = build_mapping_line_offsets(&all_mappings, line_count);
 
         let source_map = build_source_map(&all_sources);
         let has_range_mappings = all_mappings.iter().any(|m| m.is_range_mapping);
@@ -1324,25 +1329,8 @@ impl SourceMap {
         debug_id: Option<String>,
         scopes: Option<ScopeInfo>,
     ) -> Self {
-        // Build line_offsets from sorted mappings
         let line_count = mappings.last().map_or(0, |m| m.generated_line as usize + 1);
-        let mut line_offsets: Vec<u32> = vec![0; line_count + 1];
-        let mut current_line: usize = 0;
-        for (i, m) in mappings.iter().enumerate() {
-            while current_line < m.generated_line as usize {
-                current_line += 1;
-                if current_line < line_offsets.len() {
-                    line_offsets[current_line] = i as u32;
-                }
-            }
-        }
-        // Fill remaining with sentinel
-        if !line_offsets.is_empty() {
-            let last = mappings.len() as u32;
-            for offset in line_offsets.iter_mut().skip(current_line + 1) {
-                *offset = last;
-            }
-        }
+        let line_offsets = build_mapping_line_offsets(&mappings, line_count);
 
         let source_map = build_source_map(&sources);
         let has_range_mappings = mappings.iter().any(|m| m.is_range_mapping);
