@@ -1366,14 +1366,7 @@ impl StreamingGenerator {
             json_quote_into(&mut json, root);
         }
 
-        json.extend_from_slice(br#","sources":["#);
-        for (i, s) in self.sources.iter().enumerate() {
-            if i > 0 {
-                json.push(b',');
-            }
-            json_quote_into(&mut json, s);
-        }
-        json.push(b']');
+        self.write_sources_json(&mut json);
 
         if self.sources_content.iter().any(|c| c.is_some()) {
             json.extend_from_slice(br#","sourcesContent":["#);
@@ -1438,6 +1431,17 @@ impl StreamingGenerator {
         let content_size: usize =
             self.sources_content.iter().map(|c| c.as_ref().map_or(5, |s| s.len() + 4)).sum();
         100 + sources_size + names_size + vlq_len + content_size
+    }
+
+    fn write_sources_json(&self, json: &mut Vec<u8>) {
+        json.extend_from_slice(br#","sources":["#);
+        for (i, s) in self.sources.iter().enumerate() {
+            if i > 0 {
+                json.push(b',');
+            }
+            json_quote_into(json, s);
+        }
+        json.push(b']');
     }
 
     /// Directly construct a `SourceMap` from the streaming generator's state.
