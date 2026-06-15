@@ -1216,10 +1216,10 @@ fn cmd_remap(
         }
 
         // Try directory search: look for source.map next to the source
-        if let Some(ref search_dir) = safe_dir {
-            if let Some(sm) = load_directory_upstream(source, search_dir, &found_upstreams) {
-                return Some(sm);
-            }
+        if let Some(ref search_dir) = safe_dir
+            && let Some(sm) = load_directory_upstream(source, search_dir, &found_upstreams)
+        {
+            return Some(sm);
         }
 
         None

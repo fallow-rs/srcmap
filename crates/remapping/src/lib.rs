@@ -689,9 +689,11 @@ where
             si,
             outer,
             m.source,
-            &mut builder,
-            &outer_ignore_set,
-            &mut ignored_sources,
+            SourceEntryLoadContext {
+                builder: &mut builder,
+                outer_ignore_set: &outer_ignore_set,
+                ignored_sources: &mut ignored_sources,
+            },
             &loader,
         );
 
@@ -769,14 +771,18 @@ fn trace_source_entry(
     }
 }
 
+struct SourceEntryLoadContext<'a, B> {
+    builder: &'a mut B,
+    outer_ignore_set: &'a HashSet<u32>,
+    ignored_sources: &'a mut HashSet<u32>,
+}
+
 fn load_source_entry<F>(
     source_entries: &mut [SourceEntry],
     si: usize,
     outer: &SourceMap,
     outer_source_idx: u32,
-    builder: &mut SourceMapGenerator,
-    outer_ignore_set: &HashSet<u32>,
-    ignored_sources: &mut HashSet<u32>,
+    ctx: SourceEntryLoadContext<'_, SourceMapGenerator>,
     loader: &F,
 ) where
     F: Fn(&str) -> Option<SourceMap>,
@@ -799,12 +805,12 @@ fn load_source_entry<F>(
             source_entries[si] = SourceEntry::Upstream { map: Box::new(upstream_sm), cache };
         }
         None => {
-            let idx = builder.add_source(source_name);
+            let idx = ctx.builder.add_source(source_name);
             if let Some(Some(content)) = outer.sources_content.get(si) {
-                builder.set_source_content(idx, content.clone());
+                ctx.builder.set_source_content(idx, content.clone());
             }
-            if outer_ignore_set.contains(&outer_source_idx) && ignored_sources.insert(idx) {
-                builder.add_to_ignore_list(idx);
+            if ctx.outer_ignore_set.contains(&outer_source_idx) && ctx.ignored_sources.insert(idx) {
+                ctx.builder.add_to_ignore_list(idx);
             }
             source_entries[si] = SourceEntry::Passthrough { builder_src: idx };
         }
@@ -973,9 +979,11 @@ where
             sources,
             sources_content,
             m.source,
-            &mut builder,
-            &outer_ignore_set,
-            &mut ignored_sources,
+            SourceEntryLoadContext {
+                builder: &mut builder,
+                outer_ignore_set: &outer_ignore_set,
+                ignored_sources: &mut ignored_sources,
+            },
             &loader,
         );
 
@@ -1059,9 +1067,7 @@ fn load_streaming_source_entry<F>(
     sources: &[String],
     sources_content: &[Option<String>],
     outer_source_idx: u32,
-    builder: &mut StreamingGenerator,
-    outer_ignore_set: &HashSet<u32>,
-    ignored_sources: &mut HashSet<u32>,
+    ctx: SourceEntryLoadContext<'_, StreamingGenerator>,
     loader: &F,
 ) where
     F: Fn(&str) -> Option<SourceMap>,
@@ -1082,12 +1088,12 @@ fn load_streaming_source_entry<F>(
             source_entries[si] = StreamingSourceEntry::Upstream { map: Box::new(upstream_sm), cache };
         }
         None => {
-            let idx = builder.add_source(source_name);
+            let idx = ctx.builder.add_source(source_name);
             if let Some(Some(content)) = sources_content.get(si) {
-                builder.set_source_content(idx, content.clone());
+                ctx.builder.set_source_content(idx, content.clone());
             }
-            if outer_ignore_set.contains(&outer_source_idx) && ignored_sources.insert(idx) {
-                builder.add_to_ignore_list(idx);
+            if ctx.outer_ignore_set.contains(&outer_source_idx) && ctx.ignored_sources.insert(idx) {
+                ctx.builder.add_to_ignore_list(idx);
             }
             source_entries[si] = StreamingSourceEntry::Passthrough { builder_src: idx };
         }

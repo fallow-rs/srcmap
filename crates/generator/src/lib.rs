@@ -712,7 +712,7 @@ impl SourceMapGenerator {
         unsafe { String::from_utf8_unchecked(json) }
     }
 
-    fn scopes_and_names_for_json(&self) -> (Option<String>, std::borrow::Cow<'_, Vec<String>>) {
+    fn scopes_and_names_for_json(&self) -> (Option<String>, std::borrow::Cow<'_, [String]>) {
         if let Some(ref scopes_info) = self.scopes {
             let mut names = self.names.clone();
             let scopes = srcmap_scopes::encode_scopes(scopes_info, &mut names);
