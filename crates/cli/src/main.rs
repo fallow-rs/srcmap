@@ -1751,6 +1751,19 @@ fn schema_symbolicate_command() -> serde_json::Value {
     })
 }
 
+fn schema_scopes_command() -> serde_json::Value {
+    serde_json::json!({
+        "name": "scopes",
+        "description": "Inspect ECMA-426 scopes and variable bindings in a source map",
+        "args": [
+            {"name": "file", "type": "path", "required": true, "description": "Source map file"}
+        ],
+        "flags": {
+            "--json": {"type": "bool", "default": false, "description": "Output as JSON"}
+        }
+    })
+}
+
 fn cmd_schema() -> Result<(), CliError> {
     let schema = serde_json::json!({
         "name": "srcmap",
@@ -1771,16 +1784,7 @@ fn cmd_schema() -> Result<(), CliError> {
             schema_concat_command(),
             schema_remap_command(),
             schema_symbolicate_command(),
-            {
-                "name": "scopes",
-                "description": "Inspect ECMA-426 scopes and variable bindings in a source map",
-                "args": [
-                    {"name": "file", "type": "path", "required": true, "description": "Source map file"}
-                ],
-                "flags": {
-                    "--json": {"type": "bool", "default": false, "description": "Output as JSON"}
-                }
-            },
+            schema_scopes_command(),
             {
                 "name": "fetch",
                 "description": "Fetch a JavaScript/CSS bundle and its source map from a URL",
