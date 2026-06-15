@@ -3302,16 +3302,6 @@ impl<'a> MappingsIter<'a> {
         Some(Err(error))
     }
 
-    fn stop_with_invalid_segment(
-        &mut self,
-        fields: u8,
-    ) -> Option<Result<Mapping, DecodeError>> {
-        self.stop_with_error(DecodeError::InvalidSegmentLength {
-            fields,
-            offset: self.pos,
-        })
-    }
-
     fn at_segment_delimiter(&self) -> bool {
         self.pos >= self.len || self.bytes[self.pos] == b',' || self.bytes[self.pos] == b';'
     }
@@ -3338,6 +3328,28 @@ impl<'a> MappingsIter<'a> {
             name,
             is_range_mapping: false,
         }
+    }
+
+    fn decode_sourced_mapping(&mut self) -> Result<Mapping, DecodeError> {
+        self.source_index += vlq_fast(self.bytes, &mut self.pos)?;
+        if self.at_segment_delimiter() {
+            return Err(DecodeError::InvalidSegmentLength { fields: 2, offset: self.pos });
+        }
+
+        self.original_line += vlq_fast(self.bytes, &mut self.pos)?;
+        if self.at_segment_delimiter() {
+            return Err(DecodeError::InvalidSegmentLength { fields: 3, offset: self.pos });
+        }
+
+        self.original_column += vlq_fast(self.bytes, &mut self.pos)?;
+        let name = if self.at_segment_delimiter() {
+            NO_NAME
+        } else {
+            self.name_index += vlq_fast(self.bytes, &mut self.pos)?;
+            self.name_index as u32
+        };
+
+        Ok(self.sourced_mapping(name))
     }
 }
 
@@ -3375,49 +3387,14 @@ impl Iterator for MappingsIter<'_> {
                 Err(e) => return self.stop_with_error(e),
             }
 
-            if !self.at_segment_delimiter() {
-                // Field 2: source index
-                match vlq_fast(self.bytes, &mut self.pos) {
-                    Ok(delta) => self.source_index += delta,
-                    Err(e) => return self.stop_with_error(e),
-                }
-                // Reject 2-field segments (only 1, 4, or 5 are valid per ECMA-426)
-                if self.at_segment_delimiter() {
-                    return self.stop_with_invalid_segment(2);
-                }
-                // Field 3: original line
-                match vlq_fast(self.bytes, &mut self.pos) {
-                    Ok(delta) => self.original_line += delta,
-                    Err(e) => return self.stop_with_error(e),
-                }
-                // Reject 3-field segments (only 1, 4, or 5 are valid per ECMA-426)
-                if self.at_segment_delimiter() {
-                    return self.stop_with_invalid_segment(3);
-                }
-                // Field 4: original column
-                match vlq_fast(self.bytes, &mut self.pos) {
-                    Ok(delta) => self.original_column += delta,
-                    Err(e) => return self.stop_with_error(e),
-                }
-
-                // Field 5: name (optional)
-                let name = if !self.at_segment_delimiter() {
-                    match vlq_fast(self.bytes, &mut self.pos) {
-                        Ok(delta) => {
-                            self.name_index += delta;
-                            self.name_index as u32
-                        }
-                        Err(e) => return self.stop_with_error(e),
-                    }
-                } else {
-                    NO_NAME
-                };
-
-                return Some(Ok(self.sourced_mapping(name)));
-            } else {
-                // 1-field segment: no source info
+            if self.at_segment_delimiter() {
                 return Some(Ok(self.generated_only_mapping()));
             }
+
+            return match self.decode_sourced_mapping() {
+                Ok(mapping) => Some(Ok(mapping)),
+                Err(e) => self.stop_with_error(e),
+            };
         }
     }
 }
