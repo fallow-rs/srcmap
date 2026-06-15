@@ -1600,6 +1600,19 @@ fn cmd_sources(
     Ok(())
 }
 
+fn schema_info_command() -> serde_json::Value {
+    serde_json::json!({
+        "name": "info",
+        "description": "Show source map metadata and statistics",
+        "args": [
+            {"name": "file", "type": "path", "required": true, "description": "Source map file (use `-` for stdin)"}
+        ],
+        "flags": {
+            "--json": {"type": "bool", "default": false, "description": "Output as JSON"}
+        }
+    })
+}
+
 fn cmd_schema() -> Result<(), CliError> {
     let schema = serde_json::json!({
         "name": "srcmap",
@@ -1610,16 +1623,7 @@ fn cmd_schema() -> Result<(), CliError> {
             "--json": "Available on most commands. Outputs structured JSON instead of human-readable text. Errors are also returned as JSON when this flag is active.",
         },
         "commands": [
-            {
-                "name": "info",
-                "description": "Show source map metadata and statistics",
-                "args": [
-                    {"name": "file", "type": "path", "required": true, "description": "Source map file (use `-` for stdin)"}
-                ],
-                "flags": {
-                    "--json": {"type": "bool", "default": false, "description": "Output as JSON"}
-                }
-            },
+            schema_info_command(),
             {
                 "name": "validate",
                 "description": "Validate a source map file and report structure",
