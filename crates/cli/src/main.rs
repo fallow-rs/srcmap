@@ -1529,6 +1529,49 @@ fn source_output_dir(output: &Option<PathBuf>) -> Result<PathBuf, CliError> {
     }
 }
 
+fn extract_source_contents(
+    sm: &SourceMap,
+    output_dir: &Path,
+) -> Result<(Vec<serde_json::Value>, Vec<String>), CliError> {
+    let mut extracted = Vec::new();
+    let mut skipped = Vec::new();
+
+    for (i, source_name) in sm.sources.iter().enumerate() {
+        let content = match sm.sources_content.get(i).and_then(|c| c.as_ref()) {
+            Some(c) => c,
+            None => {
+                skipped.push(source_name.clone());
+                continue;
+            }
+        };
+
+        let dest_path = match sanitize_source_path(source_name) {
+            Ok(p) => output_dir.join(p),
+            Err(_) => {
+                skipped.push(source_name.clone());
+                continue;
+            }
+        };
+
+        if let Some(parent) = dest_path.parent() {
+            fs::create_dir_all(parent).map_err(|e| {
+                CliError::io(format!("failed to create directory {}: {e}", parent.display()))
+            })?;
+        }
+
+        fs::write(&dest_path, content)
+            .map_err(|e| CliError::io(format!("failed to write {}: {e}", dest_path.display())))?;
+
+        extracted.push(serde_json::json!({
+            "source": source_name,
+            "file": dest_path.display().to_string(),
+            "size": content.len(),
+        }));
+    }
+
+    Ok((extracted, skipped))
+}
+
 fn cmd_sources(
     file: &PathBuf,
     extract: bool,
@@ -1538,43 +1581,7 @@ fn cmd_sources(
     let (sm, _) = parse_source_map(file)?;
     if extract {
         let output_dir = source_output_dir(output)?;
-
-        let mut extracted = Vec::new();
-        let mut skipped = Vec::new();
-
-        for (i, source_name) in sm.sources.iter().enumerate() {
-            let content = match sm.sources_content.get(i).and_then(|c| c.as_ref()) {
-                Some(c) => c,
-                None => {
-                    skipped.push(source_name.clone());
-                    continue;
-                }
-            };
-
-            let dest_path = match sanitize_source_path(source_name) {
-                Ok(p) => output_dir.join(p),
-                Err(_) => {
-                    skipped.push(source_name.clone());
-                    continue;
-                }
-            };
-
-            if let Some(parent) = dest_path.parent() {
-                fs::create_dir_all(parent).map_err(|e| {
-                    CliError::io(format!("failed to create directory {}: {e}", parent.display()))
-                })?;
-            }
-
-            fs::write(&dest_path, content).map_err(|e| {
-                CliError::io(format!("failed to write {}: {e}", dest_path.display()))
-            })?;
-
-            extracted.push(serde_json::json!({
-                "source": source_name,
-                "file": dest_path.display().to_string(),
-                "size": content.len(),
-            }));
-        }
+        let (extracted, skipped) = extract_source_contents(&sm, &output_dir)?;
 
         if json {
             let obj = serde_json::json!({
