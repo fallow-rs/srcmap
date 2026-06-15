@@ -793,6 +793,17 @@ impl SourceMapGenerator {
         json.push(b']');
     }
 
+    fn write_sources_to_writer(&self, writer: &mut impl io::Write) -> io::Result<()> {
+        writer.write_all(br#","sources":["#)?;
+        for (i, s) in self.sources.iter().enumerate() {
+            if i > 0 {
+                writer.write_all(b",")?;
+            }
+            write_json_quoted(writer, s)?;
+        }
+        writer.write_all(b"]")
+    }
+
     /// Get the number of mappings.
     pub fn mapping_count(&self) -> usize {
         self.mappings.len()
@@ -893,15 +904,7 @@ impl SourceMapGenerator {
             write_json_quoted(writer, root)?;
         }
 
-        // sources
-        writer.write_all(br#","sources":["#)?;
-        for (i, s) in self.sources.iter().enumerate() {
-            if i > 0 {
-                writer.write_all(b",")?;
-            }
-            write_json_quoted(writer, s)?;
-        }
-        writer.write_all(b"]")?;
+        self.write_sources_to_writer(writer)?;
 
         // sourcesContent (only if any content is set)
         if self.sources_content.iter().any(|c| c.is_some()) {
