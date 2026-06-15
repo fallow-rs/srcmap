@@ -879,14 +879,7 @@ impl SourceMapGenerator {
     /// Streams JSON output to the writer without building the full JSON string
     /// in memory. Useful for writing directly to files or network streams.
     pub fn to_writer(&self, writer: &mut impl io::Write) -> io::Result<()> {
-        // Encode scopes (may introduce names not yet in self.names)
-        let (scopes_str, names_for_json) = if let Some(ref scopes_info) = self.scopes {
-            let mut names = self.names.clone();
-            let s = srcmap_scopes::encode_scopes(scopes_info, &mut names);
-            (Some(s), std::borrow::Cow::Owned(names))
-        } else {
-            (None, std::borrow::Cow::Borrowed(&self.names))
-        };
+        let (scopes_str, names_for_json) = self.scopes_and_names_for_json();
 
         writer.write_all(br#"{"version":3"#)?;
 
