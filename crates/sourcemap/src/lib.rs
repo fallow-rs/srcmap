@@ -341,6 +341,20 @@ fn append_section_mappings(
     }
 }
 
+fn merge_section_original_scopes(
+    pending_scopes: &[(ScopeInfo, Vec<u32>, u32, u32)],
+    all_scopes: &mut [Option<OriginalScope>],
+) {
+    for (section_scopes, source_remap, _, _) in pending_scopes {
+        for (local_idx, local_scope) in section_scopes.scopes.iter().enumerate() {
+            let global_idx = source_remap[local_idx] as usize;
+            if all_scopes[global_idx].is_none() {
+                all_scopes[global_idx] = local_scope.clone();
+            }
+        }
+    }
+}
+
 /// Retain only extension fields that use an `x_*` or `x-*` prefix.
 fn filter_extensions(
     extensions: HashMap<String, serde_json::Value>,
@@ -775,14 +789,7 @@ impl SourceMap {
             );
         }
 
-        for (section_scopes, source_remap, _, _) in &pending_scopes {
-            for (local_idx, local_scope) in section_scopes.scopes.iter().enumerate() {
-                let global_idx = source_remap[local_idx] as usize;
-                if all_scopes[global_idx].is_none() {
-                    all_scopes[global_idx] = local_scope.clone();
-                }
-            }
-        }
+        merge_section_original_scopes(&pending_scopes, &mut all_scopes);
 
         let global_bases = definition_bases(&all_scopes);
         for (section_scopes, source_remap, line_offset, col_offset) in pending_scopes {
