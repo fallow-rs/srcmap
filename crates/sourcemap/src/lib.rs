@@ -275,6 +275,26 @@ fn remap_section_sources(
         .collect()
 }
 
+fn remap_section_names(
+    names: &[String],
+    all_names: &mut Vec<String>,
+    name_index_map: &mut HashMap<String, u32>,
+) -> Vec<u32> {
+    names
+        .iter()
+        .map(|name| {
+            if let Some(&existing) = name_index_map.get(name) {
+                existing
+            } else {
+                let idx = all_names.len() as u32;
+                all_names.push(name.clone());
+                name_index_map.insert(name.clone(), idx);
+                idx
+            }
+        })
+        .collect()
+}
+
 /// Retain only extension fields that use an `x_*` or `x-*` prefix.
 fn filter_extensions(
     extensions: HashMap<String, serde_json::Value>,
@@ -685,21 +705,7 @@ impl SourceMap {
                 &mut source_index_map,
             );
 
-            // Map section name indices to global indices
-            let name_remap: Vec<u32> = sub
-                .names
-                .iter()
-                .map(|n| {
-                    if let Some(&existing) = name_index_map.get(n) {
-                        existing
-                    } else {
-                        let idx = all_names.len() as u32;
-                        all_names.push(n.clone());
-                        name_index_map.insert(n.clone(), idx);
-                        idx
-                    }
-                })
-                .collect();
+            let name_remap = remap_section_names(&sub.names, &mut all_names, &mut name_index_map);
 
             // Add ignore_list entries (remapped to global source indices)
             for &idx in &sub.ignore_list {
