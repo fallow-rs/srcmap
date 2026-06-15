@@ -1233,6 +1233,16 @@ fn cmd_remap(
         return Ok(());
     }
 
+    write_remap_output(output, json, &result, found, skipped)
+}
+
+fn write_remap_output(
+    output: &Option<PathBuf>,
+    json: bool,
+    result: &SourceMap,
+    found: Vec<String>,
+    skipped: Vec<String>,
+) -> Result<(), CliError> {
     let map_json = result.to_json();
 
     if json {
@@ -1247,17 +1257,17 @@ fn cmd_remap(
             },
             "sourceMap": serde_json::from_str::<serde_json::Value>(&map_json).unwrap(),
         });
-        write_output(output, &serde_json::to_string_pretty(&obj).unwrap())?;
-    } else {
-        write_output(output, &map_json)?;
-        if output.is_some() {
-            eprintln!(
-                "Remapped: {} sources, {} mappings, {} lines",
-                result.sources.len(),
-                result.mapping_count(),
-                result.line_count()
-            );
-        }
+        return write_output(output, &serde_json::to_string_pretty(&obj).unwrap());
+    }
+
+    write_output(output, &map_json)?;
+    if output.is_some() {
+        eprintln!(
+            "Remapped: {} sources, {} mappings, {} lines",
+            result.sources.len(),
+            result.mapping_count(),
+            result.line_count()
+        );
     }
 
     Ok(())
