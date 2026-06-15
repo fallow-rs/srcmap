@@ -495,29 +495,33 @@ fn format_size(bytes: usize) -> String {
 
 // ── Commands ─────────────────────────────────────────────────────
 
+fn print_info_json(sm: &SourceMap, raw_len: usize) {
+    let has_content = sm.sources_content.iter().filter(|c| c.is_some()).count();
+    let content_size: usize =
+        sm.sources_content.iter().filter_map(|c| c.as_ref()).map(|s| s.len()).sum();
+
+    let obj = serde_json::json!({
+        "file": sm.file,
+        "sourceRoot": sm.source_root,
+        "sources": sm.sources.len(),
+        "names": sm.names.len(),
+        "mappings": sm.mapping_count(),
+        "rangeMappings": sm.range_mapping_count(),
+        "lines": sm.line_count(),
+        "sourcesWithContent": has_content,
+        "totalContentSize": content_size,
+        "fileSize": raw_len,
+        "ignoreList": sm.ignore_list,
+        "debugId": sm.debug_id,
+    });
+    println!("{}", serde_json::to_string_pretty(&obj).unwrap());
+}
+
 fn cmd_info(file: &PathBuf, json: bool) -> Result<(), CliError> {
     let (sm, raw) = parse_source_map(file)?;
 
     if json {
-        let has_content = sm.sources_content.iter().filter(|c| c.is_some()).count();
-        let content_size: usize =
-            sm.sources_content.iter().filter_map(|c| c.as_ref()).map(|s| s.len()).sum();
-
-        let obj = serde_json::json!({
-            "file": sm.file,
-            "sourceRoot": sm.source_root,
-            "sources": sm.sources.len(),
-            "names": sm.names.len(),
-            "mappings": sm.mapping_count(),
-            "rangeMappings": sm.range_mapping_count(),
-            "lines": sm.line_count(),
-            "sourcesWithContent": has_content,
-            "totalContentSize": content_size,
-            "fileSize": raw.len(),
-            "ignoreList": sm.ignore_list,
-            "debugId": sm.debug_id,
-        });
-        println!("{}", serde_json::to_string_pretty(&obj).unwrap());
+        print_info_json(&sm, raw.len());
     } else {
         if let Some(ref f) = sm.file {
             println!("File:         {f}");
