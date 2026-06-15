@@ -1289,15 +1289,7 @@ impl SourceMap {
 
         self.write_sources_json(&mut json, source_root_prefix);
         self.write_sources_content_json(&mut json, exclude_content);
-
-        json.push_str(r#","names":["#);
-        for (i, n) in names_for_json.iter().enumerate() {
-            if i > 0 {
-                json.push(',');
-            }
-            json_quote_into(&mut json, n);
-        }
-        json.push(']');
+        write_string_array_field(&mut json, "names", names_for_json);
 
         // VLQ mappings are pure base64/,/; — no escaping needed
         json.push_str(r#","mappings":""#);
@@ -2692,6 +2684,19 @@ pub fn validate_deep(sm: &SourceMap) -> Vec<String> {
     }
 
     warnings
+}
+
+fn write_string_array_field(out: &mut String, field: &str, values: &[String]) {
+    out.push_str(r#",""#);
+    out.push_str(field);
+    out.push_str(r#"":["#);
+    for (i, value) in values.iter().enumerate() {
+        if i > 0 {
+            out.push(',');
+        }
+        json_quote_into(out, value);
+    }
+    out.push(']');
 }
 
 /// Append a JSON-quoted string to the output buffer.
