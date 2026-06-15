@@ -718,10 +718,7 @@ fn print_lookup_text(
         for (i, text) in lines.iter().enumerate() {
             let line_num = *start + i;
             let marker = if line_num == *target { ">" } else { " " };
-            println!(
-                "{marker} {line_num:>gutter_width$} | {text}",
-                gutter_width = gutter_width
-            );
+            println!("{marker} {line_num:>gutter_width$} | {text}", gutter_width = gutter_width);
         }
     }
 }
@@ -848,7 +845,10 @@ fn cmd_encode(file: Option<PathBuf>, json: bool) -> Result<(), CliError> {
     Ok(())
 }
 
-fn mapping_source_index(sm: &SourceMap, source_filter: &Option<String>) -> Result<Option<u32>, CliError> {
+fn mapping_source_index(
+    sm: &SourceMap,
+    source_filter: &Option<String>,
+) -> Result<Option<u32>, CliError> {
     if let Some(name) = source_filter {
         reject_control_chars(name, "source filter")?;
         return sm
@@ -869,7 +869,8 @@ fn print_mappings_json(
     let entries: Vec<serde_json::Value> = filtered
         .iter()
         .map(|m| {
-            let source = if m.source != u32::MAX { Some(sm.source(m.source).to_string()) } else { None };
+            let source =
+                if m.source != u32::MAX { Some(sm.source(m.source).to_string()) } else { None };
             let name = if m.name != u32::MAX { Some(sm.name(m.name).to_string()) } else { None };
             serde_json::json!({
                 "generatedLine": m.generated_line,
@@ -893,7 +894,13 @@ fn print_mappings_json(
     println!("{}", serde_json::to_string_pretty(&obj).unwrap());
 }
 
-fn print_mappings_table(sm: &SourceMap, filtered: &[&Mapping], total: usize, offset: usize, limit: usize) {
+fn print_mappings_table(
+    sm: &SourceMap,
+    filtered: &[&Mapping],
+    total: usize,
+    offset: usize,
+    limit: usize,
+) {
     println!(
         "{:<8} {:<8} {:<30} {:<8} {:<8} {:<6} name",
         "gen.ln", "gen.col", "source", "orig.ln", "orig.col", "range"
@@ -1000,6 +1007,37 @@ fn build_concat_map(
     Ok((map_json, result, file_stats))
 }
 
+fn print_concat_dry_run(
+    files_len: usize,
+    result: &SourceMap,
+    map_len: usize,
+    file_stats: &[serde_json::Value],
+    json: bool,
+) {
+    if json {
+        let obj = serde_json::json!({
+            "dryRun": true,
+            "inputFiles": file_stats,
+            "result": {
+                "sources": result.sources.len(),
+                "mappings": result.mapping_count(),
+                "lines": result.line_count(),
+                "fileSize": map_len,
+            },
+        });
+        println!("{}", serde_json::to_string_pretty(&obj).unwrap());
+    } else {
+        eprintln!(
+            "Dry run: would concatenate {} files → {} sources, {} mappings, {} lines ({})",
+            files_len,
+            result.sources.len(),
+            result.mapping_count(),
+            result.line_count(),
+            format_size(map_len),
+        );
+    }
+}
+
 fn cmd_concat(
     files: &[PathBuf],
     output: &Option<PathBuf>,
@@ -1012,28 +1050,7 @@ fn cmd_concat(
     let (map_json, result, file_stats) = build_concat_map(files, file_name)?;
 
     if dry_run {
-        if json {
-            let obj = serde_json::json!({
-                "dryRun": true,
-                "inputFiles": file_stats,
-                "result": {
-                    "sources": result.sources.len(),
-                    "mappings": result.mapping_count(),
-                    "lines": result.line_count(),
-                    "fileSize": map_json.len(),
-                },
-            });
-            println!("{}", serde_json::to_string_pretty(&obj).unwrap());
-        } else {
-            eprintln!(
-                "Dry run: would concatenate {} files → {} sources, {} mappings, {} lines ({})",
-                files.len(),
-                result.sources.len(),
-                result.mapping_count(),
-                result.line_count(),
-                format_size(map_json.len()),
-            );
-        }
+        print_concat_dry_run(files.len(), &result, map_json.len(), &file_stats, json);
         return Ok(());
     }
 
@@ -1490,11 +1507,7 @@ fn save_inline_source_map(
     let map_path = output_dir.join(&map_filename);
     fs::write(&map_path, &decoded_json)
         .map_err(|e| CliError::io(format!("failed to write {}: {e}", map_path.display())))?;
-    eprintln!(
-        "  Saved {} (inline, {})",
-        map_path.display(),
-        format_size(decoded_json.len())
-    );
+    eprintln!("  Saved {} (inline, {})", map_path.display(), format_size(decoded_json.len()));
     Ok((map_path.display().to_string(), decoded_json.len(), "inline".to_string()))
 }
 
@@ -1503,8 +1516,9 @@ fn fetch_external_source_map(
     map_ref: &str,
     output_dir: &Path,
 ) -> Result<(String, usize, String), CliError> {
-    let map_url = resolve_source_map_url(url, map_ref)
-        .ok_or_else(|| CliError::fetch_error(format!("could not resolve source map URL: {map_ref}")))?;
+    let map_url = resolve_source_map_url(url, map_ref).ok_or_else(|| {
+        CliError::fetch_error(format!("could not resolve source map URL: {map_ref}"))
+    })?;
     eprintln!("Fetching {map_url}...");
     let map_body = http_get(&map_url)?;
     let map_filename = url_filename(&map_url);
@@ -1526,8 +1540,9 @@ fn fetch_conventional_source_map(
         Ok(map_body) => {
             let map_filename = format!("{bundle_filename}.map");
             let map_path = output_dir.join(&map_filename);
-            fs::write(&map_path, &map_body)
-                .map_err(|e| CliError::io(format!("failed to write {}: {e}", map_path.display())))?;
+            fs::write(&map_path, &map_body).map_err(|e| {
+                CliError::io(format!("failed to write {}: {e}", map_path.display()))
+            })?;
             eprintln!(
                 "  Saved {} (convention, {})",
                 map_path.display(),
