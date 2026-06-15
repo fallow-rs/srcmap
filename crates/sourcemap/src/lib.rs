@@ -286,6 +286,18 @@ fn original_position_glb_index(line_mappings: &[Mapping], column: u32) -> Option
     }
 }
 
+fn generated_only_mapping(line: u32, generated_column: i64) -> Mapping {
+    Mapping {
+        generated_line: line,
+        generated_column: generated_column as u32,
+        source: NO_SOURCE,
+        original_line: 0,
+        original_column: 0,
+        name: NO_NAME,
+        is_range_mapping: false,
+    }
+}
+
 fn validate_section_order(sections: &[RawSection]) -> Result<(), ParseError> {
     for i in 1..sections.len() {
         let prev = &sections[i - 1].offset;
@@ -2240,15 +2252,7 @@ impl LazySourceMap {
                     is_range_mapping: false,
                 });
             } else {
-                mappings.push(Mapping {
-                    generated_line: line,
-                    generated_column: generated_column as u32,
-                    source: NO_SOURCE,
-                    original_line: 0,
-                    original_column: 0,
-                    name: NO_NAME,
-                    is_range_mapping: false,
-                });
+                mappings.push(generated_only_mapping(line, generated_column));
             }
         }
 
