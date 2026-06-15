@@ -259,6 +259,90 @@ fn build_section_scope_info(
     Some(ScopeInfo { scopes, ranges })
 }
 
+struct SectionMergeState {
+    all_sources: Vec<String>,
+    all_sources_content: Vec<Option<String>>,
+    all_names: Vec<String>,
+    all_mappings: Vec<Mapping>,
+    all_ignore_list: Vec<u32>,
+    all_scopes: Vec<Option<OriginalScope>>,
+    all_ranges: Vec<GeneratedRange>,
+    pending_scopes: Vec<(ScopeInfo, Vec<u32>, u32, u32)>,
+    max_line: u32,
+    source_index_map: HashMap<String, u32>,
+    name_index_map: HashMap<String, u32>,
+}
+
+impl SectionMergeState {
+    fn new() -> Self {
+        Self {
+            all_sources: Vec::new(),
+            all_sources_content: Vec::new(),
+            all_names: Vec::new(),
+            all_mappings: Vec::new(),
+            all_ignore_list: Vec::new(),
+            all_scopes: Vec::new(),
+            all_ranges: Vec::new(),
+            pending_scopes: Vec::new(),
+            max_line: 0,
+            source_index_map: HashMap::new(),
+            name_index_map: HashMap::new(),
+        }
+    }
+
+    fn append_section(&mut self, section: &RawSection) -> Result<(), ParseError> {
+        // Section maps must not be indexed maps themselves (ECMA-426)
+        let sub = SourceMap::from_json_inner(section.map.get(), false)?;
+
+        let line_offset = section.offset.line;
+        let col_offset = section.offset.column;
+
+        let source_remap = remap_section_sources(
+            &sub.sources,
+            &sub.sources_content,
+            &mut self.all_sources,
+            &mut self.all_sources_content,
+            &mut self.all_scopes,
+            &mut self.source_index_map,
+        );
+
+        let name_remap =
+            remap_section_names(&sub.names, &mut self.all_names, &mut self.name_index_map);
+
+        merge_section_ignore_list(&sub.ignore_list, &source_remap, &mut self.all_ignore_list);
+
+        if let Some(section_scopes) = &sub.scopes {
+            self.pending_scopes.push((
+                section_scopes.clone(),
+                source_remap.clone(),
+                line_offset,
+                col_offset,
+            ));
+        }
+
+        append_section_mappings(
+            &sub.mappings,
+            &source_remap,
+            &name_remap,
+            line_offset,
+            col_offset,
+            &mut self.all_mappings,
+            &mut self.max_line,
+        );
+
+        Ok(())
+    }
+
+    fn merge_scopes_and_ranges(&mut self) {
+        let pending_scopes = std::mem::take(&mut self.pending_scopes);
+        merge_section_scopes_and_ranges(
+            pending_scopes,
+            &mut self.all_scopes,
+            &mut self.all_ranges,
+        );
+    }
+}
+
 fn filter_section_source_root(source_root: Option<String>, sources: &[String]) -> Option<String> {
     source_root.filter(|root| {
         root.is_empty()
@@ -854,82 +938,33 @@ impl SourceMap {
         extensions: HashMap<String, serde_json::Value>,
         sections: Vec<RawSection>,
     ) -> Result<Self, ParseError> {
-        let mut all_sources: Vec<String> = Vec::new();
-        let mut all_sources_content: Vec<Option<String>> = Vec::new();
-        let mut all_names: Vec<String> = Vec::new();
-        let mut all_mappings: Vec<Mapping> = Vec::new();
-        let mut all_ignore_list: Vec<u32> = Vec::new();
-        let mut all_scopes: Vec<Option<OriginalScope>> = Vec::new();
-        let mut all_ranges: Vec<GeneratedRange> = Vec::new();
-        let mut pending_scopes: Vec<(ScopeInfo, Vec<u32>, u32, u32)> = Vec::new();
-        let mut max_line: u32 = 0;
-
-        // Source/name dedup maps to merge across sections
-        let mut source_index_map: HashMap<String, u32> = HashMap::new();
-        let mut name_index_map: HashMap<String, u32> = HashMap::new();
-
         validate_section_order(&sections)?;
 
+        let mut state = SectionMergeState::new();
         for section in &sections {
-            // Section maps must not be indexed maps themselves (ECMA-426)
-            let sub = Self::from_json_inner(section.map.get(), false)?;
-
-            let line_offset = section.offset.line;
-            let col_offset = section.offset.column;
-
-            let source_remap = remap_section_sources(
-                &sub.sources,
-                &sub.sources_content,
-                &mut all_sources,
-                &mut all_sources_content,
-                &mut all_scopes,
-                &mut source_index_map,
-            );
-
-            let name_remap = remap_section_names(&sub.names, &mut all_names, &mut name_index_map);
-
-            merge_section_ignore_list(&sub.ignore_list, &source_remap, &mut all_ignore_list);
-
-            if let Some(section_scopes) = &sub.scopes {
-                pending_scopes.push((
-                    section_scopes.clone(),
-                    source_remap.clone(),
-                    line_offset,
-                    col_offset,
-                ));
-            }
-
-            append_section_mappings(
-                &sub.mappings,
-                &source_remap,
-                &name_remap,
-                line_offset,
-                col_offset,
-                &mut all_mappings,
-                &mut max_line,
-            );
+            state.append_section(section)?;
         }
 
-        merge_section_scopes_and_ranges(pending_scopes, &mut all_scopes, &mut all_ranges);
+        state.merge_scopes_and_ranges();
 
-        let line_offsets = finish_section_mappings(&mut all_mappings, max_line);
+        let line_offsets = finish_section_mappings(&mut state.all_mappings, state.max_line);
 
-        let source_map = build_source_map(&all_sources);
-        let has_range_mappings = all_mappings.iter().any(|m| m.is_range_mapping);
-        let scopes = build_section_scope_info(all_scopes, all_ranges);
-        let source_root = filter_section_source_root(source_root, &all_sources);
+        let source_map = build_source_map(&state.all_sources);
+        let has_range_mappings = state.all_mappings.iter().any(|m| m.is_range_mapping);
+        let scopes = build_section_scope_info(state.all_scopes, state.all_ranges);
+        let source_root = filter_section_source_root(source_root, &state.all_sources);
 
         Ok(Self {
             file,
             source_root,
-            sources: all_sources,
-            sources_content: all_sources_content,
-            names: all_names,
-            ignore_list: all_ignore_list,
+            sources: state.all_sources,
+            sources_content: state.all_sources_content,
+            names: state.all_names,
+            ignore_list: state.all_ignore_list,
             extensions,
             debug_id,
             scopes,
-            mappings: all_mappings,
+            mappings: state.all_mappings,
             line_offsets,
             reverse_index: OnceCell::new(),
             source_map,
