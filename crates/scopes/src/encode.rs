@@ -184,39 +184,7 @@ impl<'a> ScopesEncoder<'a> {
 
     fn encode_generated_range(&mut self, range: &GeneratedRange) {
         self.encode_generated_range_start(range);
-
-        // G item: bindings
-        if !range.bindings.is_empty() {
-            self.emit_comma();
-            self.emit_tag(TAG_GENERATED_RANGE_BINDINGS);
-            for binding in &range.bindings {
-                match binding {
-                    Binding::Expression(expr) => {
-                        let idx = self.name_idx(expr);
-                        self.emit_unsigned(idx as u64 + 1); // 1-based
-                    }
-                    Binding::Unavailable => {
-                        self.emit_unsigned(0);
-                    }
-                    Binding::SubRanges(subs) => {
-                        // G gets the first sub-range's binding
-                        if let Some(first) = subs.first() {
-                            match &first.expression {
-                                Some(expr) => {
-                                    let idx = self.name_idx(expr);
-                                    self.emit_unsigned(idx as u64 + 1);
-                                }
-                                None => {
-                                    self.emit_unsigned(0);
-                                }
-                            }
-                        } else {
-                            self.emit_unsigned(0);
-                        }
-                    }
-                }
-            }
-        }
+        self.encode_generated_range_bindings(range);
 
         // H items: sub-range bindings
         let mut h_var_idx = 0u64;
@@ -325,6 +293,42 @@ impl<'a> ScopesEncoder<'a> {
             let def_val = def as i64;
             self.emit_signed(def_val - self.gr_def);
             self.gr_def = def_val;
+        }
+    }
+
+    fn encode_generated_range_bindings(&mut self, range: &GeneratedRange) {
+        if range.bindings.is_empty() {
+            return;
+        }
+
+        self.emit_comma();
+        self.emit_tag(TAG_GENERATED_RANGE_BINDINGS);
+        for binding in &range.bindings {
+            match binding {
+                Binding::Expression(expr) => {
+                    let idx = self.name_idx(expr);
+                    self.emit_unsigned(idx as u64 + 1); // 1-based
+                }
+                Binding::Unavailable => {
+                    self.emit_unsigned(0);
+                }
+                Binding::SubRanges(subs) => {
+                    // G gets the first sub-range's binding
+                    if let Some(first) = subs.first() {
+                        match &first.expression {
+                            Some(expr) => {
+                                let idx = self.name_idx(expr);
+                                self.emit_unsigned(idx as u64 + 1);
+                            }
+                            None => {
+                                self.emit_unsigned(0);
+                            }
+                        }
+                    } else {
+                        self.emit_unsigned(0);
+                    }
+                }
+            }
         }
     }
 }
