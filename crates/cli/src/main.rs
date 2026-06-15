@@ -1613,6 +1613,21 @@ fn source_list_entries(sm: &SourceMap) -> Vec<serde_json::Value> {
         .collect()
 }
 
+fn print_source_entries(sm: &SourceMap, entries: &[serde_json::Value]) {
+    let with_content = entries.iter().filter(|e| e["hasContent"].as_bool() == Some(true)).count();
+    println!("Sources ({}, {} with content):", sm.sources.len(), with_content);
+    for entry in entries {
+        let idx = entry["index"].as_u64().unwrap();
+        let source = entry["source"].as_str().unwrap();
+        let size_str = match entry["contentSize"].as_u64() {
+            Some(size) => format!(" [{}]", format_size(size as usize)),
+            None => " [no content]".to_string(),
+        };
+        let ignored = if entry["ignored"].as_bool() == Some(true) { " (ignored)" } else { "" };
+        println!("  {idx}: {source}{size_str}{ignored}");
+    }
+}
+
 fn cmd_sources(
     file: &PathBuf,
     extract: bool,
@@ -1645,20 +1660,7 @@ fn cmd_sources(
             });
             println!("{}", serde_json::to_string_pretty(&obj).unwrap());
         } else {
-            let with_content =
-                entries.iter().filter(|e| e["hasContent"].as_bool() == Some(true)).count();
-            println!("Sources ({}, {} with content):", sm.sources.len(), with_content);
-            for entry in &entries {
-                let idx = entry["index"].as_u64().unwrap();
-                let source = entry["source"].as_str().unwrap();
-                let size_str = match entry["contentSize"].as_u64() {
-                    Some(size) => format!(" [{}]", format_size(size as usize)),
-                    None => " [no content]".to_string(),
-                };
-                let ignored =
-                    if entry["ignored"].as_bool() == Some(true) { " (ignored)" } else { "" };
-                println!("  {idx}: {source}{size_str}{ignored}");
-            }
+            print_source_entries(&sm, &entries);
         }
     }
 
