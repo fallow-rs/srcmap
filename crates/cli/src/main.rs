@@ -683,6 +683,31 @@ fn print_lookup_json(
     println!("{}", serde_json::to_string_pretty(&obj).unwrap());
 }
 
+fn print_lookup_text(
+    source: &str,
+    loc: &OriginalLocation,
+    name: Option<&str>,
+    context_lines: &ContextLines<'_>,
+) {
+    println!("{source}:{line}:{col}", line = loc.line, col = loc.column);
+    if let Some(name) = name {
+        println!("  name: {name}");
+    }
+
+    if let Some((start, target, lines)) = context_lines {
+        println!();
+        let gutter_width = format!("{}", *start + lines.len()).len();
+        for (i, text) in lines.iter().enumerate() {
+            let line_num = *start + i;
+            let marker = if line_num == *target { ">" } else { " " };
+            println!(
+                "{marker} {line_num:>gutter_width$} | {text}",
+                gutter_width = gutter_width
+            );
+        }
+    }
+}
+
 fn cmd_lookup(
     file: &PathBuf,
     line: u32,
@@ -703,23 +728,7 @@ fn cmd_lookup(
             if json {
                 print_lookup_json(source, &loc, name.as_deref(), &context_lines);
             } else {
-                println!("{source}:{line}:{col}", line = loc.line, col = loc.column);
-                if let Some(name) = name {
-                    println!("  name: {name}");
-                }
-
-                if let Some((start, target, ref lines)) = context_lines {
-                    println!();
-                    let gutter_width = format!("{}", start + lines.len()).len();
-                    for (i, text) in lines.iter().enumerate() {
-                        let line_num = start + i;
-                        let marker = if line_num == target { ">" } else { " " };
-                        println!(
-                            "{marker} {line_num:>gutter_width$} | {text}",
-                            gutter_width = gutter_width
-                        );
-                    }
-                }
+                print_lookup_text(source, &loc, name.as_deref(), &context_lines);
             }
         }
         None => {
