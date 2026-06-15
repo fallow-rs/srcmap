@@ -237,6 +237,17 @@ fn build_mapping_line_offsets(mappings: &[Mapping], line_count: usize) -> Vec<u3
     line_offsets
 }
 
+fn finish_section_mappings(mappings: &mut [Mapping], max_line: u32) -> Vec<u32> {
+    mappings.sort_unstable_by(|a, b| {
+        a.generated_line
+            .cmp(&b.generated_line)
+            .then(a.generated_column.cmp(&b.generated_column))
+    });
+
+    let line_count = if mappings.is_empty() { 0 } else { max_line as usize + 1 };
+    build_mapping_line_offsets(mappings, line_count)
+}
+
 fn validate_section_order(sections: &[RawSection]) -> Result<(), ParseError> {
     for i in 1..sections.len() {
         let prev = &sections[i - 1].offset;
@@ -843,15 +854,7 @@ impl SourceMap {
             );
         }
 
-        // Sort mappings by (generated_line, generated_column)
-        all_mappings.sort_unstable_by(|a, b| {
-            a.generated_line
-                .cmp(&b.generated_line)
-                .then(a.generated_column.cmp(&b.generated_column))
-        });
-
-        let line_count = if all_mappings.is_empty() { 0 } else { max_line as usize + 1 };
-        let line_offsets = build_mapping_line_offsets(&all_mappings, line_count);
+        let line_offsets = finish_section_mappings(&mut all_mappings, max_line);
 
         let source_map = build_source_map(&all_sources);
         let has_range_mappings = all_mappings.iter().any(|m| m.is_range_mapping);
