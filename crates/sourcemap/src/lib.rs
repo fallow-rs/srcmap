@@ -355,6 +355,30 @@ fn merge_section_original_scopes(
     }
 }
 
+fn build_section_definition_remap(
+    section_scopes: &ScopeInfo,
+    source_remap: &[u32],
+    global_bases: &[u32],
+) -> Vec<u32> {
+    let local_bases = definition_bases(&section_scopes.scopes);
+    let total_local_definitions =
+        section_scopes.scopes.iter().flatten().map(count_scope_tree).sum::<u32>() as usize;
+    let mut definition_remap = vec![0; total_local_definitions];
+
+    for (local_idx, local_scope) in section_scopes.scopes.iter().enumerate() {
+        let Some(local_scope) = local_scope else {
+            continue;
+        };
+        let local_base = local_bases[local_idx];
+        let global_base = global_bases[source_remap[local_idx] as usize];
+        for offset in 0..count_scope_tree(local_scope) {
+            definition_remap[(local_base + offset) as usize] = global_base + offset;
+        }
+    }
+
+    definition_remap
+}
+
 /// Retain only extension fields that use an `x_*` or `x-*` prefix.
 fn filter_extensions(
     extensions: HashMap<String, serde_json::Value>,
@@ -793,21 +817,8 @@ impl SourceMap {
 
         let global_bases = definition_bases(&all_scopes);
         for (section_scopes, source_remap, line_offset, col_offset) in pending_scopes {
-            let local_bases = definition_bases(&section_scopes.scopes);
-            let total_local_definitions =
-                section_scopes.scopes.iter().flatten().map(count_scope_tree).sum::<u32>() as usize;
-            let mut definition_remap = vec![0; total_local_definitions];
-
-            for (local_idx, local_scope) in section_scopes.scopes.iter().enumerate() {
-                let Some(local_scope) = local_scope else {
-                    continue;
-                };
-                let local_base = local_bases[local_idx];
-                let global_base = global_bases[source_remap[local_idx] as usize];
-                for offset in 0..count_scope_tree(local_scope) {
-                    definition_remap[(local_base + offset) as usize] = global_base + offset;
-                }
-            }
+            let definition_remap =
+                build_section_definition_remap(&section_scopes, &source_remap, &global_bases);
 
             all_ranges.extend(section_scopes.ranges.iter().map(|range| {
                 remap_generated_range(
