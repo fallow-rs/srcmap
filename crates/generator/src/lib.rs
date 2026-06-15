@@ -1452,6 +1452,17 @@ impl StreamingGenerator {
         json.push(b']');
     }
 
+    fn write_sources_to_writer(&self, writer: &mut impl io::Write) -> io::Result<()> {
+        writer.write_all(br#","sources":["#)?;
+        for (i, s) in self.sources.iter().enumerate() {
+            if i > 0 {
+                writer.write_all(b",")?;
+            }
+            write_json_quoted(writer, s)?;
+        }
+        writer.write_all(b"]")
+    }
+
     /// Directly construct a `SourceMap` from the streaming generator's state.
     ///
     /// Parses the already-encoded VLQ mappings to build a decoded `SourceMap`.
@@ -1583,15 +1594,7 @@ impl StreamingGenerator {
             write_json_quoted(writer, root)?;
         }
 
-        // sources
-        writer.write_all(br#","sources":["#)?;
-        for (i, s) in self.sources.iter().enumerate() {
-            if i > 0 {
-                writer.write_all(b",")?;
-            }
-            write_json_quoted(writer, s)?;
-        }
-        writer.write_all(b"]")?;
+        self.write_sources_to_writer(writer)?;
 
         // sourcesContent
         if self.sources_content.iter().any(|c| c.is_some()) {
