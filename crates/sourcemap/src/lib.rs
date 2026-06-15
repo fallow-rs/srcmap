@@ -269,6 +269,23 @@ fn filter_section_source_root(source_root: Option<String>, sources: &[String]) -
     })
 }
 
+fn original_position_glb_index(line_mappings: &[Mapping], column: u32) -> Option<usize> {
+    match line_mappings.binary_search_by_key(&column, |m| m.generated_column) {
+        // Exact match: walk back to the earliest segment sharing this column.
+        // `binary_search_by_key` returns an unspecified index among equal keys;
+        // `@jridgewell/trace-mapping` specifies GLB = earliest-equal.
+        Ok(i) => {
+            let mut idx = i;
+            while idx > 0 && line_mappings[idx - 1].generated_column == column {
+                idx -= 1;
+            }
+            Some(idx)
+        }
+        Err(0) => None,
+        Err(i) => Some(i - 1),
+    }
+}
+
 fn validate_section_order(sections: &[RawSection]) -> Result<(), ParseError> {
     for i in 1..sections.len() {
         let prev = &sections[i - 1].offset;
@@ -942,22 +959,10 @@ impl SourceMap {
         let line_mappings = &self.mappings[start..end];
 
         let idx = match bias {
-            Bias::GreatestLowerBound => {
-                match line_mappings.binary_search_by_key(&column, |m| m.generated_column) {
-                    // Exact match: walk back to the earliest segment sharing this column.
-                    // `binary_search_by_key` returns an unspecified index among equal keys;
-                    // `@jridgewell/trace-mapping` specifies GLB = earliest-equal.
-                    Ok(i) => {
-                        let mut idx = i;
-                        while idx > 0 && line_mappings[idx - 1].generated_column == column {
-                            idx -= 1;
-                        }
-                        idx
-                    }
-                    Err(0) => return self.range_mapping_fallback(line, column),
-                    Err(i) => i - 1,
-                }
-            }
+            Bias::GreatestLowerBound => match original_position_glb_index(line_mappings, column) {
+                Some(idx) => idx,
+                None => return self.range_mapping_fallback(line, column),
+            },
             Bias::LeastUpperBound => {
                 match line_mappings.binary_search_by_key(&column, |m| m.generated_column) {
                     // Exact match: walk forward to the latest segment sharing this column.
