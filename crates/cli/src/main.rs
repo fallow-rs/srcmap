@@ -1594,6 +1594,25 @@ fn print_extracted_sources(
     }
 }
 
+fn source_list_entries(sm: &SourceMap) -> Vec<serde_json::Value> {
+    sm.sources
+        .iter()
+        .enumerate()
+        .map(|(i, source)| {
+            let content_size = sm.sources_content.get(i).and_then(|c| c.as_ref()).map(|c| c.len());
+            let ignored = sm.ignore_list.contains(&(i as u32));
+
+            serde_json::json!({
+                "index": i,
+                "source": source,
+                "hasContent": content_size.is_some(),
+                "contentSize": content_size,
+                "ignored": ignored,
+            })
+        })
+        .collect()
+}
+
 fn cmd_sources(
     file: &PathBuf,
     extract: bool,
@@ -1616,25 +1635,7 @@ fn cmd_sources(
             print_extracted_sources(&sm, &output_dir, &extracted, &skipped);
         }
     } else {
-        // List mode
-        let entries: Vec<serde_json::Value> = sm
-            .sources
-            .iter()
-            .enumerate()
-            .map(|(i, source)| {
-                let content_size =
-                    sm.sources_content.get(i).and_then(|c| c.as_ref()).map(|c| c.len());
-                let ignored = sm.ignore_list.contains(&(i as u32));
-
-                serde_json::json!({
-                    "index": i,
-                    "source": source,
-                    "hasContent": content_size.is_some(),
-                    "contentSize": content_size,
-                    "ignored": ignored,
-                })
-            })
-            .collect();
+        let entries = source_list_entries(&sm);
 
         if json {
             let obj = serde_json::json!({
