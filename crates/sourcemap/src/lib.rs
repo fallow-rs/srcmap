@@ -3214,6 +3214,10 @@ impl<'a> MappingsIter<'a> {
             offset: self.pos,
         })
     }
+
+    fn at_segment_delimiter(&self) -> bool {
+        self.pos >= self.len || self.bytes[self.pos] == b',' || self.bytes[self.pos] == b';'
+    }
 }
 
 impl Iterator for MappingsIter<'_> {
@@ -3250,17 +3254,14 @@ impl Iterator for MappingsIter<'_> {
                 Err(e) => return self.stop_with_error(e),
             }
 
-            if self.pos < self.len && self.bytes[self.pos] != b',' && self.bytes[self.pos] != b';' {
+            if !self.at_segment_delimiter() {
                 // Field 2: source index
                 match vlq_fast(self.bytes, &mut self.pos) {
                     Ok(delta) => self.source_index += delta,
                     Err(e) => return self.stop_with_error(e),
                 }
                 // Reject 2-field segments (only 1, 4, or 5 are valid per ECMA-426)
-                if self.pos >= self.len
-                    || self.bytes[self.pos] == b','
-                    || self.bytes[self.pos] == b';'
-                {
+                if self.at_segment_delimiter() {
                     return self.stop_with_invalid_segment(2);
                 }
                 // Field 3: original line
@@ -3269,10 +3270,7 @@ impl Iterator for MappingsIter<'_> {
                     Err(e) => return self.stop_with_error(e),
                 }
                 // Reject 3-field segments (only 1, 4, or 5 are valid per ECMA-426)
-                if self.pos >= self.len
-                    || self.bytes[self.pos] == b','
-                    || self.bytes[self.pos] == b';'
-                {
+                if self.at_segment_delimiter() {
                     return self.stop_with_invalid_segment(3);
                 }
                 // Field 4: original column
@@ -3282,10 +3280,7 @@ impl Iterator for MappingsIter<'_> {
                 }
 
                 // Field 5: name (optional)
-                let name = if self.pos < self.len
-                    && self.bytes[self.pos] != b','
-                    && self.bytes[self.pos] != b';'
-                {
+                let name = if !self.at_segment_delimiter() {
                     match vlq_fast(self.bytes, &mut self.pos) {
                         Ok(delta) => {
                             self.name_index += delta;
