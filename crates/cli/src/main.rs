@@ -1793,6 +1793,15 @@ fn schema_sources_command() -> serde_json::Value {
     })
 }
 
+fn schema_schema_command() -> serde_json::Value {
+    serde_json::json!({
+        "name": "schema",
+        "description": "Describe all commands and their arguments as JSON (this output)",
+        "args": [],
+        "flags": {}
+    })
+}
+
 fn cmd_schema() -> Result<(), CliError> {
     let schema = serde_json::json!({
         "name": "srcmap",
@@ -1816,12 +1825,7 @@ fn cmd_schema() -> Result<(), CliError> {
             schema_scopes_command(),
             schema_fetch_command(),
             schema_sources_command(),
-            {
-                "name": "schema",
-                "description": "Describe all commands and their arguments as JSON (this output)",
-                "args": [],
-                "flags": {}
-            }
+            schema_schema_command()
         ]
     });
     println!("{}", serde_json::to_string_pretty(&schema).unwrap());
