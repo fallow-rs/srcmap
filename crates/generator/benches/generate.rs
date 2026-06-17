@@ -95,6 +95,14 @@ fn bench_generate(criterion: &mut Criterion) {
         );
     });
 
+    criterion.bench_function("generate_100000_mappings_construct_encode", |b| {
+        b.iter(|| black_box(build_generator(5000, 20, false).to_json()));
+    });
+
+    criterion.bench_function("generate_100000_mappings_assume_sorted_construct_encode", |b| {
+        b.iter(|| black_box(build_sorted_generator(5000, 20).to_json()));
+    });
+
     criterion.bench_function("generate_100000_mappings_streaming_construct_encode", |b| {
         b.iter(|| {
             let mut sg = StreamingGenerator::new(Some("bundle.js".to_string()));

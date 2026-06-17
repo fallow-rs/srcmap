@@ -100,6 +100,7 @@ fn bench_chain(criterion: &mut Criterion) {
 struct BundlerInput {
     outer: SourceMap,
     vlq: String,
+    outer_json: String,
     inner_maps: Vec<(String, SourceMap)>,
 }
 
@@ -137,8 +138,13 @@ fn build_bundler_input() -> BundlerInput {
     }
     let outer = outer_gen.to_decoded_map();
     let vlq = outer.encode_mappings();
+    let outer_json = outer.to_json();
 
-    BundlerInput { outer, vlq, inner_maps }
+    BundlerInput { outer, vlq, outer_json, inner_maps }
+}
+
+fn load_inner_map(input: &BundlerInput, source: &str) -> Option<SourceMap> {
+    input.inner_maps.iter().find(|(name, _)| name == source).map(|(_, sm)| sm.clone())
 }
 
 fn bench_bundler(criterion: &mut Criterion) {
@@ -146,13 +152,7 @@ fn bench_bundler(criterion: &mut Criterion) {
         b.iter_batched_ref(
             build_bundler_input,
             |input| {
-                black_box(remap(&input.outer, |source| {
-                    input
-                        .inner_maps
-                        .iter()
-                        .find(|(name, _)| name == source)
-                        .map(|(_, sm)| sm.clone())
-                }));
+                black_box(remap(&input.outer, |source| load_inner_map(input, source)));
             },
             BatchSize::LargeInput,
         );
@@ -170,14 +170,51 @@ fn bench_bundler(criterion: &mut Criterion) {
                     &input.outer.sources_content,
                     &input.outer.ignore_list,
                     input.outer.file.clone(),
-                    |source| {
-                        input
-                            .inner_maps
-                            .iter()
-                            .find(|(name, _)| name == source)
-                            .map(|(_, sm)| sm.clone())
-                    },
+                    |source| load_inner_map(input, source),
                 ));
+            },
+            BatchSize::LargeInput,
+        );
+    });
+
+    criterion.bench_function("remap_bundler_60k_20src_to_json", |b| {
+        b.iter_batched_ref(
+            build_bundler_input,
+            |input| {
+                black_box(remap(&input.outer, |source| load_inner_map(input, source)).to_json());
+            },
+            BatchSize::LargeInput,
+        );
+    });
+
+    criterion.bench_function("remap_streaming_bundler_60k_20src_to_json", |b| {
+        b.iter_batched_ref(
+            build_bundler_input,
+            |input| {
+                let iter = MappingsIter::new(&input.vlq);
+                black_box(
+                    remap_streaming(
+                        iter,
+                        &input.outer.sources,
+                        &input.outer.names,
+                        &input.outer.sources_content,
+                        &input.outer.ignore_list,
+                        input.outer.file.clone(),
+                        |source| load_inner_map(input, source),
+                    )
+                    .to_json(),
+                );
+            },
+            BatchSize::LargeInput,
+        );
+    });
+
+    criterion.bench_function("remap_json_input_bundler_60k_20src", |b| {
+        b.iter_batched_ref(
+            build_bundler_input,
+            |input| {
+                let outer = SourceMap::from_json(&input.outer_json).unwrap();
+                black_box(remap(&outer, |source| load_inner_map(input, source)).to_json());
             },
             BatchSize::LargeInput,
         );

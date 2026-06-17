@@ -246,6 +246,15 @@ fn sourcemap_from_json_input(lines: usize, segs_per_line: usize, num_sources: us
     SourceMap::from_json(&generate_sourcemap_json(lines, segs_per_line, num_sources)).unwrap()
 }
 
+fn sourcemap_no_content_from_json_input(
+    lines: usize,
+    segs_per_line: usize,
+    num_sources: usize,
+) -> SourceMap {
+    SourceMap::from_json(&generate_sourcemap_json_no_content(lines, segs_per_line, num_sources))
+        .unwrap()
+}
+
 fn json_roundtrip(sm: &mut SourceMap) -> SourceMap {
     let json = black_box(sm).to_json();
     SourceMap::from_json(black_box(&json)).unwrap()
@@ -287,6 +296,27 @@ fn bench_from_parts_interop(criterion: &mut Criterion) {
         "from_parts_interop_large_from_parts",
         || sourcemap_from_json_input(2000, 50, 10),
         |sm| clone_via_from_parts(black_box(sm)),
+    );
+}
+
+fn bench_serialize(criterion: &mut Criterion) {
+    bench_with_input(
+        criterion,
+        "serialize_medium_10k_segments_to_json",
+        || sourcemap_from_json_input(500, 20, 5),
+        |sm| black_box(sm).to_json(),
+    );
+    bench_with_input(
+        criterion,
+        "serialize_large_100k_segments_no_content_to_json",
+        || sourcemap_no_content_from_json_input(2000, 50, 10),
+        |sm| black_box(sm).to_json(),
+    );
+    bench_with_input(
+        criterion,
+        "serialize_large_100k_segments_no_content_to_vlq",
+        || sourcemap_no_content_from_json_input(2000, 50, 10),
+        |sm| black_box(sm).encode_mappings(),
     );
 }
 
@@ -571,6 +601,7 @@ criterion_group!(
     benches,
     bench_parse_sizes,
     bench_from_parts_interop,
+    bench_serialize,
     bench_parse_backends,
     bench_real_world,
     bench_lite_paths,
