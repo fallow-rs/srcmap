@@ -35,7 +35,6 @@ concurrency:
 
 permissions:
   contents: read
-  id-token: write
 
 env:
   CARGO_TERM_COLOR: always
@@ -61,6 +60,9 @@ jobs:
     needs: benchmark-matrix
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    permissions:
+      contents: read
+      id-token: write
     strategy:
       fail-fast: false
       matrix:
