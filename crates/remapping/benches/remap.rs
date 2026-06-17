@@ -147,6 +147,55 @@ fn load_inner_map(input: &BundlerInput, source: &str) -> Option<SourceMap> {
     input.inner_maps.iter().find(|(name, _)| name == source).map(|(_, sm)| sm.clone())
 }
 
+fn load_fixture(name: &str) -> Option<String> {
+    let path = format!("../../benchmarks/fixtures/{name}.js.map");
+    std::fs::read_to_string(&path).ok()
+}
+
+fn max_original_lines_by_source(outer: &SourceMap) -> Vec<u32> {
+    let mut max_lines = vec![0; outer.sources.len()];
+    for mapping in outer.all_mappings() {
+        if let Some(slot) = max_lines.get_mut(mapping.source as usize) {
+            *slot = (*slot).max(mapping.original_line.saturating_add(1));
+        }
+    }
+    max_lines
+}
+
+fn build_inner_maps_for_outer(outer: &SourceMap) -> Vec<(String, SourceMap)> {
+    max_original_lines_by_source(outer)
+        .into_iter()
+        .enumerate()
+        .map(|(source_idx, max_line)| {
+            let source_name = outer.source(source_idx as u32).to_string();
+            let original_name = format!("original/{source_name}");
+            let line_count = max_line.clamp(1, 2000);
+            let mut builder = SourceMapGenerator::with_capacity(
+                Some(source_name.clone()),
+                line_count as usize * 4,
+            );
+            let src = builder.add_source(&original_name);
+
+            for line in 0..line_count {
+                for col in 0..4 {
+                    builder.add_mapping(line, col * 20, src, line + 1, col * 20 + 2);
+                }
+            }
+
+            (source_name, builder.to_decoded_map())
+        })
+        .collect()
+}
+
+fn build_fixture_input(name: &str) -> BundlerInput {
+    let outer_json = load_fixture(name).unwrap_or_else(|| build_bundler_input().outer_json);
+    let outer = SourceMap::from_json(&outer_json).unwrap();
+    let vlq = outer.encode_mappings();
+    let inner_maps = build_inner_maps_for_outer(&outer);
+
+    BundlerInput { outer, vlq, outer_json, inner_maps }
+}
+
 fn bench_bundler(criterion: &mut Criterion) {
     criterion.bench_function("remap_bundler_60k_20src", |b| {
         b.iter_batched_ref(
@@ -221,5 +270,38 @@ fn bench_bundler(criterion: &mut Criterion) {
     });
 }
 
-criterion_group!(benches, bench_chain, bench_bundler);
+fn bench_real_world(criterion: &mut Criterion) {
+    criterion.bench_function("remap_real_world_preact_fixture_chain", |b| {
+        b.iter_batched_ref(
+            || build_fixture_input("preact"),
+            |input| {
+                black_box(remap(&input.outer, |source| load_inner_map(input, source)).to_json());
+            },
+            BatchSize::LargeInput,
+        );
+    });
+
+    criterion.bench_function("remap_real_world_chartjs_fixture_chain", |b| {
+        b.iter_batched_ref(
+            || build_fixture_input("chartjs"),
+            |input| {
+                black_box(remap(&input.outer, |source| load_inner_map(input, source)).to_json());
+            },
+            BatchSize::LargeInput,
+        );
+    });
+
+    criterion.bench_function("remap_json_input_real_world_preact_fixture_chain", |b| {
+        b.iter_batched_ref(
+            || build_fixture_input("preact"),
+            |input| {
+                let outer = SourceMap::from_json(&input.outer_json).unwrap();
+                black_box(remap(&outer, |source| load_inner_map(input, source)).to_json());
+            },
+            BatchSize::LargeInput,
+        );
+    });
+}
+
+criterion_group!(benches, bench_chain, bench_bundler, bench_real_world);
 criterion_main!(benches);

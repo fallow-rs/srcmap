@@ -1,4 +1,4 @@
-import { Bench } from "tinybench";
+import { createBench, latencyMeanMs, throughputHz } from "./codspeed.mjs";
 import { TraceMap, originalPositionFor } from "@jridgewell/trace-mapping";
 import { createRequire } from "node:module";
 import { encode } from "@jridgewell/sourcemap-codec";
@@ -268,7 +268,7 @@ if (!wasmPass || !napiPass || !wasmBatchPass || !napiBatchPass) {
 
 console.log("\n--- Cached Coverage Lookup ---\n");
 
-const bench = new Bench({ warmupIterations: 20, iterations: 200 });
+const bench = createBench({ warmupIterations: 20, iterations: 200 });
 
 bench
   .add("trace-mapping individual lookup", () => {
@@ -314,10 +314,10 @@ await bench.run();
 console.table(
   bench.tasks.map((task) => ({
     Name: task.name,
-    "ops/sec": Math.round(task.result.hz).toLocaleString(),
-    "avg (μs)": (task.result.mean * 1000).toFixed(1),
+    "ops/sec": Math.round(throughputHz(task)).toLocaleString(),
+    "avg (μs)": (latencyMeanMs(task) * 1000).toFixed(1),
     "per lookup (ns)": Math.round(
-      (task.result.mean * 1_000_000) / (BATCH_COUNT * POSITIONS_PER_BATCH),
+      (latencyMeanMs(task) * 1_000_000) / (BATCH_COUNT * POSITIONS_PER_BATCH),
     ).toLocaleString(),
   })),
 );

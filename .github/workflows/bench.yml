@@ -5,17 +5,27 @@ on:
     branches: [main]
     paths:
       - 'crates/**'
-      - 'benchmarks/download-fixtures.mjs'
+      - 'benchmarks/**'
+      - 'packages/**'
       - 'Cargo.toml'
       - 'Cargo.lock'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - 'pnpm-workspace.yaml'
+      - '.github/scripts/generate-benchmark-matrix.mjs'
       - '.github/workflows/bench.yml'
   push:
     branches: [main]
     paths:
       - 'crates/**'
-      - 'benchmarks/download-fixtures.mjs'
+      - 'benchmarks/**'
+      - 'packages/**'
       - 'Cargo.toml'
       - 'Cargo.lock'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - 'pnpm-workspace.yaml'
+      - '.github/scripts/generate-benchmark-matrix.mjs'
       - '.github/workflows/bench.yml'
   workflow_dispatch:
 
@@ -23,63 +33,116 @@ concurrency:
   group: bench-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
-permissions: {}
+permissions:
+  contents: read
+  id-token: write
 
 env:
   CARGO_TERM_COLOR: always
+  RUSTFLAGS: "-C debuginfo=1 -C strip=none -g --cfg codspeed"
 
 jobs:
-  benchmark:
-    name: CodSpeed simulation (${{ matrix.label }})
+  benchmark-matrix:
+    name: Generate benchmark matrix
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    outputs:
+      include: ${{ steps.matrix.outputs.include }}
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          fetch-depth: 0
+
+      - name: Generate benchmark matrix
+        id: matrix
+        run: node .github/scripts/generate-benchmark-matrix.mjs
+
+  benchmark:
+    name: CodSpeed (${{ matrix.label }})
+    needs: benchmark-matrix
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - label: codec vlq
-            cache_key: codec-vlq
-            package: srcmap-codec
-            bench: vlq
-            fixtures: false
-          - label: sourcemap parse
-            cache_key: sourcemap-parse
-            package: srcmap-sourcemap
-            bench: parse
-            fixtures: true
-          - label: generator
-            cache_key: generator
-            package: srcmap-generator
-            bench: generate
-            fixtures: false
-          - label: remapping
-            cache_key: remapping
-            package: srcmap-remapping
-            bench: remap
-            fixtures: false
+        include: ${{ fromJson(needs.benchmark-matrix.outputs.include) }}
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
 
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        if: matrix.kind == 'node'
+        with:
+          node-version: 22
+
+      - name: Enable Corepack
+        if: matrix.kind == 'node'
+        run: corepack enable
+
       - uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7
+        if: matrix.kind == 'rust'
+
+      - uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7
+        if: matrix.kind == 'node'
+        with:
+          targets: wasm32-unknown-unknown
 
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:
           key: bench-${{ matrix.cache_key }}
+
+      - name: Install JS dependencies
+        if: matrix.kind == 'node'
+        run: corepack pnpm install --ignore-scripts --no-frozen-lockfile
+
+      - name: Install wasm-pack
+        if: matrix.kind == 'node'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          install_script='https://rustwasm.github.io/wasm-pack/installer/init.sh'
+
+          for attempt in 1 2 3; do
+            if curl "$install_script" -sSf | sh; then
+              exit 0
+            fi
+
+            echo "wasm-pack installer attempt $attempt failed; retrying..." >&2
+            sleep 5
+          done
+
+          cargo install wasm-pack --locked --version 0.13.1
+
+      - name: Build JS benchmark packages
+        if: matrix.kind == 'node'
+        run: |
+          corepack pnpm --filter @srcmap/codec build
+          corepack pnpm --filter @srcmap/sourcemap build
+          corepack pnpm --filter @srcmap/sourcemap-wasm build
 
       - name: Download real-world fixtures
         if: matrix.fixtures
         run: node benchmarks/download-fixtures.mjs
 
       - name: Install cargo-codspeed
+        if: matrix.kind == 'rust'
         uses: taiki-e/install-action@15449e3094499af05d8d964a1c884208e4b8b595 # v2.81.11
         with:
           tool: cargo-codspeed@4.7.0
 
       - name: Build benchmark shard
-        run: cargo codspeed build -p ${{ matrix.package }} --bench ${{ matrix.bench }} --features codspeed
+        if: matrix.kind == 'rust'
+        run: cargo codspeed build -p ${{ matrix.package }} --bench ${{ matrix.bench }} --features ${{ matrix.features }}
 
       - name: Run benchmark shard
+        if: matrix.kind == 'rust'
         uses: CodSpeedHQ/action@c145068895e045cc725ee76fcd2307624b65c3af # v4.17.5
         with:
-          mode: simulation
+          mode: ${{ matrix.mode }}
           run: cargo codspeed run -p ${{ matrix.package }} --bench ${{ matrix.bench }}
+
+      - name: Run package benchmark shard
+        if: matrix.kind == 'node'
+        uses: CodSpeedHQ/action@c145068895e045cc725ee76fcd2307624b65c3af # v4.17.5
+        with:
+          mode: ${{ matrix.mode }}
+          run: ${{ matrix.command }}

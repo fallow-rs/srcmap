@@ -10,9 +10,11 @@
     "bench:fallow-cloud": "node fallow-cloud-coverage.mjs",
     "download-fixtures": "node download-fixtures.mjs",
     "bench:real-world": "node real-world.mjs",
+    "bench:codspeed:packages": "node real-world.mjs && node fallow-cloud-coverage.mjs",
     "bench": "node codec.mjs && node sourcemap.mjs && node sourcemap-wasm.mjs && node fallow-cloud-coverage.mjs"
   },
   "dependencies": {
+    "@codspeed/tinybench-plugin": "^5.6.0",
     "@jridgewell/sourcemap-codec": "^1.5.0",
     "@jridgewell/trace-mapping": "^0.3.25",
     "source-map-js": "^1.2.0",

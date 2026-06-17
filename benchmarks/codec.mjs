@@ -1,4 +1,4 @@
-import { Bench } from "tinybench";
+import { createBench, latencyMeanMs, latencyP99Ms, throughputHz } from "./codspeed.mjs";
 import {
   decode as jridgewellDecode,
   encode as jridgewellEncode,
@@ -68,7 +68,7 @@ console.log("\n--- Decode Benchmarks ---\n");
 for (const { name, mappings } of maps) {
   console.log(`\n### ${name}\n`);
 
-  const bench = new Bench({ warmupIterations: 100, iterations: 1000 });
+  const bench = createBench({ warmupIterations: 100, iterations: 1000 });
 
   bench
     .add("jridgewell decode", () => jridgewellDecode(mappings))
@@ -81,9 +81,9 @@ for (const { name, mappings } of maps) {
   console.table(
     bench.tasks.map((task) => ({
       Name: task.name,
-      "ops/sec": Math.round(task.result.hz).toLocaleString(),
-      "avg (ns)": Math.round(task.result.mean * 1_000_000).toLocaleString(),
-      "p99 (ns)": Math.round(task.result.p99 * 1_000_000).toLocaleString(),
+      "ops/sec": Math.round(throughputHz(task)).toLocaleString(),
+      "avg (ns)": Math.round(latencyMeanMs(task) * 1_000_000).toLocaleString(),
+      "p99 (ns)": Math.round(latencyP99Ms(task) * 1_000_000).toLocaleString(),
     })),
   );
 }
@@ -95,7 +95,7 @@ for (const { name, mappings } of maps) {
 
   const decoded = jridgewellDecode(mappings);
 
-  const bench = new Bench({ warmupIterations: 100, iterations: 1000 });
+  const bench = createBench({ warmupIterations: 100, iterations: 1000 });
 
   bench
     .add("jridgewell encode", () => jridgewellEncode(decoded))
@@ -108,9 +108,9 @@ for (const { name, mappings } of maps) {
   console.table(
     bench.tasks.map((task) => ({
       Name: task.name,
-      "ops/sec": Math.round(task.result.hz).toLocaleString(),
-      "avg (ns)": Math.round(task.result.mean * 1_000_000).toLocaleString(),
-      "p99 (ns)": Math.round(task.result.p99 * 1_000_000).toLocaleString(),
+      "ops/sec": Math.round(throughputHz(task)).toLocaleString(),
+      "avg (ns)": Math.round(latencyMeanMs(task) * 1_000_000).toLocaleString(),
+      "p99 (ns)": Math.round(latencyP99Ms(task) * 1_000_000).toLocaleString(),
     })),
   );
 }

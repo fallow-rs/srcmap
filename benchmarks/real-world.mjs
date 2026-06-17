@@ -1,4 +1,4 @@
-import { Bench } from "tinybench";
+import { createBench, latencyMeanMs, latencyP99Ms, throughputHz } from "./codspeed.mjs";
 import { readFileSync, existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -141,7 +141,7 @@ for (const { name, json, size } of maps) {
 
   // Fewer iterations for large maps
   const iterations = size > 1024 * 1024 ? 50 : 200;
-  const bench = new Bench({ warmupIterations: 10, iterations });
+  const bench = createBench({ warmupIterations: 10, iterations });
 
   bench
     .add("trace-mapping", () => new TraceMap(json))
@@ -155,9 +155,9 @@ for (const { name, json, size } of maps) {
   console.table(
     bench.tasks.map((task) => ({
       Name: task.name,
-      "ops/sec": Math.round(task.result.hz).toLocaleString(),
-      "avg (ms)": task.result.mean.toFixed(2),
-      "p99 (ms)": task.result.p99.toFixed(2),
+      "ops/sec": Math.round(throughputHz(task)).toLocaleString(),
+      "avg (ms)": latencyMeanMs(task).toFixed(2),
+      "p99 (ms)": latencyP99Ms(task).toFixed(2),
     })),
   );
 }
@@ -177,7 +177,7 @@ for (const { name, json } of maps) {
   // Pick a lookup position roughly in the middle of the map
   const midLine = Math.floor(wasm.lineCount / 2);
 
-  const bench = new Bench({ warmupIterations: 500, iterations: 5000 });
+  const bench = createBench({ warmupIterations: 500, iterations: 5000 });
 
   bench
     .add("trace-mapping", () => originalPositionFor(trace, { line: midLine + 1, column: 20 }))
@@ -194,9 +194,9 @@ for (const { name, json } of maps) {
   console.table(
     bench.tasks.map((task) => ({
       Name: task.name,
-      "ops/sec": Math.round(task.result.hz).toLocaleString(),
-      "avg (ns)": Math.round(task.result.mean * 1_000_000).toLocaleString(),
-      "p99 (ns)": Math.round(task.result.p99 * 1_000_000).toLocaleString(),
+      "ops/sec": Math.round(throughputHz(task)).toLocaleString(),
+      "avg (ns)": Math.round(latencyMeanMs(task) * 1_000_000).toLocaleString(),
+      "p99 (ns)": Math.round(latencyP99Ms(task) * 1_000_000).toLocaleString(),
     })),
   );
 }
@@ -225,7 +225,7 @@ for (const { name, json } of maps) {
   }
   const posArray = new Int32Array(flatPositions);
 
-  const bench = new Bench({ warmupIterations: 20, iterations: 200 });
+  const bench = createBench({ warmupIterations: 20, iterations: 200 });
 
   bench
     .add("trace-mapping", () => {
@@ -250,9 +250,9 @@ for (const { name, json } of maps) {
   console.table(
     bench.tasks.map((task) => ({
       Name: task.name,
-      "ops/sec": Math.round(task.result.hz).toLocaleString(),
-      "avg (μs)": (task.result.mean * 1000).toFixed(1),
-      "per lookup (ns)": Math.round(task.result.mean * 1_000_000).toLocaleString(),
+      "ops/sec": Math.round(throughputHz(task)).toLocaleString(),
+      "avg (μs)": (latencyMeanMs(task) * 1000).toFixed(1),
+      "per lookup (ns)": Math.round(latencyMeanMs(task) * 1_000_000).toLocaleString(),
     })),
   );
 }

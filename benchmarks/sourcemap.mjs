@@ -1,4 +1,4 @@
-import { Bench } from "tinybench";
+import { createBench, latencyMeanMs, latencyP99Ms, throughputHz } from "./codspeed.mjs";
 import { TraceMap, originalPositionFor } from "@jridgewell/trace-mapping";
 import { SourceMap } from "../packages/sourcemap/index.js";
 import { encode } from "@jridgewell/sourcemap-codec";
@@ -114,7 +114,7 @@ console.log("\n--- Parse Benchmarks ---\n");
 for (const { name, json } of maps) {
   console.log(`\n### ${name}\n`);
 
-  const bench = new Bench({ warmupIterations: 20, iterations: 200 });
+  const bench = createBench({ warmupIterations: 20, iterations: 200 });
 
   bench
     .add("trace-mapping parse", () => new TraceMap(json))
@@ -125,9 +125,9 @@ for (const { name, json } of maps) {
   console.table(
     bench.tasks.map((task) => ({
       Name: task.name,
-      "ops/sec": Math.round(task.result.hz).toLocaleString(),
-      "avg (μs)": (task.result.mean * 1000).toFixed(1),
-      "p99 (μs)": (task.result.p99 * 1000).toFixed(1),
+      "ops/sec": Math.round(throughputHz(task)).toLocaleString(),
+      "avg (μs)": (latencyMeanMs(task) * 1000).toFixed(1),
+      "p99 (μs)": (latencyP99Ms(task) * 1000).toFixed(1),
     })),
   );
 }
@@ -151,7 +151,7 @@ for (const { name, json } of maps) {
     });
   }
 
-  const bench = new Bench({ warmupIterations: 50, iterations: 500 });
+  const bench = createBench({ warmupIterations: 50, iterations: 500 });
 
   bench
     .add("trace-mapping lookup (1000x)", () => {
@@ -170,9 +170,9 @@ for (const { name, json } of maps) {
   console.table(
     bench.tasks.map((task) => ({
       Name: task.name,
-      "ops/sec": Math.round(task.result.hz).toLocaleString(),
-      "avg (μs)": (task.result.mean * 1000).toFixed(1),
-      "per lookup (ns)": Math.round(task.result.mean * 1_000_000).toLocaleString(),
+      "ops/sec": Math.round(throughputHz(task)).toLocaleString(),
+      "avg (μs)": (latencyMeanMs(task) * 1000).toFixed(1),
+      "per lookup (ns)": Math.round(latencyMeanMs(task) * 1_000_000).toLocaleString(),
     })),
   );
 }
@@ -197,7 +197,7 @@ for (const { name, json } of maps) {
     flatPositions.push(line, column);
   }
 
-  const bench = new Bench({ warmupIterations: 50, iterations: 500 });
+  const bench = createBench({ warmupIterations: 50, iterations: 500 });
 
   bench
     .add("trace-mapping 1000x individual", () => {
@@ -214,9 +214,9 @@ for (const { name, json } of maps) {
   console.table(
     bench.tasks.map((task) => ({
       Name: task.name,
-      "ops/sec": Math.round(task.result.hz).toLocaleString(),
-      "avg (μs)": (task.result.mean * 1000).toFixed(1),
-      "per lookup (ns)": Math.round(task.result.mean * 1_000_000).toLocaleString(),
+      "ops/sec": Math.round(throughputHz(task)).toLocaleString(),
+      "avg (μs)": (latencyMeanMs(task) * 1000).toFixed(1),
+      "per lookup (ns)": Math.round(latencyMeanMs(task) * 1_000_000).toLocaleString(),
     })),
   );
 }
@@ -230,7 +230,7 @@ console.log("\n--- Single originalPositionFor ---\n");
   const trace = new TraceMap(json);
   const srcmap = new SourceMap(json);
 
-  const bench = new Bench({ warmupIterations: 1000, iterations: 5000 });
+  const bench = createBench({ warmupIterations: 1000, iterations: 5000 });
 
   bench
     .add("trace-mapping single lookup", () => {
@@ -245,9 +245,9 @@ console.log("\n--- Single originalPositionFor ---\n");
   console.table(
     bench.tasks.map((task) => ({
       Name: task.name,
-      "ops/sec": Math.round(task.result.hz).toLocaleString(),
-      "avg (ns)": Math.round(task.result.mean * 1_000_000).toLocaleString(),
-      "p99 (ns)": Math.round(task.result.p99 * 1_000_000).toLocaleString(),
+      "ops/sec": Math.round(throughputHz(task)).toLocaleString(),
+      "avg (ns)": Math.round(latencyMeanMs(task) * 1_000_000).toLocaleString(),
+      "p99 (ns)": Math.round(latencyP99Ms(task) * 1_000_000).toLocaleString(),
     })),
   );
 }

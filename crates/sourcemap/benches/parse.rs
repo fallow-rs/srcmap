@@ -213,6 +213,19 @@ fn json_large_no_content() -> String {
     generate_sourcemap_json_no_content(2000, 50, 10)
 }
 
+fn json_indexed_sections() -> String {
+    let mut sections = Vec::with_capacity(8);
+    let mut offset_line = 0;
+
+    for section_idx in 0..8 {
+        let map = generate_sourcemap_json_no_content(250, 20, 5);
+        sections.push(format!(r#"{{"offset":{{"line":{offset_line},"column":0}},"map":{map}}}"#));
+        offset_line += 250 + section_idx % 2;
+    }
+
+    format!(r#"{{"version":3,"sections":[{}]}}"#, sections.join(","))
+}
+
 fn bench_with_input<I, O, Setup, Routine>(
     criterion: &mut Criterion,
     name: &'static str,
@@ -240,6 +253,12 @@ fn bench_parse_sizes(criterion: &mut Criterion) {
     bench_with_input(criterion, "parse_large_no_sources_content", json_large_no_content, |json| {
         SourceMap::from_json(black_box(json)).unwrap()
     });
+    bench_with_input(
+        criterion,
+        "parse_indexed_8_sections_40k_segments",
+        json_indexed_sections,
+        |json| SourceMap::from_json(black_box(json)).unwrap(),
+    );
 }
 
 fn sourcemap_from_json_input(lines: usize, segs_per_line: usize, num_sources: usize) -> SourceMap {
@@ -311,6 +330,16 @@ fn bench_serialize(criterion: &mut Criterion) {
         "serialize_large_100k_segments_no_content_to_json",
         || sourcemap_no_content_from_json_input(2000, 50, 10),
         |sm| black_box(sm).to_json(),
+    );
+    bench_with_input(
+        criterion,
+        "serialize_large_100k_segments_no_content_to_writer",
+        || sourcemap_no_content_from_json_input(2000, 50, 10),
+        |sm| {
+            let mut out = Vec::new();
+            black_box(sm).to_writer(&mut out).unwrap();
+            black_box(out);
+        },
     );
     bench_with_input(
         criterion,
