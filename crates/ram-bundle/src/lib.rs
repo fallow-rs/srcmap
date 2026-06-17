@@ -250,9 +250,7 @@ fn parse_startup_code(
     startup_end: usize,
 ) -> Result<String, RamBundleError> {
     std::str::from_utf8(&data[startup_start..startup_end])
-        .map_err(|e| {
-            RamBundleError::InvalidEntry(format!("startup code is not valid UTF-8: {e}"))
-        })
+        .map_err(|e| RamBundleError::InvalidEntry(format!("startup code is not valid UTF-8: {e}")))
         .map(str::to_owned)
 }
 

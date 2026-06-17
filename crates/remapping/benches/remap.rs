@@ -1,9 +1,19 @@
 use std::hint::black_box;
 
-use criterion::{Criterion, criterion_group, criterion_main};
+use divan::Bencher;
 use srcmap_generator::SourceMapGenerator;
 use srcmap_remapping::{remap, remap_streaming};
 use srcmap_sourcemap::{MappingsIter, SourceMap};
+
+fn main() {
+    divan::main();
+}
+
+struct ChainInput {
+    outer: SourceMap,
+    inner: SourceMap,
+    vlq: String,
+}
 
 fn build_chain(mapping_count: u32) -> (SourceMap, SourceMap) {
     // Outer: generated -> intermediate
@@ -29,41 +39,69 @@ fn build_chain(mapping_count: u32) -> (SourceMap, SourceMap) {
     (outer, inner)
 }
 
-fn bench_remap(c: &mut Criterion) {
-    for &count in &[500u32, 10_000, 60_000] {
-        let (outer, inner) = build_chain(count);
+fn build_chain_input(mapping_count: u32) -> ChainInput {
+    let (outer, inner) = build_chain(mapping_count);
+    let vlq = outer.encode_mappings();
 
-        // Pre-encode VLQ for the streaming variant
-        let vlq = outer.encode_mappings();
-
-        c.bench_function(&format!("remap_{count}"), |b| {
-            b.iter(|| {
-                black_box(remap(&outer, |_| Some(inner.clone())));
-            })
-        });
-
-        c.bench_function(&format!("remap_streaming_{count}"), |b| {
-            b.iter(|| {
-                let iter = MappingsIter::new(&vlq);
-                black_box(remap_streaming(
-                    iter,
-                    &outer.sources,
-                    &outer.names,
-                    &outer.sources_content,
-                    &outer.ignore_list,
-                    outer.file.clone(),
-                    |_| Some(inner.clone()),
-                ));
-            })
-        });
-    }
+    ChainInput { outer, inner, vlq }
 }
 
-/// Simulate a bundler workload: multiple source files each with their own
-/// source map, composed through a single bundler output map.
-fn bench_remap_bundler(c: &mut Criterion) {
+fn bench_remap_input(input: &mut ChainInput) {
+    black_box(remap(&input.outer, |_| Some(input.inner.clone())));
+}
+
+fn bench_remap_streaming_input(input: &mut ChainInput) {
+    let iter = MappingsIter::new(&input.vlq);
+    black_box(remap_streaming(
+        iter,
+        &input.outer.sources,
+        &input.outer.names,
+        &input.outer.sources_content,
+        &input.outer.ignore_list,
+        input.outer.file.clone(),
+        |_| Some(input.inner.clone()),
+    ));
+}
+
+#[divan::bench]
+fn remap_500(bencher: Bencher) {
+    bencher.with_inputs(|| build_chain_input(500)).bench_refs(bench_remap_input);
+}
+
+#[divan::bench]
+fn remap_streaming_500(bencher: Bencher) {
+    bencher.with_inputs(|| build_chain_input(500)).bench_refs(bench_remap_streaming_input);
+}
+
+#[divan::bench]
+fn remap_10000(bencher: Bencher) {
+    bencher.with_inputs(|| build_chain_input(10_000)).bench_refs(bench_remap_input);
+}
+
+#[divan::bench]
+fn remap_streaming_10000(bencher: Bencher) {
+    bencher.with_inputs(|| build_chain_input(10_000)).bench_refs(bench_remap_streaming_input);
+}
+
+#[divan::bench]
+fn remap_60000(bencher: Bencher) {
+    bencher.with_inputs(|| build_chain_input(60_000)).bench_refs(bench_remap_input);
+}
+
+#[divan::bench]
+fn remap_streaming_60000(bencher: Bencher) {
+    bencher.with_inputs(|| build_chain_input(60_000)).bench_refs(bench_remap_streaming_input);
+}
+
+struct BundlerInput {
+    outer: SourceMap,
+    vlq: String,
+    inner_maps: Vec<(String, SourceMap)>,
+}
+
+fn build_bundler_input() -> BundlerInput {
     let source_count = 20;
-    let mappings_per_source = 3000; // 60K total
+    let mappings_per_source = 3000;
 
     // Build inner maps (one per source file, simulating TS → JS transforms)
     let inner_maps: Vec<(String, SourceMap)> = (0..source_count)
@@ -96,31 +134,32 @@ fn bench_remap_bundler(c: &mut Criterion) {
     let outer = outer_gen.to_decoded_map();
     let vlq = outer.encode_mappings();
 
-    c.bench_function("remap_bundler_60k_20src", |b| {
-        b.iter(|| {
-            black_box(remap(&outer, |source| {
-                inner_maps.iter().find(|(name, _)| name == source).map(|(_, sm)| sm.clone())
-            }));
-        })
-    });
+    BundlerInput { outer, vlq, inner_maps }
+}
 
-    c.bench_function("remap_streaming_bundler_60k_20src", |b| {
-        b.iter(|| {
-            let iter = MappingsIter::new(&vlq);
-            black_box(remap_streaming(
-                iter,
-                &outer.sources,
-                &outer.names,
-                &outer.sources_content,
-                &outer.ignore_list,
-                outer.file.clone(),
-                |source| {
-                    inner_maps.iter().find(|(name, _)| name == source).map(|(_, sm)| sm.clone())
-                },
-            ));
-        })
+#[divan::bench]
+fn remap_bundler_60k_20src(bencher: Bencher) {
+    bencher.with_inputs(build_bundler_input).bench_refs(|input| {
+        black_box(remap(&input.outer, |source| {
+            input.inner_maps.iter().find(|(name, _)| name == source).map(|(_, sm)| sm.clone())
+        }));
     });
 }
 
-criterion_group!(benches, bench_remap, bench_remap_bundler);
-criterion_main!(benches);
+#[divan::bench]
+fn remap_streaming_bundler_60k_20src(bencher: Bencher) {
+    bencher.with_inputs(build_bundler_input).bench_refs(|input| {
+        let iter = MappingsIter::new(&input.vlq);
+        black_box(remap_streaming(
+            iter,
+            &input.outer.sources,
+            &input.outer.names,
+            &input.outer.sources_content,
+            &input.outer.ignore_list,
+            input.outer.file.clone(),
+            |source| {
+                input.inner_maps.iter().find(|(name, _)| name == source).map(|(_, sm)| sm.clone())
+            },
+        ));
+    });
+}

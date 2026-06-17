@@ -25,7 +25,7 @@ memchr = { workspace = true }
 rayon = { workspace = true, optional = true }
 
 [dev-dependencies]
-criterion = { workspace = true }
+divan = { workspace = true }
 
 [[bench]]
 name = "vlq"

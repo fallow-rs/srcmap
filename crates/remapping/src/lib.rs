@@ -1085,7 +1085,8 @@ fn load_streaming_source_entry<F>(
     match loader(source_name) {
         Some(upstream_sm) => {
             let cache = build_upstream_cache(&upstream_sm);
-            source_entries[si] = StreamingSourceEntry::Upstream { map: Box::new(upstream_sm), cache };
+            source_entries[si] =
+                StreamingSourceEntry::Upstream { map: Box::new(upstream_sm), cache };
         }
         None => {
             let idx = ctx.builder.add_source(source_name);

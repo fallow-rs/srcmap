@@ -24,7 +24,7 @@ serde_json = { workspace = true }
 memchr = { workspace = true }
 
 [dev-dependencies]
-criterion = { workspace = true }
+divan = { workspace = true }
 simd-json = { workspace = true }
 sonic-rs = { workspace = true }
 

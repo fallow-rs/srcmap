@@ -74,7 +74,7 @@ for (const fixture of FIXTURES) {
   }
 
   if (!downloaded) {
-    console.error(`  ${fixture.name}: FAILED — could not download from any URL`);
+    console.error(`  ${fixture.name}: FAILED: could not download from any URL`);
     console.error(`    Tried: ${fixture.urls.join("\n           ")}`);
     allOk = false;
   }

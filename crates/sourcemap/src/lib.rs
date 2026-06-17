@@ -239,9 +239,7 @@ fn build_mapping_line_offsets(mappings: &[Mapping], line_count: usize) -> Vec<u3
 
 fn finish_section_mappings(mappings: &mut [Mapping], max_line: u32) -> Vec<u32> {
     mappings.sort_unstable_by(|a, b| {
-        a.generated_line
-            .cmp(&b.generated_line)
-            .then(a.generated_column.cmp(&b.generated_column))
+        a.generated_line.cmp(&b.generated_line).then(a.generated_column.cmp(&b.generated_column))
     });
 
     let line_count = if mappings.is_empty() { 0 } else { max_line as usize + 1 };
@@ -335,11 +333,7 @@ impl SectionMergeState {
 
     fn merge_scopes_and_ranges(&mut self) {
         let pending_scopes = std::mem::take(&mut self.pending_scopes);
-        merge_section_scopes_and_ranges(
-            pending_scopes,
-            &mut self.all_scopes,
-            &mut self.all_ranges,
-        );
+        merge_section_scopes_and_ranges(pending_scopes, &mut self.all_scopes, &mut self.all_ranges);
     }
 }
 
@@ -376,8 +370,7 @@ fn original_position_lub_index(line_mappings: &[Mapping], column: u32) -> Option
         // Mirrors `@jridgewell/trace-mapping`'s LUB = latest-equal tie-break.
         Ok(i) => {
             let mut idx = i;
-            while idx + 1 < line_mappings.len()
-                && line_mappings[idx + 1].generated_column == column
+            while idx + 1 < line_mappings.len() && line_mappings[idx + 1].generated_column == column
             {
                 idx += 1;
             }
@@ -1196,10 +1189,7 @@ impl SourceMap {
         if mapping.source != source_idx || mapping.original_line != line {
             return None;
         }
-        Some(GeneratedLocation {
-            line: mapping.generated_line,
-            column: mapping.generated_column,
-        })
+        Some(GeneratedLocation { line: mapping.generated_line, column: mapping.generated_column })
     }
 
     /// Find all generated positions for an original source position.

@@ -1,0 +1,85 @@
+name: Benchmarks
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'crates/**'
+      - 'benchmarks/download-fixtures.mjs'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - '.github/workflows/bench.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'crates/**'
+      - 'benchmarks/download-fixtures.mjs'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - '.github/workflows/bench.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: bench-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions: {}
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  benchmark:
+    name: CodSpeed simulation (${{ matrix.label }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: codec vlq
+            cache_key: codec-vlq
+            package: srcmap-codec
+            bench: vlq
+            fixtures: false
+          - label: sourcemap parse
+            cache_key: sourcemap-parse
+            package: srcmap-sourcemap
+            bench: parse
+            fixtures: true
+          - label: generator
+            cache_key: generator
+            package: srcmap-generator
+            bench: generate
+            fixtures: false
+          - label: remapping
+            cache_key: remapping
+            package: srcmap-remapping
+            bench: remap
+            fixtures: false
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      - uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7
+
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          key: bench-${{ matrix.cache_key }}
+
+      - name: Download real-world fixtures
+        if: matrix.fixtures
+        run: node benchmarks/download-fixtures.mjs
+
+      - name: Install cargo-codspeed
+        uses: taiki-e/install-action@15449e3094499af05d8d964a1c884208e4b8b595 # v2.81.11
+        with:
+          tool: cargo-codspeed@4.7.0
+
+      - name: Build benchmark shard
+        run: cargo codspeed build -p ${{ matrix.package }} --bench ${{ matrix.bench }}
+
+      - name: Run benchmark shard
+        uses: CodSpeedHQ/action@c145068895e045cc725ee76fcd2307624b65c3af # v4.17.5
+        with:
+          mode: simulation
+          run: cargo codspeed run -p ${{ matrix.package }} --bench ${{ matrix.bench }}

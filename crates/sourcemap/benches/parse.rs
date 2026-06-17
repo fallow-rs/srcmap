@@ -1,16 +1,20 @@
 use std::hint::black_box;
 
-use criterion::{Criterion, criterion_group, criterion_main};
+use divan::Bencher;
 use serde::Deserialize;
 use srcmap_codec::Segment;
 use srcmap_sourcemap::{LazySourceMap, SourceMap};
 
-// ── Prototype: simd-json / sonic-rs parse paths ────────────────────
+fn main() {
+    divan::main();
+}
+
+// Prototype: simd-json / sonic-rs parse paths.
 //
 // These mirror the regular-source-map hot path in `SourceMap::from_json`,
 // but swap out the JSON decoder. They omit features that neither simd-json
 // nor sonic-rs handle cleanly (sections via RawValue, #[serde(flatten)]
-// extensions) — those cases fall through to serde_json in production.
+// extensions), so those cases fall through to serde_json in production.
 //
 // The goal is to measure whether a SIMD JSON parse meaningfully changes
 // end-to-end parse time once you add back the VLQ decode work.
@@ -197,89 +201,169 @@ fn clone_via_from_parts(sm: &SourceMap) -> SourceMap {
     )
 }
 
-fn bench_parse(c: &mut Criterion) {
-    let small = generate_sourcemap_json(50, 10, 3);
-    let medium = generate_sourcemap_json(500, 20, 5);
-    let large = generate_sourcemap_json(2000, 50, 10);
-    let large_no_content = generate_sourcemap_json_no_content(2000, 50, 10);
-
-    let mut group = c.benchmark_group("parse");
-
-    group.bench_function("small (500 segs)", |b| {
-        b.iter(|| SourceMap::from_json(black_box(&small)).unwrap())
-    });
-
-    group.bench_function("medium (10K segs)", |b| {
-        b.iter(|| SourceMap::from_json(black_box(&medium)).unwrap())
-    });
-
-    group.bench_function("large (100K segs)", |b| {
-        b.iter(|| SourceMap::from_json(black_box(&large)).unwrap())
-    });
-
-    group.bench_function("large no sourcesContent", |b| {
-        b.iter(|| SourceMap::from_json(black_box(&large_no_content)).unwrap())
-    });
-
-    group.finish();
+fn json_small() -> String {
+    generate_sourcemap_json(50, 10, 3)
 }
 
-/// Interop benchmark for producers that already have decoded source-map parts.
-/// This compares the old JSON interchange path with the structured constructor.
-fn bench_from_parts_interop(c: &mut Criterion) {
-    let small = SourceMap::from_json(&generate_sourcemap_json(50, 10, 3)).unwrap();
-    let medium = SourceMap::from_json(&generate_sourcemap_json(500, 20, 5)).unwrap();
-    let large = SourceMap::from_json(&generate_sourcemap_json(2000, 50, 10)).unwrap();
-    let fixtures =
-        [("small (500 segs)", small), ("medium (10K segs)", medium), ("large (100K segs)", large)];
-
-    let mut group = c.benchmark_group("from_parts_interop");
-
-    for (label, sm) in &fixtures {
-        group.bench_function(format!("{label} / JSON serialize + parse"), |b| {
-            b.iter(|| {
-                let json = black_box(sm).to_json();
-                SourceMap::from_json(black_box(&json)).unwrap()
-            })
-        });
-        group.bench_function(format!("{label} / from_parts"), |b| {
-            b.iter(|| clone_via_from_parts(black_box(sm)))
-        });
-    }
-
-    group.finish();
+fn json_medium() -> String {
+    generate_sourcemap_json(500, 20, 5)
 }
 
-/// End-to-end parse comparison: current `SourceMap::from_json` (serde_json with
-/// the full `RawSourceMap` struct including `#[serde(flatten)]` extensions) vs
-/// the three minimal-struct paths backed by serde_json, simd-json, and sonic-rs.
-fn bench_parse_backends(c: &mut Criterion) {
-    let medium = generate_sourcemap_json(500, 20, 5);
-    let large = generate_sourcemap_json(2000, 50, 10);
-    let large_no_content = generate_sourcemap_json_no_content(2000, 50, 10);
+fn json_large() -> String {
+    generate_sourcemap_json(2000, 50, 10)
+}
 
-    let mut group = c.benchmark_group("parse_backends");
+fn json_large_no_content() -> String {
+    generate_sourcemap_json_no_content(2000, 50, 10)
+}
 
-    for (label, json) in [
-        ("medium (10K segs)", &medium),
-        ("large (100K segs)", &large),
-        ("large no sourcesContent", &large_no_content),
-    ] {
-        group.bench_function(format!("{label} / serde_json (current)"), |b| {
-            b.iter(|| SourceMap::from_json(black_box(json)).unwrap())
-        });
-        group.bench_function(format!("{label} / serde_json (minimal struct)"), |b| {
-            b.iter(|| parse_with_serde_json_minimal(black_box(json)))
-        });
-        group.bench_function(format!("{label} / simd-json"), |b| {
-            b.iter(|| parse_with_simd_json(black_box(json)))
-        });
-        group.bench_function(format!("{label} / sonic-rs"), |b| {
-            b.iter(|| parse_with_sonic_rs(black_box(json)))
-        });
-    }
+#[divan::bench]
+fn parse_small_500_segments(bencher: Bencher) {
+    bencher
+        .with_inputs(json_small)
+        .bench_refs(|json| SourceMap::from_json(black_box(json)).unwrap());
+}
 
-    group.finish();
+#[divan::bench]
+fn parse_medium_10k_segments(bencher: Bencher) {
+    bencher
+        .with_inputs(json_medium)
+        .bench_refs(|json| SourceMap::from_json(black_box(json)).unwrap());
+}
+
+#[divan::bench]
+fn parse_large_100k_segments(bencher: Bencher) {
+    bencher
+        .with_inputs(json_large)
+        .bench_refs(|json| SourceMap::from_json(black_box(json)).unwrap());
+}
+
+#[divan::bench]
+fn parse_large_no_sources_content(bencher: Bencher) {
+    bencher
+        .with_inputs(json_large_no_content)
+        .bench_refs(|json| SourceMap::from_json(black_box(json)).unwrap());
+}
+
+fn sourcemap_from_json_input(lines: usize, segs_per_line: usize, num_sources: usize) -> SourceMap {
+    SourceMap::from_json(&generate_sourcemap_json(lines, segs_per_line, num_sources)).unwrap()
+}
+
+fn json_roundtrip(sm: &mut SourceMap) -> SourceMap {
+    let json = black_box(sm).to_json();
+    SourceMap::from_json(black_box(&json)).unwrap()
+}
+
+#[divan::bench]
+fn from_parts_interop_small_json_roundtrip(bencher: Bencher) {
+    bencher.with_inputs(|| sourcemap_from_json_input(50, 10, 3)).bench_refs(json_roundtrip);
+}
+
+#[divan::bench]
+fn from_parts_interop_small_from_parts(bencher: Bencher) {
+    bencher
+        .with_inputs(|| sourcemap_from_json_input(50, 10, 3))
+        .bench_refs(|sm| clone_via_from_parts(black_box(sm)));
+}
+
+#[divan::bench]
+fn from_parts_interop_medium_json_roundtrip(bencher: Bencher) {
+    bencher.with_inputs(|| sourcemap_from_json_input(500, 20, 5)).bench_refs(json_roundtrip);
+}
+
+#[divan::bench]
+fn from_parts_interop_medium_from_parts(bencher: Bencher) {
+    bencher
+        .with_inputs(|| sourcemap_from_json_input(500, 20, 5))
+        .bench_refs(|sm| clone_via_from_parts(black_box(sm)));
+}
+
+#[divan::bench]
+fn from_parts_interop_large_json_roundtrip(bencher: Bencher) {
+    bencher.with_inputs(|| sourcemap_from_json_input(2000, 50, 10)).bench_refs(json_roundtrip);
+}
+
+#[divan::bench]
+fn from_parts_interop_large_from_parts(bencher: Bencher) {
+    bencher
+        .with_inputs(|| sourcemap_from_json_input(2000, 50, 10))
+        .bench_refs(|sm| clone_via_from_parts(black_box(sm)));
+}
+
+#[divan::bench]
+fn parse_backends_medium_current(bencher: Bencher) {
+    bencher
+        .with_inputs(json_medium)
+        .bench_refs(|json| SourceMap::from_json(black_box(json)).unwrap());
+}
+
+#[divan::bench]
+fn parse_backends_medium_serde_json_minimal(bencher: Bencher) {
+    bencher
+        .with_inputs(json_medium)
+        .bench_refs(|json| parse_with_serde_json_minimal(black_box(json)));
+}
+
+#[divan::bench]
+fn parse_backends_medium_simd_json(bencher: Bencher) {
+    bencher.with_inputs(json_medium).bench_refs(|json| parse_with_simd_json(black_box(json)));
+}
+
+#[divan::bench]
+fn parse_backends_medium_sonic_rs(bencher: Bencher) {
+    bencher.with_inputs(json_medium).bench_refs(|json| parse_with_sonic_rs(black_box(json)));
+}
+
+#[divan::bench]
+fn parse_backends_large_current(bencher: Bencher) {
+    bencher
+        .with_inputs(json_large)
+        .bench_refs(|json| SourceMap::from_json(black_box(json)).unwrap());
+}
+
+#[divan::bench]
+fn parse_backends_large_serde_json_minimal(bencher: Bencher) {
+    bencher
+        .with_inputs(json_large)
+        .bench_refs(|json| parse_with_serde_json_minimal(black_box(json)));
+}
+
+#[divan::bench]
+fn parse_backends_large_simd_json(bencher: Bencher) {
+    bencher.with_inputs(json_large).bench_refs(|json| parse_with_simd_json(black_box(json)));
+}
+
+#[divan::bench]
+fn parse_backends_large_sonic_rs(bencher: Bencher) {
+    bencher.with_inputs(json_large).bench_refs(|json| parse_with_sonic_rs(black_box(json)));
+}
+
+#[divan::bench]
+fn parse_backends_large_no_content_current(bencher: Bencher) {
+    bencher
+        .with_inputs(json_large_no_content)
+        .bench_refs(|json| SourceMap::from_json(black_box(json)).unwrap());
+}
+
+#[divan::bench]
+fn parse_backends_large_no_content_serde_json_minimal(bencher: Bencher) {
+    bencher
+        .with_inputs(json_large_no_content)
+        .bench_refs(|json| parse_with_serde_json_minimal(black_box(json)));
+}
+
+#[divan::bench]
+fn parse_backends_large_no_content_simd_json(bencher: Bencher) {
+    bencher
+        .with_inputs(json_large_no_content)
+        .bench_refs(|json| parse_with_simd_json(black_box(json)));
+}
+
+#[divan::bench]
+fn parse_backends_large_no_content_sonic_rs(bencher: Bencher) {
+    bencher
+        .with_inputs(json_large_no_content)
+        .bench_refs(|json| parse_with_sonic_rs(black_box(json)));
 }
 
 /// Real-world source map fixtures. Falls back to synthetic maps if
@@ -289,85 +373,143 @@ fn load_fixture(name: &str) -> Option<String> {
     std::fs::read_to_string(&path).ok()
 }
 
-/// Real-world parse: chartjs / preact / pdfjs. Isolates the concrete workload
-/// so we know whether synthetic generator results translate to real data.
-fn bench_real_world(c: &mut Criterion) {
-    let fixtures: Vec<(&str, String)> = ["preact", "chartjs", "pdfjs"]
-        .iter()
-        .filter_map(|name| load_fixture(name).map(|s| (*name, s)))
-        .collect();
-
-    if fixtures.is_empty() {
-        return;
-    }
-
-    let mut group = c.benchmark_group("real_world");
-
-    for (name, json) in &fixtures {
-        let kb = json.len() / 1024;
-        let label = format!("{name} ({kb} KB)");
-
-        group.bench_function(format!("{label} / serde_json (current)"), |b| {
-            b.iter(|| SourceMap::from_json(black_box(json)).unwrap())
-        });
-        group.bench_function(format!("{label} / sonic-rs"), |b| {
-            b.iter(|| parse_with_sonic_rs(black_box(json)))
-        });
-        group.bench_function(format!("{label} / simd-json"), |b| {
-            b.iter(|| parse_with_simd_json(black_box(json)))
-        });
-    }
-
-    group.finish();
+fn fixture_or_synthetic(name: &str) -> String {
+    load_fixture(name).unwrap_or_else(json_large_no_content)
 }
 
-/// Lite-path parses (skip sourcesContent allocation). These hit the
-/// `RawSourceMapLite` codepath used by the WASM bindings — the round-3
-/// sonic-rs migration target.
-fn bench_lite_paths(c: &mut Criterion) {
-    let fixtures: Vec<(&str, String)> = ["preact", "chartjs", "pdfjs"]
-        .iter()
-        .filter_map(|name| load_fixture(name).map(|s| (*name, s)))
-        .collect();
-
-    if fixtures.is_empty() {
-        return;
-    }
-
-    let mut group = c.benchmark_group("lite_paths");
-
-    for (name, json) in &fixtures {
-        let kb = json.len() / 1024;
-        let label = format!("{name} ({kb} KB)");
-
-        group.bench_function(format!("{label} / SourceMap::from_json_no_content"), |b| {
-            b.iter(|| SourceMap::from_json_no_content(black_box(json)).unwrap())
-        });
-        group.bench_function(format!("{label} / LazySourceMap::from_json_no_content"), |b| {
-            b.iter(|| LazySourceMap::from_json_no_content(black_box(json)).unwrap())
-        });
-        group.bench_function(format!("{label} / LazySourceMap::from_json_fast"), |b| {
-            b.iter(|| LazySourceMap::from_json_fast(black_box(json)).unwrap())
-        });
-    }
-
-    group.finish();
+fn fixture_preact() -> String {
+    fixture_or_synthetic("preact")
 }
 
-/// Pure VLQ decode isolation: how much of the total parse time is the
-/// VLQ pass, separate from JSON decode and struct construction?
-fn bench_vlq_isolation(c: &mut Criterion) {
-    let fixtures: Vec<(&str, String)> = ["preact", "chartjs", "pdfjs"]
-        .iter()
-        .filter_map(|name| load_fixture(name).map(|s| (*name, s)))
-        .collect();
+fn fixture_chartjs() -> String {
+    fixture_or_synthetic("chartjs")
+}
 
-    if fixtures.is_empty() {
-        return;
-    }
+fn fixture_pdfjs() -> String {
+    fixture_or_synthetic("pdfjs")
+}
 
-    // Pre-extract the mappings string (and sources, names) from each fixture
-    // so the VLQ bench doesn't include JSON parse overhead.
+#[divan::bench]
+fn real_world_preact_current(bencher: Bencher) {
+    bencher
+        .with_inputs(fixture_preact)
+        .bench_refs(|json| SourceMap::from_json(black_box(json)).unwrap());
+}
+
+#[divan::bench]
+fn real_world_preact_sonic_rs(bencher: Bencher) {
+    bencher.with_inputs(fixture_preact).bench_refs(|json| parse_with_sonic_rs(black_box(json)));
+}
+
+#[divan::bench]
+fn real_world_preact_simd_json(bencher: Bencher) {
+    bencher.with_inputs(fixture_preact).bench_refs(|json| parse_with_simd_json(black_box(json)));
+}
+
+#[divan::bench]
+fn real_world_chartjs_current(bencher: Bencher) {
+    bencher
+        .with_inputs(fixture_chartjs)
+        .bench_refs(|json| SourceMap::from_json(black_box(json)).unwrap());
+}
+
+#[divan::bench]
+fn real_world_chartjs_sonic_rs(bencher: Bencher) {
+    bencher.with_inputs(fixture_chartjs).bench_refs(|json| parse_with_sonic_rs(black_box(json)));
+}
+
+#[divan::bench]
+fn real_world_chartjs_simd_json(bencher: Bencher) {
+    bencher.with_inputs(fixture_chartjs).bench_refs(|json| parse_with_simd_json(black_box(json)));
+}
+
+#[divan::bench]
+fn real_world_pdfjs_current(bencher: Bencher) {
+    bencher
+        .with_inputs(fixture_pdfjs)
+        .bench_refs(|json| SourceMap::from_json(black_box(json)).unwrap());
+}
+
+#[divan::bench]
+fn real_world_pdfjs_sonic_rs(bencher: Bencher) {
+    bencher.with_inputs(fixture_pdfjs).bench_refs(|json| parse_with_sonic_rs(black_box(json)));
+}
+
+#[divan::bench]
+fn real_world_pdfjs_simd_json(bencher: Bencher) {
+    bencher.with_inputs(fixture_pdfjs).bench_refs(|json| parse_with_simd_json(black_box(json)));
+}
+
+#[divan::bench]
+fn lite_paths_preact_no_content(bencher: Bencher) {
+    bencher
+        .with_inputs(fixture_preact)
+        .bench_refs(|json| SourceMap::from_json_no_content(black_box(json)).unwrap());
+}
+
+#[divan::bench]
+fn lite_paths_preact_lazy_no_content(bencher: Bencher) {
+    bencher
+        .with_inputs(fixture_preact)
+        .bench_refs(|json| LazySourceMap::from_json_no_content(black_box(json)).unwrap());
+}
+
+#[divan::bench]
+fn lite_paths_preact_lazy_fast(bencher: Bencher) {
+    bencher
+        .with_inputs(fixture_preact)
+        .bench_refs(|json| LazySourceMap::from_json_fast(black_box(json)).unwrap());
+}
+
+#[divan::bench]
+fn lite_paths_chartjs_no_content(bencher: Bencher) {
+    bencher
+        .with_inputs(fixture_chartjs)
+        .bench_refs(|json| SourceMap::from_json_no_content(black_box(json)).unwrap());
+}
+
+#[divan::bench]
+fn lite_paths_chartjs_lazy_no_content(bencher: Bencher) {
+    bencher
+        .with_inputs(fixture_chartjs)
+        .bench_refs(|json| LazySourceMap::from_json_no_content(black_box(json)).unwrap());
+}
+
+#[divan::bench]
+fn lite_paths_chartjs_lazy_fast(bencher: Bencher) {
+    bencher
+        .with_inputs(fixture_chartjs)
+        .bench_refs(|json| LazySourceMap::from_json_fast(black_box(json)).unwrap());
+}
+
+#[divan::bench]
+fn lite_paths_pdfjs_no_content(bencher: Bencher) {
+    bencher
+        .with_inputs(fixture_pdfjs)
+        .bench_refs(|json| SourceMap::from_json_no_content(black_box(json)).unwrap());
+}
+
+#[divan::bench]
+fn lite_paths_pdfjs_lazy_no_content(bencher: Bencher) {
+    bencher
+        .with_inputs(fixture_pdfjs)
+        .bench_refs(|json| LazySourceMap::from_json_no_content(black_box(json)).unwrap());
+}
+
+#[divan::bench]
+fn lite_paths_pdfjs_lazy_fast(bencher: Bencher) {
+    bencher
+        .with_inputs(fixture_pdfjs)
+        .bench_refs(|json| LazySourceMap::from_json_fast(black_box(json)).unwrap());
+}
+
+struct VlqFixture {
+    mappings: String,
+    sources: Vec<String>,
+    names: Vec<String>,
+}
+
+fn vlq_fixture(name: &str) -> VlqFixture {
     #[derive(Deserialize)]
     struct JustMappings {
         #[serde(default)]
@@ -378,129 +520,132 @@ fn bench_vlq_isolation(c: &mut Criterion) {
         names: Vec<String>,
     }
 
-    let extracted: Vec<(String, String, Vec<String>, Vec<String>)> = fixtures
-        .iter()
-        .map(|(name, json)| {
-            let jm: JustMappings = serde_json::from_str(json).unwrap();
-            let sources: Vec<String> =
-                jm.sources.into_iter().map(|s| s.unwrap_or_default()).collect();
-            (name.to_string(), jm.mappings, sources, jm.names)
-        })
-        .collect();
+    let json = fixture_or_synthetic(name);
+    let jm: JustMappings = serde_json::from_str(&json).unwrap();
+    let sources = jm.sources.into_iter().map(|s| s.unwrap_or_default()).collect();
 
-    let mut group = c.benchmark_group("vlq_isolation");
-
-    for (name, mappings_str, sources, names) in &extracted {
-        let kb = mappings_str.len() / 1024;
-        let label = format!("{name} mappings ({kb} KB)");
-
-        group.bench_function(format!("{label} / codec::decode (segments)"), |b| {
-            b.iter(|| srcmap_codec::decode(black_box(mappings_str)).unwrap())
-        });
-
-        // End-to-end: mappings string -> full SourceMap via the sourcemap-crate
-        // decoder (measures the specialized `decode_mappings` + struct assembly).
-        group.bench_function(format!("{label} / SourceMap::from_vlq"), |b| {
-            b.iter(|| {
-                SourceMap::from_vlq(
-                    black_box(mappings_str),
-                    sources.clone(),
-                    names.clone(),
-                    None,
-                    None,
-                    Vec::new(),
-                    Vec::new(),
-                    None,
-                )
-                .unwrap()
-            })
-        });
-    }
-
-    group.finish();
+    VlqFixture { mappings: jm.mappings, sources, names: jm.names }
 }
 
-/// JSON-only parse comparison: isolate the JSON decoder from VLQ decoding.
-fn bench_json_only(c: &mut Criterion) {
-    let large = generate_sourcemap_json_no_content(2000, 50, 10);
-
-    let mut group = c.benchmark_group("json_only");
-
-    group.bench_function("serde_json -> Value", |b| {
-        b.iter(|| {
-            let _: serde_json::Value = serde_json::from_str(black_box(&large)).unwrap();
-        })
-    });
-    group.bench_function("serde_json -> MinimalRawSourceMap", |b| {
-        b.iter(|| {
-            let _: MinimalRawSourceMap<'_> = serde_json::from_str(black_box(&large)).unwrap();
-        })
-    });
-    group.bench_function("simd-json -> MinimalRawSourceMap", |b| {
-        b.iter(|| {
-            let mut bytes = large.as_bytes().to_vec();
-            let _: MinimalRawSourceMap<'_> = simd_json::serde::from_slice(&mut bytes).unwrap();
-        })
-    });
-    group.bench_function("sonic-rs -> MinimalRawSourceMap", |b| {
-        b.iter(|| {
-            let _: MinimalRawSourceMap<'_> = sonic_rs::from_str(black_box(&large)).unwrap();
-        })
-    });
-
-    group.finish();
+fn bench_codec_decode(input: &mut VlqFixture) {
+    srcmap_codec::decode(black_box(&input.mappings)).unwrap();
 }
 
-fn bench_lookup(c: &mut Criterion) {
-    let medium = generate_sourcemap_json(500, 20, 5);
-    let sm = SourceMap::from_json(&medium).unwrap();
-
-    let mut group = c.benchmark_group("lookup");
-
-    group.bench_function("single original_position_for", |b| {
-        b.iter(|| sm.original_position_for(black_box(250), black_box(30)))
-    });
-
-    group.bench_function("1000x original_position_for", |b| {
-        let lookups: Vec<(u32, u32)> = (0..1000).map(|i| ((i * 7) % 500, (i * 13) % 200)).collect();
-        b.iter(|| {
-            for &(line, col) in &lookups {
-                black_box(sm.original_position_for(line, col));
-            }
-        })
-    });
-
-    group.finish();
+fn bench_source_map_from_vlq(input: &mut VlqFixture) {
+    SourceMap::from_vlq(
+        black_box(&input.mappings),
+        input.sources.clone(),
+        input.names.clone(),
+        None,
+        None,
+        Vec::new(),
+        Vec::new(),
+        None,
+    )
+    .unwrap();
 }
 
-fn bench_vlq_only(c: &mut Criterion) {
-    let json = generate_sourcemap_json_no_content(2000, 50, 10);
-
-    let mut group = c.benchmark_group("vlq_decode");
-
-    group.bench_function("large mappings only", |b| {
-        b.iter(|| srcmap_sourcemap::SourceMap::from_json(black_box(&json)).unwrap())
-    });
-
-    group.bench_function("serde_json parse only", |b| {
-        b.iter(|| {
-            let _: serde_json::Value = serde_json::from_str(black_box(&json)).unwrap();
-        })
-    });
-
-    group.finish();
+#[divan::bench]
+fn vlq_isolation_preact_codec_decode(bencher: Bencher) {
+    bencher.with_inputs(|| vlq_fixture("preact")).bench_refs(bench_codec_decode);
 }
 
-criterion_group!(
-    benches,
-    bench_parse,
-    bench_from_parts_interop,
-    bench_lookup,
-    bench_vlq_only,
-    bench_parse_backends,
-    bench_json_only,
-    bench_real_world,
-    bench_lite_paths,
-    bench_vlq_isolation
-);
-criterion_main!(benches);
+#[divan::bench]
+fn vlq_isolation_preact_source_map_from_vlq(bencher: Bencher) {
+    bencher.with_inputs(|| vlq_fixture("preact")).bench_refs(bench_source_map_from_vlq);
+}
+
+#[divan::bench]
+fn vlq_isolation_chartjs_codec_decode(bencher: Bencher) {
+    bencher.with_inputs(|| vlq_fixture("chartjs")).bench_refs(bench_codec_decode);
+}
+
+#[divan::bench]
+fn vlq_isolation_chartjs_source_map_from_vlq(bencher: Bencher) {
+    bencher.with_inputs(|| vlq_fixture("chartjs")).bench_refs(bench_source_map_from_vlq);
+}
+
+#[divan::bench]
+fn vlq_isolation_pdfjs_codec_decode(bencher: Bencher) {
+    bencher.with_inputs(|| vlq_fixture("pdfjs")).bench_refs(bench_codec_decode);
+}
+
+#[divan::bench]
+fn vlq_isolation_pdfjs_source_map_from_vlq(bencher: Bencher) {
+    bencher.with_inputs(|| vlq_fixture("pdfjs")).bench_refs(bench_source_map_from_vlq);
+}
+
+#[divan::bench]
+fn json_only_serde_json_value(bencher: Bencher) {
+    bencher.with_inputs(json_large_no_content).bench_refs(|json| {
+        let _: serde_json::Value = serde_json::from_str(black_box(json)).unwrap();
+    });
+}
+
+#[divan::bench]
+fn json_only_serde_json_minimal(bencher: Bencher) {
+    bencher.with_inputs(json_large_no_content).bench_refs(|json| {
+        let _: MinimalRawSourceMap<'_> = serde_json::from_str(black_box(json)).unwrap();
+    });
+}
+
+#[divan::bench]
+fn json_only_simd_json_minimal(bencher: Bencher) {
+    bencher.with_inputs(json_large_no_content).bench_refs(|json| {
+        let mut bytes = json.as_bytes().to_vec();
+        let _: MinimalRawSourceMap<'_> = simd_json::serde::from_slice(&mut bytes).unwrap();
+    });
+}
+
+#[divan::bench]
+fn json_only_sonic_rs_minimal(bencher: Bencher) {
+    bencher.with_inputs(json_large_no_content).bench_refs(|json| {
+        let _: MinimalRawSourceMap<'_> = sonic_rs::from_str(black_box(json)).unwrap();
+    });
+}
+
+fn lookup_input() -> SourceMap {
+    SourceMap::from_json(&json_medium()).unwrap()
+}
+
+#[divan::bench]
+fn lookup_single_original_position_for(bencher: Bencher) {
+    bencher
+        .with_inputs(lookup_input)
+        .bench_refs(|sm| sm.original_position_for(black_box(250), black_box(30)));
+}
+
+struct BatchLookupInput {
+    sm: SourceMap,
+    lookups: Vec<(u32, u32)>,
+}
+
+fn batch_lookup_input() -> BatchLookupInput {
+    let sm = lookup_input();
+    let lookups = (0..1000).map(|i| ((i * 7) % 500, (i * 13) % 200)).collect();
+
+    BatchLookupInput { sm, lookups }
+}
+
+#[divan::bench]
+fn lookup_1000x_original_position_for(bencher: Bencher) {
+    bencher.with_inputs(batch_lookup_input).bench_refs(|input| {
+        for &(line, col) in &input.lookups {
+            black_box(input.sm.original_position_for(line, col));
+        }
+    });
+}
+
+#[divan::bench]
+fn vlq_decode_large_mappings_only(bencher: Bencher) {
+    bencher
+        .with_inputs(json_large_no_content)
+        .bench_refs(|json| SourceMap::from_json(black_box(json)).unwrap());
+}
+
+#[divan::bench]
+fn vlq_decode_serde_json_parse_only(bencher: Bencher) {
+    bencher.with_inputs(json_large_no_content).bench_refs(|json| {
+        let _: serde_json::Value = serde_json::from_str(black_box(json)).unwrap();
+    });
+}

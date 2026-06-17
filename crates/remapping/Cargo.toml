@@ -21,7 +21,7 @@ srcmap-sourcemap = { workspace = true }
 srcmap-generator = { workspace = true }
 
 [dev-dependencies]
-criterion = { workspace = true }
+divan = { workspace = true }
 serde_json = { workspace = true }
 
 [[bench]]
