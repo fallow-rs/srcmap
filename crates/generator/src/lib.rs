@@ -109,6 +109,7 @@ pub struct SourceMapGenerator {
     ignore_list: Vec<u32>,
     debug_id: Option<String>,
     scopes: Option<ScopeInfo>,
+    has_range_mappings: bool,
     assume_sorted: bool,
     // Tracks whether `mappings` is non-decreasing by (generated_line,
     // generated_column), maintained incrementally on every push so the encode
@@ -133,6 +134,7 @@ impl SourceMapGenerator {
             ignore_list: Vec::new(),
             debug_id: None,
             scopes: None,
+            has_range_mappings: false,
             assume_sorted: false,
             mappings_in_order: true,
             source_map: FxHashMap::default(),
@@ -155,6 +157,7 @@ impl SourceMapGenerator {
             ignore_list: Vec::new(),
             debug_id: None,
             scopes: None,
+            has_range_mappings: false,
             assume_sorted: false,
             mappings_in_order: true,
             source_map: FxHashMap::default(),
@@ -236,6 +239,9 @@ impl SourceMapGenerator {
     /// `(generated_line, generated_column)` ordering exactly.
     #[inline]
     fn push_mapping(&mut self, mapping: Mapping) {
+        if mapping.is_range_mapping {
+            self.has_range_mappings = true;
+        }
         if self.mappings_in_order
             && let Some(last) = self.mappings.last()
             && (mapping.generated_line, mapping.generated_column)
@@ -592,7 +598,7 @@ impl SourceMapGenerator {
     /// Encode range mappings to a VLQ string.
     /// Returns `None` if no range mappings exist.
     fn encode_range_mappings(&self) -> Option<String> {
-        if !self.mappings.iter().any(|m| m.is_range_mapping) {
+        if !self.has_range_mappings {
             return None;
         }
 
