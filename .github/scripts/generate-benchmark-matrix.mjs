@@ -39,7 +39,7 @@ const SHARDS = {
     label: "codec vlq parallel",
     cacheKey: "codec-vlq-parallel",
     packageName: "srcmap-codec",
-    bench: "vlq",
+    bench: "vlq_parallel",
     features: "codspeed,parallel",
   }),
   sourcemap: rustShard({
@@ -59,7 +59,7 @@ const SHARDS = {
     label: "generator parallel",
     cacheKey: "generator-parallel",
     packageName: "srcmap-generator",
-    bench: "generate",
+    bench: "generate_parallel",
     features: "codspeed,parallel",
   }),
   remapping: rustShard({

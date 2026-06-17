@@ -31,3 +31,8 @@ criterion2 = { workspace = true }
 [[bench]]
 name = "vlq"
 harness = false
+
+[[bench]]
+name = "vlq_parallel"
+harness = false
+required-features = ["parallel"]

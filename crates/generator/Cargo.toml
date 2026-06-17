@@ -35,3 +35,8 @@ criterion2 = { workspace = true }
 [[bench]]
 name = "generate"
 harness = false
+
+[[bench]]
+name = "generate_parallel"
+harness = false
+required-features = ["parallel"]

@@ -55,10 +55,10 @@ for (const fixture of FIXTURES) {
 
 console.log("=== Real-World Source Map Benchmarks ===\n");
 console.log("Libraries:");
-console.log("  @jridgewell/trace-mapping  — de facto standard JS source map consumer");
-console.log("  source-map-js              — Mozilla source-map fork (used by Vite, PostCSS)");
-console.log("  srcmap WASM                — srcmap Rust core via WebAssembly");
-console.log("  srcmap NAPI                — srcmap Rust core via N-API\n");
+console.log("  @jridgewell/trace-mapping  - de facto standard JS source map consumer");
+console.log("  source-map-js              - Mozilla source-map fork (used by Vite, PostCSS)");
+console.log("  srcmap WASM                - srcmap Rust core via WebAssembly");
+console.log("  srcmap NAPI                - srcmap Rust core via N-API\n");
 
 console.log("Source maps:");
 for (const m of maps) {
@@ -142,13 +142,14 @@ for (const { name, json, size } of maps) {
   // Fewer iterations for large maps
   const iterations = size > 1024 * 1024 ? 50 : 200;
   const bench = createBench({ warmupIterations: 10, iterations });
+  const prefix = `real_world_parse[${name}]`;
 
   bench
-    .add("trace-mapping", () => new TraceMap(json))
-    .add("source-map-js", () => new SourceMapConsumer(json))
-    .add("srcmap WASM", () => new SourceMap(json))
-    .add("srcmap WASM (fast)", () => new FastSourceMap(json))
-    .add("srcmap NAPI", () => new NapiSourceMap(json));
+    .add(`${prefix} trace-mapping`, () => new TraceMap(json))
+    .add(`${prefix} source-map-js`, () => new SourceMapConsumer(json))
+    .add(`${prefix} srcmap WASM`, () => new SourceMap(json))
+    .add(`${prefix} srcmap WASM fast`, () => new FastSourceMap(json))
+    .add(`${prefix} srcmap NAPI`, () => new NapiSourceMap(json));
 
   await bench.run();
 
@@ -166,7 +167,7 @@ for (const { name, json, size } of maps) {
 
 console.log("\n--- Single Lookup ---\n");
 
-for (const { name, json } of maps) {
+for (const { name, json, size } of maps) {
   console.log(`### ${name}\n`);
 
   const trace = new TraceMap(json);
@@ -177,17 +178,26 @@ for (const { name, json } of maps) {
   // Pick a lookup position roughly in the middle of the map
   const midLine = Math.floor(wasm.lineCount / 2);
 
-  const bench = createBench({ warmupIterations: 500, iterations: 5000 });
+  const isLargeMap = size > 1024 * 1024;
+  const bench = createBench({
+    warmupIterations: isLargeMap ? 50 : 500,
+    iterations: isLargeMap ? 500 : 5000,
+  });
+  const prefix = `real_world_lookup_single[${name}]`;
 
   bench
-    .add("trace-mapping", () => originalPositionFor(trace, { line: midLine + 1, column: 20 }))
-    .add("source-map-js", () => smjs.originalPositionFor({ line: midLine + 1, column: 20 }))
-    .add("srcmap WASM", () => wasm.originalPositionFor(midLine, 20))
-    .add("srcmap WASM (flat)", () => wasm.originalPositionFlat(midLine, 20))
-    .add("srcmap WASM (buf)", () => {
+    .add(`${prefix} trace-mapping`, () =>
+      originalPositionFor(trace, { line: midLine + 1, column: 20 }),
+    )
+    .add(`${prefix} source-map-js`, () =>
+      smjs.originalPositionFor({ line: midLine + 1, column: 20 }),
+    )
+    .add(`${prefix} srcmap WASM`, () => wasm.originalPositionFor(midLine, 20))
+    .add(`${prefix} srcmap WASM flat`, () => wasm.originalPositionFlat(midLine, 20))
+    .add(`${prefix} srcmap WASM buf`, () => {
       wasm.originalPositionBuf(midLine, 20);
     })
-    .add("srcmap NAPI", () => napi.originalPositionFor(midLine, 20));
+    .add(`${prefix} srcmap NAPI`, () => napi.originalPositionFor(midLine, 20));
 
   await bench.run();
 
@@ -205,7 +215,7 @@ for (const { name, json } of maps) {
 
 console.log("\n--- 1000x Lookup ---\n");
 
-for (const { name, json } of maps) {
+for (const { name, json, size } of maps) {
   console.log(`### ${name}\n`);
 
   const trace = new TraceMap(json);
@@ -225,23 +235,28 @@ for (const { name, json } of maps) {
   }
   const posArray = new Int32Array(flatPositions);
 
-  const bench = createBench({ warmupIterations: 20, iterations: 200 });
+  const isLargeMap = size > 1024 * 1024;
+  const bench = createBench({
+    warmupIterations: isLargeMap ? 5 : 20,
+    iterations: isLargeMap ? 50 : 200,
+  });
+  const prefix = `real_world_lookup_1000x[${name}]`;
 
   bench
-    .add("trace-mapping", () => {
+    .add(`${prefix} trace-mapping`, () => {
       for (const { line, column } of lookups)
         originalPositionFor(trace, { line: line + 1, column });
     })
-    .add("source-map-js", () => {
+    .add(`${prefix} source-map-js`, () => {
       for (const { line, column } of lookups) smjs.originalPositionFor({ line: line + 1, column });
     })
-    .add("srcmap WASM (individual)", () => {
+    .add(`${prefix} srcmap WASM individual`, () => {
       for (const { line, column } of lookups) wasm.originalPositionFor(line, column);
     })
-    .add("srcmap WASM (batch)", () => {
+    .add(`${prefix} srcmap WASM batch`, () => {
       wasm.originalPositionsFor(posArray);
     })
-    .add("srcmap NAPI (batch)", () => {
+    .add(`${prefix} srcmap NAPI batch`, () => {
       napi.originalPositionsFor(flatPositions);
     });
 

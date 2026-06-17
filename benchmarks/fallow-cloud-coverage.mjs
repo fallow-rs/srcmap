@@ -271,7 +271,7 @@ console.log("\n--- Cached Coverage Lookup ---\n");
 const bench = createBench({ warmupIterations: 20, iterations: 200 });
 
 bench
-  .add("trace-mapping individual lookup", () => {
+  .add("fallow_cloud_coverage trace-mapping individual lookup", () => {
     for (const beacon of beacons) {
       const positions = cachedMaps.offsetLookup.generatedPositionsFor(beacon.offsets);
       for (let i = 0; i < positions.length; i += 2) {
@@ -282,7 +282,7 @@ bench
       }
     }
   })
-  .add("srcmap WASM individual lookup", () => {
+  .add("fallow_cloud_coverage srcmap WASM individual lookup", () => {
     for (const beacon of beacons) {
       const positions = cachedMaps.offsetLookup.generatedPositionsFor(beacon.offsets);
       for (let i = 0; i < positions.length; i += 2) {
@@ -290,7 +290,7 @@ bench
       }
     }
   })
-  .add("srcmap NAPI individual lookup", () => {
+  .add("fallow_cloud_coverage srcmap NAPI individual lookup", () => {
     for (const beacon of beacons) {
       const positions = cachedMaps.offsetLookup.generatedPositionsFor(beacon.offsets);
       for (let i = 0; i < positions.length; i += 2) {
@@ -298,12 +298,12 @@ bench
       }
     }
   })
-  .add("srcmap WASM batch lookup", () => {
+  .add("fallow_cloud_coverage srcmap WASM batch lookup", () => {
     for (const beacon of beacons) {
       cachedMaps.offsetLookup.originalPositionsFor(cachedMaps.wasm, beacon.offsets);
     }
   })
-  .add("srcmap NAPI batch lookup", () => {
+  .add("fallow_cloud_coverage srcmap NAPI batch lookup", () => {
     for (const beacon of beacons) {
       cachedMaps.offsetLookup.originalPositionsFor(cachedMaps.napi, beacon.offsets);
     }
