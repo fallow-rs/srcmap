@@ -12,6 +12,7 @@ categories = ["encoding", "development-tools"]
 
 [features]
 default = []
+codspeed = ["criterion2/codspeed"]
 parallel = ["rayon"]
 
 [lib]
@@ -25,7 +26,7 @@ memchr = { workspace = true }
 rayon = { workspace = true, optional = true }
 
 [dev-dependencies]
-divan = { workspace = true }
+criterion2 = { workspace = true }
 
 [[bench]]
 name = "vlq"

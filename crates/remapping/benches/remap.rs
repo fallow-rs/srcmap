@@ -1,13 +1,9 @@
 use std::hint::black_box;
 
-use divan::Bencher;
+use criterion::{BatchSize, Criterion, criterion_group, criterion_main};
 use srcmap_generator::SourceMapGenerator;
 use srcmap_remapping::{remap, remap_streaming};
 use srcmap_sourcemap::{MappingsIter, SourceMap};
-
-fn main() {
-    divan::main();
-}
 
 struct ChainInput {
     outer: SourceMap,
@@ -63,34 +59,42 @@ fn bench_remap_streaming_input(input: &mut ChainInput) {
     ));
 }
 
-#[divan::bench]
-fn remap_500(bencher: Bencher) {
-    bencher.with_inputs(|| build_chain_input(500)).bench_refs(bench_remap_input);
-}
+fn bench_chain(criterion: &mut Criterion) {
+    criterion.bench_function("remap_500", |b| {
+        b.iter_batched_ref(|| build_chain_input(500), bench_remap_input, BatchSize::LargeInput);
+    });
 
-#[divan::bench]
-fn remap_streaming_500(bencher: Bencher) {
-    bencher.with_inputs(|| build_chain_input(500)).bench_refs(bench_remap_streaming_input);
-}
+    criterion.bench_function("remap_streaming_500", |b| {
+        b.iter_batched_ref(
+            || build_chain_input(500),
+            bench_remap_streaming_input,
+            BatchSize::LargeInput,
+        );
+    });
 
-#[divan::bench]
-fn remap_10000(bencher: Bencher) {
-    bencher.with_inputs(|| build_chain_input(10_000)).bench_refs(bench_remap_input);
-}
+    criterion.bench_function("remap_10000", |b| {
+        b.iter_batched_ref(|| build_chain_input(10_000), bench_remap_input, BatchSize::LargeInput);
+    });
 
-#[divan::bench]
-fn remap_streaming_10000(bencher: Bencher) {
-    bencher.with_inputs(|| build_chain_input(10_000)).bench_refs(bench_remap_streaming_input);
-}
+    criterion.bench_function("remap_streaming_10000", |b| {
+        b.iter_batched_ref(
+            || build_chain_input(10_000),
+            bench_remap_streaming_input,
+            BatchSize::LargeInput,
+        );
+    });
 
-#[divan::bench]
-fn remap_60000(bencher: Bencher) {
-    bencher.with_inputs(|| build_chain_input(60_000)).bench_refs(bench_remap_input);
-}
+    criterion.bench_function("remap_60000", |b| {
+        b.iter_batched_ref(|| build_chain_input(60_000), bench_remap_input, BatchSize::LargeInput);
+    });
 
-#[divan::bench]
-fn remap_streaming_60000(bencher: Bencher) {
-    bencher.with_inputs(|| build_chain_input(60_000)).bench_refs(bench_remap_streaming_input);
+    criterion.bench_function("remap_streaming_60000", |b| {
+        b.iter_batched_ref(
+            || build_chain_input(60_000),
+            bench_remap_streaming_input,
+            BatchSize::LargeInput,
+        );
+    });
 }
 
 struct BundlerInput {
@@ -137,29 +141,48 @@ fn build_bundler_input() -> BundlerInput {
     BundlerInput { outer, vlq, inner_maps }
 }
 
-#[divan::bench]
-fn remap_bundler_60k_20src(bencher: Bencher) {
-    bencher.with_inputs(build_bundler_input).bench_refs(|input| {
-        black_box(remap(&input.outer, |source| {
-            input.inner_maps.iter().find(|(name, _)| name == source).map(|(_, sm)| sm.clone())
-        }));
+fn bench_bundler(criterion: &mut Criterion) {
+    criterion.bench_function("remap_bundler_60k_20src", |b| {
+        b.iter_batched_ref(
+            build_bundler_input,
+            |input| {
+                black_box(remap(&input.outer, |source| {
+                    input
+                        .inner_maps
+                        .iter()
+                        .find(|(name, _)| name == source)
+                        .map(|(_, sm)| sm.clone())
+                }));
+            },
+            BatchSize::LargeInput,
+        );
+    });
+
+    criterion.bench_function("remap_streaming_bundler_60k_20src", |b| {
+        b.iter_batched_ref(
+            build_bundler_input,
+            |input| {
+                let iter = MappingsIter::new(&input.vlq);
+                black_box(remap_streaming(
+                    iter,
+                    &input.outer.sources,
+                    &input.outer.names,
+                    &input.outer.sources_content,
+                    &input.outer.ignore_list,
+                    input.outer.file.clone(),
+                    |source| {
+                        input
+                            .inner_maps
+                            .iter()
+                            .find(|(name, _)| name == source)
+                            .map(|(_, sm)| sm.clone())
+                    },
+                ));
+            },
+            BatchSize::LargeInput,
+        );
     });
 }
 
-#[divan::bench]
-fn remap_streaming_bundler_60k_20src(bencher: Bencher) {
-    bencher.with_inputs(build_bundler_input).bench_refs(|input| {
-        let iter = MappingsIter::new(&input.vlq);
-        black_box(remap_streaming(
-            iter,
-            &input.outer.sources,
-            &input.outer.names,
-            &input.outer.sources_content,
-            &input.outer.ignore_list,
-            input.outer.file.clone(),
-            |source| {
-                input.inner_maps.iter().find(|(name, _)| name == source).map(|(_, sm)| sm.clone())
-            },
-        ));
-    });
-}
+criterion_group!(benches, bench_chain, bench_bundler);
+criterion_main!(benches);

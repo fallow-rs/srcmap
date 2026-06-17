@@ -1,12 +1,9 @@
-use divan::Bencher;
 #[cfg(feature = "parallel")]
 use srcmap_codec::encode_parallel;
 use srcmap_codec::{Segment, decode, encode};
 use std::hint::black_box;
 
-fn main() {
-    divan::main();
-}
+use criterion::{BatchSize, Criterion, criterion_group, criterion_main};
 
 /// Synthetic all-zero mappings (best case: single-char VLQ values).
 fn make_synthetic_mappings() -> String {
@@ -63,23 +60,26 @@ fn make_realistic_mappings() -> String {
     encode(&mappings)
 }
 
-#[divan::bench]
-fn decode_small() {
-    decode(black_box("AAAA;AACA,GAAG;AACA,IAAI,EAAE")).unwrap();
-}
+fn bench_decode(criterion: &mut Criterion) {
+    criterion.bench_function("decode_small", |b| {
+        b.iter(|| decode(black_box("AAAA;AACA,GAAG;AACA,IAAI,EAAE")).unwrap());
+    });
 
-#[divan::bench]
-fn decode_synthetic_50k_segments(bencher: Bencher) {
-    bencher
-        .with_inputs(make_synthetic_mappings)
-        .bench_refs(|mappings| decode(black_box(mappings)).unwrap());
-}
+    criterion.bench_function("decode_synthetic_50k_segments", |b| {
+        b.iter_batched_ref(
+            make_synthetic_mappings,
+            |mappings| decode(black_box(mappings)).unwrap(),
+            BatchSize::LargeInput,
+        );
+    });
 
-#[divan::bench]
-fn decode_realistic_500_lines(bencher: Bencher) {
-    bencher
-        .with_inputs(make_realistic_mappings)
-        .bench_refs(|mappings| decode(black_box(mappings)).unwrap());
+    criterion.bench_function("decode_realistic_500_lines", |b| {
+        b.iter_batched_ref(
+            make_realistic_mappings,
+            |mappings| decode(black_box(mappings)).unwrap(),
+            BatchSize::LargeInput,
+        );
+    });
 }
 
 #[cfg(feature = "parallel")]
@@ -128,34 +128,41 @@ fn make_decoded_realistic_mappings() -> srcmap_codec::SourceMapMappings {
     decode(&realistic).unwrap()
 }
 
-#[divan::bench]
-fn encode_synthetic_50k_segments(bencher: Bencher) {
-    bencher
-        .with_inputs(make_decoded_synthetic_mappings)
-        .bench_refs(|mappings| encode(black_box(mappings)));
-}
+fn bench_encode(criterion: &mut Criterion) {
+    criterion.bench_function("encode_synthetic_50k_segments", |b| {
+        b.iter_batched_ref(
+            make_decoded_synthetic_mappings,
+            |mappings| encode(black_box(mappings)),
+            BatchSize::LargeInput,
+        );
+    });
 
-#[divan::bench]
-fn encode_realistic_500_lines(bencher: Bencher) {
-    bencher
-        .with_inputs(make_decoded_realistic_mappings)
-        .bench_refs(|mappings| encode(black_box(mappings)));
-}
+    criterion.bench_function("encode_realistic_500_lines", |b| {
+        b.iter_batched_ref(
+            make_decoded_realistic_mappings,
+            |mappings| encode(black_box(mappings)),
+            BatchSize::LargeInput,
+        );
+    });
 
-#[cfg(feature = "parallel")]
-#[divan::bench]
-fn encode_sequential_5k_lines(bencher: Bencher) {
-    bencher
-        .with_inputs(make_large_realistic_mappings)
-        .bench_refs(|mappings| encode(black_box(mappings)));
-}
+    #[cfg(feature = "parallel")]
+    {
+        criterion.bench_function("encode_sequential_5k_lines", |b| {
+            b.iter_batched_ref(
+                make_large_realistic_mappings,
+                |mappings| encode(black_box(mappings)),
+                BatchSize::LargeInput,
+            );
+        });
 
-#[cfg(feature = "parallel")]
-#[divan::bench]
-fn encode_parallel_5k_lines(bencher: Bencher) {
-    bencher
-        .with_inputs(make_large_realistic_mappings)
-        .bench_refs(|mappings| encode_parallel(black_box(mappings)));
+        criterion.bench_function("encode_parallel_5k_lines", |b| {
+            b.iter_batched_ref(
+                make_large_realistic_mappings,
+                |mappings| encode_parallel(black_box(mappings)),
+                BatchSize::LargeInput,
+            );
+        });
+    }
 }
 
 #[cfg(feature = "parallel")]
@@ -191,26 +198,37 @@ fn make_very_large_realistic_mappings() -> srcmap_codec::SourceMapMappings {
     mappings
 }
 
-#[cfg(feature = "parallel")]
-#[divan::bench]
-fn encode_sequential_50k_lines(bencher: Bencher) {
-    bencher
-        .with_inputs(make_very_large_realistic_mappings)
-        .bench_refs(|mappings| encode(black_box(mappings)));
-}
+fn bench_large_encode(criterion: &mut Criterion) {
+    #[cfg(feature = "parallel")]
+    {
+        criterion.bench_function("encode_sequential_50k_lines", |b| {
+            b.iter_batched_ref(
+                make_very_large_realistic_mappings,
+                |mappings| encode(black_box(mappings)),
+                BatchSize::LargeInput,
+            );
+        });
 
-#[cfg(feature = "parallel")]
-#[divan::bench]
-fn encode_parallel_50k_lines(bencher: Bencher) {
-    bencher
-        .with_inputs(make_very_large_realistic_mappings)
-        .bench_refs(|mappings| encode_parallel(black_box(mappings)));
-}
+        criterion.bench_function("encode_parallel_50k_lines", |b| {
+            b.iter_batched_ref(
+                make_very_large_realistic_mappings,
+                |mappings| encode_parallel(black_box(mappings)),
+                BatchSize::LargeInput,
+            );
+        });
+    }
 
-#[divan::bench]
-fn roundtrip_realistic_500_lines(bencher: Bencher) {
-    bencher.with_inputs(make_realistic_mappings).bench_refs(|realistic| {
-        let decoded = decode(black_box(realistic)).unwrap();
-        encode(black_box(&decoded))
+    criterion.bench_function("roundtrip_realistic_500_lines", |b| {
+        b.iter_batched_ref(
+            make_realistic_mappings,
+            |realistic| {
+                let decoded = decode(black_box(realistic)).unwrap();
+                encode(black_box(&decoded))
+            },
+            BatchSize::LargeInput,
+        );
     });
 }
+
+criterion_group!(benches, bench_decode, bench_encode, bench_large_encode);
+criterion_main!(benches);

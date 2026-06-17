@@ -10,6 +10,10 @@ readme = "README.md"
 keywords = ["sourcemap", "source-map", "remapping", "concatenation", "composition"]
 categories = ["development-tools"]
 
+[features]
+default = []
+codspeed = ["criterion2/codspeed"]
+
 [lib]
 crate-type = ["lib"]
 
@@ -21,7 +25,7 @@ srcmap-sourcemap = { workspace = true }
 srcmap-generator = { workspace = true }
 
 [dev-dependencies]
-divan = { workspace = true }
+criterion2 = { workspace = true }
 serde_json = { workspace = true }
 
 [[bench]]

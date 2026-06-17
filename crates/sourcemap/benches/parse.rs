@@ -1,13 +1,9 @@
 use std::hint::black_box;
 
-use divan::Bencher;
+use criterion::{BatchSize, Criterion, criterion_group, criterion_main};
 use serde::Deserialize;
 use srcmap_codec::Segment;
 use srcmap_sourcemap::{LazySourceMap, SourceMap};
-
-fn main() {
-    divan::main();
-}
 
 // Prototype: simd-json / sonic-rs parse paths.
 //
@@ -217,32 +213,33 @@ fn json_large_no_content() -> String {
     generate_sourcemap_json_no_content(2000, 50, 10)
 }
 
-#[divan::bench]
-fn parse_small_500_segments(bencher: Bencher) {
-    bencher
-        .with_inputs(json_small)
-        .bench_refs(|json| SourceMap::from_json(black_box(json)).unwrap());
+fn bench_with_input<I, O, Setup, Routine>(
+    criterion: &mut Criterion,
+    name: &'static str,
+    mut setup: Setup,
+    mut routine: Routine,
+) where
+    Setup: FnMut() -> I,
+    Routine: FnMut(&mut I) -> O,
+{
+    criterion.bench_function(name, |b| {
+        b.iter_batched_ref(&mut setup, &mut routine, BatchSize::LargeInput);
+    });
 }
 
-#[divan::bench]
-fn parse_medium_10k_segments(bencher: Bencher) {
-    bencher
-        .with_inputs(json_medium)
-        .bench_refs(|json| SourceMap::from_json(black_box(json)).unwrap());
-}
-
-#[divan::bench]
-fn parse_large_100k_segments(bencher: Bencher) {
-    bencher
-        .with_inputs(json_large)
-        .bench_refs(|json| SourceMap::from_json(black_box(json)).unwrap());
-}
-
-#[divan::bench]
-fn parse_large_no_sources_content(bencher: Bencher) {
-    bencher
-        .with_inputs(json_large_no_content)
-        .bench_refs(|json| SourceMap::from_json(black_box(json)).unwrap());
+fn bench_parse_sizes(criterion: &mut Criterion) {
+    bench_with_input(criterion, "parse_small_500_segments", json_small, |json| {
+        SourceMap::from_json(black_box(json)).unwrap()
+    });
+    bench_with_input(criterion, "parse_medium_10k_segments", json_medium, |json| {
+        SourceMap::from_json(black_box(json)).unwrap()
+    });
+    bench_with_input(criterion, "parse_large_100k_segments", json_large, |json| {
+        SourceMap::from_json(black_box(json)).unwrap()
+    });
+    bench_with_input(criterion, "parse_large_no_sources_content", json_large_no_content, |json| {
+        SourceMap::from_json(black_box(json)).unwrap()
+    });
 }
 
 fn sourcemap_from_json_input(lines: usize, segs_per_line: usize, num_sources: usize) -> SourceMap {
@@ -254,116 +251,94 @@ fn json_roundtrip(sm: &mut SourceMap) -> SourceMap {
     SourceMap::from_json(black_box(&json)).unwrap()
 }
 
-#[divan::bench]
-fn from_parts_interop_small_json_roundtrip(bencher: Bencher) {
-    bencher.with_inputs(|| sourcemap_from_json_input(50, 10, 3)).bench_refs(json_roundtrip);
+fn bench_from_parts_interop(criterion: &mut Criterion) {
+    bench_with_input(
+        criterion,
+        "from_parts_interop_small_json_roundtrip",
+        || sourcemap_from_json_input(50, 10, 3),
+        json_roundtrip,
+    );
+    bench_with_input(
+        criterion,
+        "from_parts_interop_small_from_parts",
+        || sourcemap_from_json_input(50, 10, 3),
+        |sm| clone_via_from_parts(black_box(sm)),
+    );
+    bench_with_input(
+        criterion,
+        "from_parts_interop_medium_json_roundtrip",
+        || sourcemap_from_json_input(500, 20, 5),
+        json_roundtrip,
+    );
+    bench_with_input(
+        criterion,
+        "from_parts_interop_medium_from_parts",
+        || sourcemap_from_json_input(500, 20, 5),
+        |sm| clone_via_from_parts(black_box(sm)),
+    );
+    bench_with_input(
+        criterion,
+        "from_parts_interop_large_json_roundtrip",
+        || sourcemap_from_json_input(2000, 50, 10),
+        json_roundtrip,
+    );
+    bench_with_input(
+        criterion,
+        "from_parts_interop_large_from_parts",
+        || sourcemap_from_json_input(2000, 50, 10),
+        |sm| clone_via_from_parts(black_box(sm)),
+    );
 }
 
-#[divan::bench]
-fn from_parts_interop_small_from_parts(bencher: Bencher) {
-    bencher
-        .with_inputs(|| sourcemap_from_json_input(50, 10, 3))
-        .bench_refs(|sm| clone_via_from_parts(black_box(sm)));
-}
-
-#[divan::bench]
-fn from_parts_interop_medium_json_roundtrip(bencher: Bencher) {
-    bencher.with_inputs(|| sourcemap_from_json_input(500, 20, 5)).bench_refs(json_roundtrip);
-}
-
-#[divan::bench]
-fn from_parts_interop_medium_from_parts(bencher: Bencher) {
-    bencher
-        .with_inputs(|| sourcemap_from_json_input(500, 20, 5))
-        .bench_refs(|sm| clone_via_from_parts(black_box(sm)));
-}
-
-#[divan::bench]
-fn from_parts_interop_large_json_roundtrip(bencher: Bencher) {
-    bencher.with_inputs(|| sourcemap_from_json_input(2000, 50, 10)).bench_refs(json_roundtrip);
-}
-
-#[divan::bench]
-fn from_parts_interop_large_from_parts(bencher: Bencher) {
-    bencher
-        .with_inputs(|| sourcemap_from_json_input(2000, 50, 10))
-        .bench_refs(|sm| clone_via_from_parts(black_box(sm)));
-}
-
-#[divan::bench]
-fn parse_backends_medium_current(bencher: Bencher) {
-    bencher
-        .with_inputs(json_medium)
-        .bench_refs(|json| SourceMap::from_json(black_box(json)).unwrap());
-}
-
-#[divan::bench]
-fn parse_backends_medium_serde_json_minimal(bencher: Bencher) {
-    bencher
-        .with_inputs(json_medium)
-        .bench_refs(|json| parse_with_serde_json_minimal(black_box(json)));
-}
-
-#[divan::bench]
-fn parse_backends_medium_simd_json(bencher: Bencher) {
-    bencher.with_inputs(json_medium).bench_refs(|json| parse_with_simd_json(black_box(json)));
-}
-
-#[divan::bench]
-fn parse_backends_medium_sonic_rs(bencher: Bencher) {
-    bencher.with_inputs(json_medium).bench_refs(|json| parse_with_sonic_rs(black_box(json)));
-}
-
-#[divan::bench]
-fn parse_backends_large_current(bencher: Bencher) {
-    bencher
-        .with_inputs(json_large)
-        .bench_refs(|json| SourceMap::from_json(black_box(json)).unwrap());
-}
-
-#[divan::bench]
-fn parse_backends_large_serde_json_minimal(bencher: Bencher) {
-    bencher
-        .with_inputs(json_large)
-        .bench_refs(|json| parse_with_serde_json_minimal(black_box(json)));
-}
-
-#[divan::bench]
-fn parse_backends_large_simd_json(bencher: Bencher) {
-    bencher.with_inputs(json_large).bench_refs(|json| parse_with_simd_json(black_box(json)));
-}
-
-#[divan::bench]
-fn parse_backends_large_sonic_rs(bencher: Bencher) {
-    bencher.with_inputs(json_large).bench_refs(|json| parse_with_sonic_rs(black_box(json)));
-}
-
-#[divan::bench]
-fn parse_backends_large_no_content_current(bencher: Bencher) {
-    bencher
-        .with_inputs(json_large_no_content)
-        .bench_refs(|json| SourceMap::from_json(black_box(json)).unwrap());
-}
-
-#[divan::bench]
-fn parse_backends_large_no_content_serde_json_minimal(bencher: Bencher) {
-    bencher
-        .with_inputs(json_large_no_content)
-        .bench_refs(|json| parse_with_serde_json_minimal(black_box(json)));
-}
-
-#[divan::bench]
-fn parse_backends_large_no_content_simd_json(bencher: Bencher) {
-    bencher
-        .with_inputs(json_large_no_content)
-        .bench_refs(|json| parse_with_simd_json(black_box(json)));
-}
-
-#[divan::bench]
-fn parse_backends_large_no_content_sonic_rs(bencher: Bencher) {
-    bencher
-        .with_inputs(json_large_no_content)
-        .bench_refs(|json| parse_with_sonic_rs(black_box(json)));
+fn bench_parse_backends(criterion: &mut Criterion) {
+    bench_with_input(criterion, "parse_backends_medium_current", json_medium, |json| {
+        SourceMap::from_json(black_box(json)).unwrap()
+    });
+    bench_with_input(criterion, "parse_backends_medium_serde_json_minimal", json_medium, |json| {
+        parse_with_serde_json_minimal(black_box(json))
+    });
+    bench_with_input(criterion, "parse_backends_medium_simd_json", json_medium, |json| {
+        parse_with_simd_json(black_box(json))
+    });
+    bench_with_input(criterion, "parse_backends_medium_sonic_rs", json_medium, |json| {
+        parse_with_sonic_rs(black_box(json))
+    });
+    bench_with_input(criterion, "parse_backends_large_current", json_large, |json| {
+        SourceMap::from_json(black_box(json)).unwrap()
+    });
+    bench_with_input(criterion, "parse_backends_large_serde_json_minimal", json_large, |json| {
+        parse_with_serde_json_minimal(black_box(json))
+    });
+    bench_with_input(criterion, "parse_backends_large_simd_json", json_large, |json| {
+        parse_with_simd_json(black_box(json))
+    });
+    bench_with_input(criterion, "parse_backends_large_sonic_rs", json_large, |json| {
+        parse_with_sonic_rs(black_box(json))
+    });
+    bench_with_input(
+        criterion,
+        "parse_backends_large_no_content_current",
+        json_large_no_content,
+        |json| SourceMap::from_json(black_box(json)).unwrap(),
+    );
+    bench_with_input(
+        criterion,
+        "parse_backends_large_no_content_serde_json_minimal",
+        json_large_no_content,
+        |json| parse_with_serde_json_minimal(black_box(json)),
+    );
+    bench_with_input(
+        criterion,
+        "parse_backends_large_no_content_simd_json",
+        json_large_no_content,
+        |json| parse_with_simd_json(black_box(json)),
+    );
+    bench_with_input(
+        criterion,
+        "parse_backends_large_no_content_sonic_rs",
+        json_large_no_content,
+        |json| parse_with_sonic_rs(black_box(json)),
+    );
 }
 
 /// Real-world source map fixtures. Falls back to synthetic maps if
@@ -389,118 +364,64 @@ fn fixture_pdfjs() -> String {
     fixture_or_synthetic("pdfjs")
 }
 
-#[divan::bench]
-fn real_world_preact_current(bencher: Bencher) {
-    bencher
-        .with_inputs(fixture_preact)
-        .bench_refs(|json| SourceMap::from_json(black_box(json)).unwrap());
+fn bench_real_world(criterion: &mut Criterion) {
+    bench_with_input(criterion, "real_world_preact_current", fixture_preact, |json| {
+        SourceMap::from_json(black_box(json)).unwrap()
+    });
+    bench_with_input(criterion, "real_world_preact_sonic_rs", fixture_preact, |json| {
+        parse_with_sonic_rs(black_box(json))
+    });
+    bench_with_input(criterion, "real_world_preact_simd_json", fixture_preact, |json| {
+        parse_with_simd_json(black_box(json))
+    });
+    bench_with_input(criterion, "real_world_chartjs_current", fixture_chartjs, |json| {
+        SourceMap::from_json(black_box(json)).unwrap()
+    });
+    bench_with_input(criterion, "real_world_chartjs_sonic_rs", fixture_chartjs, |json| {
+        parse_with_sonic_rs(black_box(json))
+    });
+    bench_with_input(criterion, "real_world_chartjs_simd_json", fixture_chartjs, |json| {
+        parse_with_simd_json(black_box(json))
+    });
+    bench_with_input(criterion, "real_world_pdfjs_current", fixture_pdfjs, |json| {
+        SourceMap::from_json(black_box(json)).unwrap()
+    });
+    bench_with_input(criterion, "real_world_pdfjs_sonic_rs", fixture_pdfjs, |json| {
+        parse_with_sonic_rs(black_box(json))
+    });
+    bench_with_input(criterion, "real_world_pdfjs_simd_json", fixture_pdfjs, |json| {
+        parse_with_simd_json(black_box(json))
+    });
 }
 
-#[divan::bench]
-fn real_world_preact_sonic_rs(bencher: Bencher) {
-    bencher.with_inputs(fixture_preact).bench_refs(|json| parse_with_sonic_rs(black_box(json)));
-}
-
-#[divan::bench]
-fn real_world_preact_simd_json(bencher: Bencher) {
-    bencher.with_inputs(fixture_preact).bench_refs(|json| parse_with_simd_json(black_box(json)));
-}
-
-#[divan::bench]
-fn real_world_chartjs_current(bencher: Bencher) {
-    bencher
-        .with_inputs(fixture_chartjs)
-        .bench_refs(|json| SourceMap::from_json(black_box(json)).unwrap());
-}
-
-#[divan::bench]
-fn real_world_chartjs_sonic_rs(bencher: Bencher) {
-    bencher.with_inputs(fixture_chartjs).bench_refs(|json| parse_with_sonic_rs(black_box(json)));
-}
-
-#[divan::bench]
-fn real_world_chartjs_simd_json(bencher: Bencher) {
-    bencher.with_inputs(fixture_chartjs).bench_refs(|json| parse_with_simd_json(black_box(json)));
-}
-
-#[divan::bench]
-fn real_world_pdfjs_current(bencher: Bencher) {
-    bencher
-        .with_inputs(fixture_pdfjs)
-        .bench_refs(|json| SourceMap::from_json(black_box(json)).unwrap());
-}
-
-#[divan::bench]
-fn real_world_pdfjs_sonic_rs(bencher: Bencher) {
-    bencher.with_inputs(fixture_pdfjs).bench_refs(|json| parse_with_sonic_rs(black_box(json)));
-}
-
-#[divan::bench]
-fn real_world_pdfjs_simd_json(bencher: Bencher) {
-    bencher.with_inputs(fixture_pdfjs).bench_refs(|json| parse_with_simd_json(black_box(json)));
-}
-
-#[divan::bench]
-fn lite_paths_preact_no_content(bencher: Bencher) {
-    bencher
-        .with_inputs(fixture_preact)
-        .bench_refs(|json| SourceMap::from_json_no_content(black_box(json)).unwrap());
-}
-
-#[divan::bench]
-fn lite_paths_preact_lazy_no_content(bencher: Bencher) {
-    bencher
-        .with_inputs(fixture_preact)
-        .bench_refs(|json| LazySourceMap::from_json_no_content(black_box(json)).unwrap());
-}
-
-#[divan::bench]
-fn lite_paths_preact_lazy_fast(bencher: Bencher) {
-    bencher
-        .with_inputs(fixture_preact)
-        .bench_refs(|json| LazySourceMap::from_json_fast(black_box(json)).unwrap());
-}
-
-#[divan::bench]
-fn lite_paths_chartjs_no_content(bencher: Bencher) {
-    bencher
-        .with_inputs(fixture_chartjs)
-        .bench_refs(|json| SourceMap::from_json_no_content(black_box(json)).unwrap());
-}
-
-#[divan::bench]
-fn lite_paths_chartjs_lazy_no_content(bencher: Bencher) {
-    bencher
-        .with_inputs(fixture_chartjs)
-        .bench_refs(|json| LazySourceMap::from_json_no_content(black_box(json)).unwrap());
-}
-
-#[divan::bench]
-fn lite_paths_chartjs_lazy_fast(bencher: Bencher) {
-    bencher
-        .with_inputs(fixture_chartjs)
-        .bench_refs(|json| LazySourceMap::from_json_fast(black_box(json)).unwrap());
-}
-
-#[divan::bench]
-fn lite_paths_pdfjs_no_content(bencher: Bencher) {
-    bencher
-        .with_inputs(fixture_pdfjs)
-        .bench_refs(|json| SourceMap::from_json_no_content(black_box(json)).unwrap());
-}
-
-#[divan::bench]
-fn lite_paths_pdfjs_lazy_no_content(bencher: Bencher) {
-    bencher
-        .with_inputs(fixture_pdfjs)
-        .bench_refs(|json| LazySourceMap::from_json_no_content(black_box(json)).unwrap());
-}
-
-#[divan::bench]
-fn lite_paths_pdfjs_lazy_fast(bencher: Bencher) {
-    bencher
-        .with_inputs(fixture_pdfjs)
-        .bench_refs(|json| LazySourceMap::from_json_fast(black_box(json)).unwrap());
+fn bench_lite_paths(criterion: &mut Criterion) {
+    bench_with_input(criterion, "lite_paths_preact_no_content", fixture_preact, |json| {
+        SourceMap::from_json_no_content(black_box(json)).unwrap()
+    });
+    bench_with_input(criterion, "lite_paths_preact_lazy_no_content", fixture_preact, |json| {
+        LazySourceMap::from_json_no_content(black_box(json)).unwrap()
+    });
+    bench_with_input(criterion, "lite_paths_preact_lazy_fast", fixture_preact, |json| {
+        LazySourceMap::from_json_fast(black_box(json)).unwrap()
+    });
+    bench_with_input(criterion, "lite_paths_chartjs_no_content", fixture_chartjs, |json| {
+        SourceMap::from_json_no_content(black_box(json)).unwrap()
+    });
+    bench_with_input(criterion, "lite_paths_chartjs_lazy_no_content", fixture_chartjs, |json| {
+        LazySourceMap::from_json_no_content(black_box(json)).unwrap()
+    });
+    bench_with_input(criterion, "lite_paths_chartjs_lazy_fast", fixture_chartjs, |json| {
+        LazySourceMap::from_json_fast(black_box(json)).unwrap()
+    });
+    bench_with_input(criterion, "lite_paths_pdfjs_no_content", fixture_pdfjs, |json| {
+        SourceMap::from_json_no_content(black_box(json)).unwrap()
+    });
+    bench_with_input(criterion, "lite_paths_pdfjs_lazy_no_content", fixture_pdfjs, |json| {
+        LazySourceMap::from_json_no_content(black_box(json)).unwrap()
+    });
+    bench_with_input(criterion, "lite_paths_pdfjs_lazy_fast", fixture_pdfjs, |json| {
+        LazySourceMap::from_json_fast(black_box(json)).unwrap()
+    });
 }
 
 struct VlqFixture {
@@ -545,74 +466,63 @@ fn bench_source_map_from_vlq(input: &mut VlqFixture) {
     .unwrap();
 }
 
-#[divan::bench]
-fn vlq_isolation_preact_codec_decode(bencher: Bencher) {
-    bencher.with_inputs(|| vlq_fixture("preact")).bench_refs(bench_codec_decode);
+fn bench_vlq_isolation(criterion: &mut Criterion) {
+    bench_with_input(
+        criterion,
+        "vlq_isolation_preact_codec_decode",
+        || vlq_fixture("preact"),
+        bench_codec_decode,
+    );
+    bench_with_input(
+        criterion,
+        "vlq_isolation_preact_source_map_from_vlq",
+        || vlq_fixture("preact"),
+        bench_source_map_from_vlq,
+    );
+    bench_with_input(
+        criterion,
+        "vlq_isolation_chartjs_codec_decode",
+        || vlq_fixture("chartjs"),
+        bench_codec_decode,
+    );
+    bench_with_input(
+        criterion,
+        "vlq_isolation_chartjs_source_map_from_vlq",
+        || vlq_fixture("chartjs"),
+        bench_source_map_from_vlq,
+    );
+    bench_with_input(
+        criterion,
+        "vlq_isolation_pdfjs_codec_decode",
+        || vlq_fixture("pdfjs"),
+        bench_codec_decode,
+    );
+    bench_with_input(
+        criterion,
+        "vlq_isolation_pdfjs_source_map_from_vlq",
+        || vlq_fixture("pdfjs"),
+        bench_source_map_from_vlq,
+    );
 }
 
-#[divan::bench]
-fn vlq_isolation_preact_source_map_from_vlq(bencher: Bencher) {
-    bencher.with_inputs(|| vlq_fixture("preact")).bench_refs(bench_source_map_from_vlq);
-}
-
-#[divan::bench]
-fn vlq_isolation_chartjs_codec_decode(bencher: Bencher) {
-    bencher.with_inputs(|| vlq_fixture("chartjs")).bench_refs(bench_codec_decode);
-}
-
-#[divan::bench]
-fn vlq_isolation_chartjs_source_map_from_vlq(bencher: Bencher) {
-    bencher.with_inputs(|| vlq_fixture("chartjs")).bench_refs(bench_source_map_from_vlq);
-}
-
-#[divan::bench]
-fn vlq_isolation_pdfjs_codec_decode(bencher: Bencher) {
-    bencher.with_inputs(|| vlq_fixture("pdfjs")).bench_refs(bench_codec_decode);
-}
-
-#[divan::bench]
-fn vlq_isolation_pdfjs_source_map_from_vlq(bencher: Bencher) {
-    bencher.with_inputs(|| vlq_fixture("pdfjs")).bench_refs(bench_source_map_from_vlq);
-}
-
-#[divan::bench]
-fn json_only_serde_json_value(bencher: Bencher) {
-    bencher.with_inputs(json_large_no_content).bench_refs(|json| {
+fn bench_json_only(criterion: &mut Criterion) {
+    bench_with_input(criterion, "json_only_serde_json_value", json_large_no_content, |json| {
         let _: serde_json::Value = serde_json::from_str(black_box(json)).unwrap();
     });
-}
-
-#[divan::bench]
-fn json_only_serde_json_minimal(bencher: Bencher) {
-    bencher.with_inputs(json_large_no_content).bench_refs(|json| {
+    bench_with_input(criterion, "json_only_serde_json_minimal", json_large_no_content, |json| {
         let _: MinimalRawSourceMap<'_> = serde_json::from_str(black_box(json)).unwrap();
     });
-}
-
-#[divan::bench]
-fn json_only_simd_json_minimal(bencher: Bencher) {
-    bencher.with_inputs(json_large_no_content).bench_refs(|json| {
+    bench_with_input(criterion, "json_only_simd_json_minimal", json_large_no_content, |json| {
         let mut bytes = json.as_bytes().to_vec();
         let _: MinimalRawSourceMap<'_> = simd_json::serde::from_slice(&mut bytes).unwrap();
     });
-}
-
-#[divan::bench]
-fn json_only_sonic_rs_minimal(bencher: Bencher) {
-    bencher.with_inputs(json_large_no_content).bench_refs(|json| {
+    bench_with_input(criterion, "json_only_sonic_rs_minimal", json_large_no_content, |json| {
         let _: MinimalRawSourceMap<'_> = sonic_rs::from_str(black_box(json)).unwrap();
     });
 }
 
 fn lookup_input() -> SourceMap {
     SourceMap::from_json(&json_medium()).unwrap()
-}
-
-#[divan::bench]
-fn lookup_single_original_position_for(bencher: Bencher) {
-    bencher
-        .with_inputs(lookup_input)
-        .bench_refs(|sm| sm.original_position_for(black_box(250), black_box(30)));
 }
 
 struct BatchLookupInput {
@@ -627,25 +537,46 @@ fn batch_lookup_input() -> BatchLookupInput {
     BatchLookupInput { sm, lookups }
 }
 
-#[divan::bench]
-fn lookup_1000x_original_position_for(bencher: Bencher) {
-    bencher.with_inputs(batch_lookup_input).bench_refs(|input| {
-        for &(line, col) in &input.lookups {
-            black_box(input.sm.original_position_for(line, col));
-        }
+fn bench_lookup(criterion: &mut Criterion) {
+    bench_with_input(criterion, "lookup_single_original_position_for", lookup_input, |sm| {
+        sm.original_position_for(black_box(250), black_box(30))
     });
+    bench_with_input(
+        criterion,
+        "lookup_1000x_original_position_for",
+        batch_lookup_input,
+        |input| {
+            for &(line, col) in &input.lookups {
+                black_box(input.sm.original_position_for(line, col));
+            }
+        },
+    );
 }
 
-#[divan::bench]
-fn vlq_decode_large_mappings_only(bencher: Bencher) {
-    bencher
-        .with_inputs(json_large_no_content)
-        .bench_refs(|json| SourceMap::from_json(black_box(json)).unwrap());
+fn bench_vlq_decode(criterion: &mut Criterion) {
+    bench_with_input(criterion, "vlq_decode_large_mappings_only", json_large_no_content, |json| {
+        SourceMap::from_json(black_box(json)).unwrap()
+    });
+    bench_with_input(
+        criterion,
+        "vlq_decode_serde_json_parse_only",
+        json_large_no_content,
+        |json| {
+            let _: serde_json::Value = serde_json::from_str(black_box(json)).unwrap();
+        },
+    );
 }
 
-#[divan::bench]
-fn vlq_decode_serde_json_parse_only(bencher: Bencher) {
-    bencher.with_inputs(json_large_no_content).bench_refs(|json| {
-        let _: serde_json::Value = serde_json::from_str(black_box(json)).unwrap();
-    });
-}
+criterion_group!(
+    benches,
+    bench_parse_sizes,
+    bench_from_parts_interop,
+    bench_parse_backends,
+    bench_real_world,
+    bench_lite_paths,
+    bench_vlq_isolation,
+    bench_json_only,
+    bench_lookup,
+    bench_vlq_decode,
+);
+criterion_main!(benches);

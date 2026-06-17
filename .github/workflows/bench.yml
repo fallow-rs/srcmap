@@ -76,10 +76,10 @@ jobs:
           tool: cargo-codspeed@4.7.0
 
       - name: Build benchmark shard
-        run: cargo codspeed build -p ${{ matrix.package }} --bench ${{ matrix.bench }}
+        run: cargo codspeed build -p ${{ matrix.package }} --bench ${{ matrix.bench }} --features codspeed
 
       - name: Run benchmark shard
         uses: CodSpeedHQ/action@c145068895e045cc725ee76fcd2307624b65c3af # v4.17.5
         with:
           mode: simulation
-          run: cargo codspeed run -p ${{ matrix.package }} --bench ${{ matrix.bench }}
+          run: cargo codspeed run -p ${{ matrix.package }} --bench ${{ matrix.bench }} --features codspeed

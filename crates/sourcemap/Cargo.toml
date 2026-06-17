@@ -10,6 +10,10 @@ readme = "README.md"
 keywords = ["sourcemap", "source-map", "parser", "consumer", "ecma-426"]
 categories = ["parser-implementations", "development-tools"]
 
+[features]
+default = []
+codspeed = ["criterion2/codspeed"]
+
 [lib]
 crate-type = ["lib"]
 
@@ -24,7 +28,7 @@ serde_json = { workspace = true }
 memchr = { workspace = true }
 
 [dev-dependencies]
-divan = { workspace = true }
+criterion2 = { workspace = true }
 simd-json = { workspace = true }
 sonic-rs = { workspace = true }
 
