@@ -21,7 +21,7 @@ const rustShard = ({
 
 const jsShard = ({ label, cacheKey, command, fixtures = true }) => ({
   kind: "node",
-  mode: "walltime",
+  mode: "simulation",
   label,
   cache_key: cacheKey,
   command,
