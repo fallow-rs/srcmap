@@ -822,11 +822,14 @@ impl SourceMap {
         let source_map = build_source_map(&sources);
         let (mut mappings, line_offsets) = decode_mappings(raw.mappings)?;
 
-        if let Some(range_mappings_str) = raw.range_mappings
+        let has_range_mappings = if let Some(range_mappings_str) = raw.range_mappings
             && !range_mappings_str.is_empty()
         {
             decode_range_mappings(range_mappings_str, &mut mappings, &line_offsets)?;
-        }
+            mappings.iter().any(|m| m.is_range_mapping)
+        } else {
+            false
+        };
 
         let num_sources = sources.len();
         let scopes = match raw.scopes {
@@ -840,8 +843,6 @@ impl SourceMap {
             Some(list) => list,
             None => raw.x_google_ignore_list.unwrap_or_default(),
         };
-
-        let has_range_mappings = mappings.iter().any(|m| m.is_range_mapping);
 
         Ok(Self {
             file: raw.file,
@@ -897,11 +898,14 @@ impl SourceMap {
         let (mut mappings, line_offsets) = decode_mappings(raw.mappings)?;
 
         // Decode range mappings if present
-        if let Some(range_mappings_str) = raw.range_mappings
+        let has_range_mappings = if let Some(range_mappings_str) = raw.range_mappings
             && !range_mappings_str.is_empty()
         {
             decode_range_mappings(range_mappings_str, &mut mappings, &line_offsets)?;
-        }
+            mappings.iter().any(|m| m.is_range_mapping)
+        } else {
+            false
+        };
 
         // Decode scopes if present
         let num_sources = sources.len();
@@ -920,8 +924,6 @@ impl SourceMap {
 
         // Filter extensions to only keep x_* and x-* fields
         let extensions = filter_extensions(raw.extensions);
-
-        let has_range_mappings = mappings.iter().any(|m| m.is_range_mapping);
 
         Ok(Self {
             file: raw.file,
@@ -1598,13 +1600,15 @@ impl SourceMap {
         range_mappings_str: Option<&str>,
     ) -> Result<Self, ParseError> {
         let (mut mappings, line_offsets) = decode_mappings(mappings_str)?;
-        if let Some(rm_str) = range_mappings_str
+        let has_range_mappings = if let Some(rm_str) = range_mappings_str
             && !rm_str.is_empty()
         {
             decode_range_mappings(rm_str, &mut mappings, &line_offsets)?;
-        }
+            mappings.iter().any(|m| m.is_range_mapping)
+        } else {
+            false
+        };
         let source_map = build_source_map(&sources);
-        let has_range_mappings = mappings.iter().any(|m| m.is_range_mapping);
         Ok(Self {
             file,
             source_root,
@@ -1690,7 +1694,7 @@ impl SourceMap {
         // Filter extensions to only keep x_* and x-* fields
         let extensions = filter_extensions(raw.extensions);
 
-        let has_range_mappings = mappings.iter().any(|m| m.is_range_mapping);
+        let has_range_mappings = false;
 
         Ok(Self {
             file: raw.file,
