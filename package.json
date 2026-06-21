@@ -39,7 +39,7 @@
   "devDependencies": {
     "fallow": "2.91.0",
     "oxfmt": "0.53.0",
-    "oxlint": "1.68.0"
+    "oxlint": "1.69.0"
   },
   "packageManager": "pnpm@10.33.0"
 }
