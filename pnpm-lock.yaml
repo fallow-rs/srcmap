@@ -22,7 +22,7 @@ importers:
     dependencies:
       '@codspeed/tinybench-plugin':
         specifier: ^5.6.0
-        version: 5.6.0(tinybench@5.1.0)
+        version: 5.6.0(tinybench@6.0.2)
       '@jridgewell/sourcemap-codec':
         specifier: ^1.5.0
         version: 1.5.5
@@ -33,8 +33,8 @@ importers:
         specifier: ^1.2.0
         version: 1.2.1
       tinybench:
-        specifier: ^5.1.0
-        version: 5.1.0
+        specifier: ^6.0.2
+        version: 6.0.2
 
   packages/codec:
     dependencies:
@@ -45,14 +45,36 @@ importers:
       '@napi-rs/cli':
         specifier: ^3.6.2
         version: 3.7.0(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)
+    optionalDependencies:
+      '@srcmap/codec-darwin-arm64':
+        specifier: 0.3.9
+        version: 0.3.9
+      '@srcmap/codec-darwin-x64':
+        specifier: 0.3.9
+        version: 0.3.9
+      '@srcmap/codec-linux-arm64-gnu':
+        specifier: 0.3.9
+        version: 0.3.9
+      '@srcmap/codec-linux-arm64-musl':
+        specifier: 0.3.9
+        version: 0.3.9
+      '@srcmap/codec-linux-x64-gnu':
+        specifier: 0.3.9
+        version: 0.3.9
+      '@srcmap/codec-linux-x64-musl':
+        specifier: 0.3.9
+        version: 0.3.9
+      '@srcmap/codec-win32-x64-msvc':
+        specifier: 0.3.9
+        version: 0.3.9
 
   packages/gen-mapping:
     dependencies:
       '@srcmap/generator-wasm':
-        specifier: 0.3.8
+        specifier: 0.3.9
         version: link:../generator-wasm
       '@srcmap/sourcemap-wasm':
-        specifier: 0.3.8
+        specifier: 0.3.9
         version: link:../sourcemap-wasm
 
   packages/generator-wasm: {}
@@ -60,7 +82,7 @@ importers:
   packages/remapping:
     dependencies:
       '@srcmap/remapping-wasm':
-        specifier: 0.3.8
+        specifier: 0.3.9
         version: link:../remapping-wasm
     devDependencies:
       '@jridgewell/remapping':
@@ -72,10 +94,10 @@ importers:
   packages/source-map:
     dependencies:
       '@srcmap/generator-wasm':
-        specifier: 0.3.8
+        specifier: 0.3.9
         version: link:../generator-wasm
       '@srcmap/sourcemap-wasm':
-        specifier: 0.3.8
+        specifier: 0.3.9
         version: link:../sourcemap-wasm
 
   packages/sourcemap:
@@ -87,6 +109,28 @@ importers:
       '@napi-rs/cli':
         specifier: ^3.6.2
         version: 3.7.0(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)
+    optionalDependencies:
+      '@srcmap/sourcemap-darwin-arm64':
+        specifier: 0.3.9
+        version: 0.3.9
+      '@srcmap/sourcemap-darwin-x64':
+        specifier: 0.3.9
+        version: 0.3.9
+      '@srcmap/sourcemap-linux-arm64-gnu':
+        specifier: 0.3.9
+        version: 0.3.9
+      '@srcmap/sourcemap-linux-arm64-musl':
+        specifier: 0.3.9
+        version: 0.3.9
+      '@srcmap/sourcemap-linux-x64-gnu':
+        specifier: 0.3.9
+        version: 0.3.9
+      '@srcmap/sourcemap-linux-x64-musl':
+        specifier: 0.3.9
+        version: 0.3.9
+      '@srcmap/sourcemap-win32-x64-msvc':
+        specifier: 0.3.9
+        version: 0.3.9
 
   packages/sourcemap-wasm: {}
 
@@ -95,7 +139,7 @@ importers:
   packages/trace-mapping:
     dependencies:
       '@srcmap/sourcemap-wasm':
-        specifier: 0.3.8
+        specifier: 0.3.9
         version: link:../sourcemap-wasm
     devDependencies:
       '@jridgewell/sourcemap-codec':
@@ -963,6 +1007,84 @@ packages:
     cpu: [x64]
     os: [win32]
 
+  '@srcmap/codec-darwin-arm64@0.3.9':
+    resolution: {integrity: sha512-iN3V9EiG7oBdS8TXLpNMAYGjXzmEJFxOxIHTZ5PbuZ3wjRC7H0ZaJQSLa56lAcHktQxRalrEgNWxP0n9M8fmAg==}
+    cpu: [arm64]
+    os: [darwin]
+
+  '@srcmap/codec-darwin-x64@0.3.9':
+    resolution: {integrity: sha512-NTZTANJ2PeytTtVNhO/CV88YDVnHvCtOd8qQz2sMfPEL3ycJmirsznX5xCgulH12S39//qTcVzOumn66IGi9nA==}
+    cpu: [x64]
+    os: [darwin]
+
+  '@srcmap/codec-linux-arm64-gnu@0.3.9':
+    resolution: {integrity: sha512-+k9Y3Vbki99qyuYzf6RzgWRCgff4C0Y2H9Js5iANf+TZt6Z8fltIy8PdGdze0HDIjb2Q3j2cQ+qhCRBR6rvGEw==}
+    cpu: [arm64]
+    os: [linux]
+    libc: [glibc]
+
+  '@srcmap/codec-linux-arm64-musl@0.3.9':
+    resolution: {integrity: sha512-5c521IKsNicWWsaM21ytKaRDejY6d+cpBBjZtoiIRDPhaYKbRykrKXxov+F1NT6qHTQ8WyxY1uJWQCt6my18jg==}
+    cpu: [arm64]
+    os: [linux]
+    libc: [musl]
+
+  '@srcmap/codec-linux-x64-gnu@0.3.9':
+    resolution: {integrity: sha512-F5nCjKk7vrDAKEeafNa0XSNiFOp0T5wW/hScPZsFBQraE+LIwXh8jlm96g2tIGT3D7B3jjDS3/rUhwDfyH9Xig==}
+    cpu: [x64]
+    os: [linux]
+    libc: [glibc]
+
+  '@srcmap/codec-linux-x64-musl@0.3.9':
+    resolution: {integrity: sha512-J3ooHoKJDpmOsrYAhWTbjCxMsrR5v9NQ+b8hKBzbt2DHTrCfkVWsqiUR1jxZ3YQadvLaCu6kCbNDzY+Nmw38XA==}
+    cpu: [x64]
+    os: [linux]
+    libc: [musl]
+
+  '@srcmap/codec-win32-x64-msvc@0.3.9':
+    resolution: {integrity: sha512-U5g8j6udoEdsEGwecSsd0J9Q8eCB9Hg2sDO2l4w/NjDGS3utbacQVArlKGHg8YLmaAcQnvxoQMMH3P2xZg7b/w==}
+    cpu: [x64]
+    os: [win32]
+
+  '@srcmap/sourcemap-darwin-arm64@0.3.9':
+    resolution: {integrity: sha512-uNZJsp8l+7FSkqsTVfC6yS3UhZLjnAbwl/tTNNO380xp70V9gJjgzidke5Evoo6uxXNLAIkSMOPbQBHSAqQShg==}
+    cpu: [arm64]
+    os: [darwin]
+
+  '@srcmap/sourcemap-darwin-x64@0.3.9':
+    resolution: {integrity: sha512-mQMeLOLv88EHW/ntc+FUkowgwuvhaDAfUuDKvJC8j7Or13xEIPwD1yimpZPATk/Bb6L0Hd2+BJNBILVYLH2PQA==}
+    cpu: [x64]
+    os: [darwin]
+
+  '@srcmap/sourcemap-linux-arm64-gnu@0.3.9':
+    resolution: {integrity: sha512-ByT1/DVg8VM3f6LkN/4CR6x8vgL5HjMkqqo705jvViy9Q2OvTOarSvvkfJLHH5Jgc7PHPUCamNedvGRYtWWbJQ==}
+    cpu: [arm64]
+    os: [linux]
+    libc: [glibc]
+
+  '@srcmap/sourcemap-linux-arm64-musl@0.3.9':
+    resolution: {integrity: sha512-TLQXoqyPF4tYuEifzPon7eHkIRJGG1MmPNw07ESPuSWfoUf8oeGjMlZ0gs086pDp/MIaLTmf98rCLMWJTxH9Jw==}
+    cpu: [arm64]
+    os: [linux]
+    libc: [musl]
+
+  '@srcmap/sourcemap-linux-x64-gnu@0.3.9':
+    resolution: {integrity: sha512-46NTXtO0m/CMFgAP6LxmQgD0ICsIfDSnAdeRhkwOt7pB694zEmWO6OFBBB08MzHKB1WiHrBm9cbGeSspRWtERg==}
+    cpu: [x64]
+    os: [linux]
+    libc: [glibc]
+
+  '@srcmap/sourcemap-linux-x64-musl@0.3.9':
+    resolution: {integrity: sha512-jFX/6t0HtJjCRRrOZQtC3HO+lMPyEhN8+g5JfIjCdcD2ABmKbd6b34qn+WNCYQcSfQG9W3RpCtGibg2k9OpSGA==}
+    cpu: [x64]
+    os: [linux]
+    libc: [musl]
+
+  '@srcmap/sourcemap-win32-x64-msvc@0.3.9':
+    resolution: {integrity: sha512-X42MlLOOJsqqN6mNLc5yIK9RBcCvVSHHdwW2DAovYnjRF0XClM+7DvfRLM5yLxcPiSrn1hHpyAqsgMoydWZfiA==}
+    cpu: [x64]
+    os: [win32]
+
   '@tybys/wasm-util@0.10.1':
     resolution: {integrity: sha512-9tTaPJLSiejZKx+Bmog4uSubteqTvFrVrURwkmHixBo0G4seD0zUxp98E1DzUBJxLQ3NPwXrGKDiVjwx/DpPsg==}
 
@@ -1221,8 +1343,8 @@ packages:
     resolution: {integrity: sha512-2ztBJRek8IVofG9DBJqdy2N5kulaacX30Nz7xmkYF6ale9WBVmIy6mFBchvGX7Vx/MyjBhx+Rcxqrj+dbOnQ6A==}
     engines: {node: '>=16'}
 
-  tinybench@5.1.0:
-    resolution: {integrity: sha512-LXKNtFualiKOm6gADe1UXPtf8+Nfn1CtPMEHAT33Fd2YjQatrujkDcK0+4wRC1X6t7fxUDXUs6BsvuIgfkDgDg==}
+  tinybench@6.0.2:
+    resolution: {integrity: sha512-FlHoQpcFvCzeXK5kVPvV7IVgW/hs/B36QWTz876iSdeJguBDfdTSRQmYmaHX+fQNt4hp+gEFB2XXw+8hT4/y8A==}
     engines: {node: '>=20.0.0'}
 
   tinypool@2.1.0:
@@ -1255,10 +1377,10 @@ snapshots:
       - debug
       - supports-color
 
-  '@codspeed/tinybench-plugin@5.6.0(tinybench@5.1.0)':
+  '@codspeed/tinybench-plugin@5.6.0(tinybench@6.0.2)':
     dependencies:
       '@codspeed/core': 5.6.0
-      tinybench: 5.1.0
+      tinybench: 6.0.2
     transitivePeerDependencies:
       - debug
       - supports-color
@@ -1856,6 +1978,48 @@ snapshots:
   '@oxlint/binding-win32-x64-msvc@1.68.0':
     optional: true
 
+  '@srcmap/codec-darwin-arm64@0.3.9':
+    optional: true
+
+  '@srcmap/codec-darwin-x64@0.3.9':
+    optional: true
+
+  '@srcmap/codec-linux-arm64-gnu@0.3.9':
+    optional: true
+
+  '@srcmap/codec-linux-arm64-musl@0.3.9':
+    optional: true
+
+  '@srcmap/codec-linux-x64-gnu@0.3.9':
+    optional: true
+
+  '@srcmap/codec-linux-x64-musl@0.3.9':
+    optional: true
+
+  '@srcmap/codec-win32-x64-msvc@0.3.9':
+    optional: true
+
+  '@srcmap/sourcemap-darwin-arm64@0.3.9':
+    optional: true
+
+  '@srcmap/sourcemap-darwin-x64@0.3.9':
+    optional: true
+
+  '@srcmap/sourcemap-linux-arm64-gnu@0.3.9':
+    optional: true
+
+  '@srcmap/sourcemap-linux-arm64-musl@0.3.9':
+    optional: true
+
+  '@srcmap/sourcemap-linux-x64-gnu@0.3.9':
+    optional: true
+
+  '@srcmap/sourcemap-linux-x64-musl@0.3.9':
+    optional: true
+
+  '@srcmap/sourcemap-win32-x64-msvc@0.3.9':
+    optional: true
+
   '@tybys/wasm-util@0.10.1':
     dependencies:
       tslib: 2.8.1
@@ -2112,7 +2276,7 @@ snapshots:
 
   stack-trace@1.0.0-pre2: {}
 
-  tinybench@5.1.0: {}
+  tinybench@6.0.2: {}
 
   tinypool@2.1.0: {}
 

@@ -18,6 +18,6 @@
     "@jridgewell/sourcemap-codec": "^1.5.0",
     "@jridgewell/trace-mapping": "^0.3.25",
     "source-map-js": "^1.2.0",
-    "tinybench": "^5.1.0"
+    "tinybench": "^6.0.2"
   }
 }
