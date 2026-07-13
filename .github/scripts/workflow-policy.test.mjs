@@ -95,20 +95,83 @@ describe("Rust feature coverage", () => {
     assert.match(job, /^        run: cargo test -p srcmap-codec --features parallel$/m);
     assert.match(job, /^        run: cargo test -p srcmap-generator --features parallel$/m);
   });
+
+  it("checks Cargo advisories across all features", async () => {
+    const workflow = await readFile(CI_WORKFLOW_URL, "utf8");
+    const job = workflowJob(workflow, "deny");
+    const action = [
+      "      - uses: EmbarkStudios/cargo-deny-action@bb137d7af7e4fb67e5f82a49c4fce4fad40782fe # v2",
+      "        with:",
+      "          arguments: --all-features",
+    ].join("\n");
+
+    assert.ok(job.includes(action), "Cargo Deny must check the all-features graph");
+  });
 });
 
 describe("Release supply-chain policy", () => {
-  it("uses frozen workspace tooling for NAPI build and publish jobs", async () => {
+  it("contains no ad hoc npm installs", async () => {
     const workflow = await readFile(RELEASE_WORKFLOW_URL, "utf8");
-    const install = "corepack pnpm install --ignore-scripts --frozen-lockfile";
-    const buildJob = workflowJob(workflow, "build-napi");
-    const publishJob = workflowJob(workflow, "publish-npm");
 
     assert.doesNotMatch(workflow, /\bnpm install\b/);
+  });
+
+  it("uses ordered frozen tooling for both NAPI package builds", async () => {
+    const workflow = await readFile(RELEASE_WORKFLOW_URL, "utf8");
+    const buildJob = workflowJob(workflow, "build-napi");
+    const enable = "      - name: Enable Corepack\n        run: corepack enable";
+    const install = [
+      "      - name: Install JS dependencies",
+      "        run: corepack pnpm install --ignore-scripts --frozen-lockfile",
+    ].join("\n");
+    const codecBuild = [
+      "      - name: Build codec NAPI binary",
+      "        run: |",
+      "          cd packages/codec",
+      "          corepack pnpm exec napi build --release --platform --target ${{ matrix.settings.target }}",
+    ].join("\n");
+    const sourcemapBuild = [
+      "      - name: Build sourcemap NAPI binary",
+      "        run: |",
+      "          cd packages/sourcemap",
+      "          corepack pnpm exec napi build --release --platform --target ${{ matrix.settings.target }}",
+    ].join("\n");
+
+    assert.ok(buildJob.includes(enable), "build-napi must enable Corepack");
     assert.ok(buildJob.includes(install), "build-napi must install the frozen workspace");
+    assert.ok(buildJob.includes(codecBuild), "missing codec NAPI build step");
+    assert.ok(buildJob.includes(sourcemapBuild), "missing sourcemap NAPI build step");
+    assert.ok(buildJob.indexOf(enable) < buildJob.indexOf(install));
+    assert.ok(buildJob.indexOf(install) < buildJob.indexOf(codecBuild));
+    assert.ok(buildJob.indexOf(install) < buildJob.indexOf(sourcemapBuild));
+  });
+
+  it("uses ordered frozen tooling for both NAPI artifact moves", async () => {
+    const workflow = await readFile(RELEASE_WORKFLOW_URL, "utf8");
+    const publishJob = workflowJob(workflow, "publish-npm");
+    const enable = "      - name: Enable Corepack\n        run: corepack enable";
+    const install = [
+      "      - name: Install JS dependencies",
+      "        run: corepack pnpm install --ignore-scripts --frozen-lockfile",
+    ].join("\n");
+    const codecArtifacts = [
+      "      - name: Move codec artifacts",
+      "        run: corepack pnpm exec napi artifacts -d artifacts",
+      "        working-directory: packages/codec",
+    ].join("\n");
+    const sourcemapArtifacts = [
+      "      - name: Move sourcemap artifacts",
+      "        run: corepack pnpm exec napi artifacts -d artifacts",
+      "        working-directory: packages/sourcemap",
+    ].join("\n");
+
+    assert.ok(publishJob.includes(enable), "publish-npm must enable Corepack");
     assert.ok(publishJob.includes(install), "publish-npm must install the frozen workspace");
-    assert.match(buildJob, /corepack pnpm exec napi build --release --platform --target/);
-    assert.match(publishJob, /corepack pnpm exec napi artifacts -d artifacts/);
+    assert.ok(publishJob.includes(codecArtifacts), "missing codec artifact move step");
+    assert.ok(publishJob.includes(sourcemapArtifacts), "missing sourcemap artifact move step");
+    assert.ok(publishJob.indexOf(enable) < publishJob.indexOf(install));
+    assert.ok(publishJob.indexOf(install) < publishJob.indexOf(codecArtifacts));
+    assert.ok(publishJob.indexOf(install) < publishJob.indexOf(sourcemapArtifacts));
   });
 });
 
