@@ -43,6 +43,7 @@
       "default": "./coverage.mjs"
     },
     "./browser": {
+      "types": "./browser/index.d.ts",
       "default": "./browser/index.mjs"
     }
   },
