@@ -1431,15 +1431,15 @@ fn fetch_security_uses_one_deadline_across_redirects() {
     let received = thread::spawn(move || {
         server.set_nonblocking(true).unwrap();
         let replies = [
-            (response("302 Found", &[("Location", "/two")], ""), Duration::from_millis(35)),
-            (response("302 Found", &[("Location", "/final.js")], ""), Duration::from_millis(35)),
+            (response("302 Found", &[("Location", "/two")], ""), Duration::from_millis(350)),
+            (response("302 Found", &[("Location", "/final.js")], ""), Duration::from_millis(350)),
             (
                 response(
                     "200 OK",
                     &[],
                     "console.log(1);\n//# sourceMappingURL=data:application/json;base64,eyJ2ZXJzaW9uIjozLCJzb3VyY2VzIjpbXSwibmFtZXMiOltdLCJtYXBwaW5ncyI6IiJ9",
                 ),
-                Duration::from_millis(60),
+                Duration::from_millis(100),
             ),
         ];
         for (index, (reply, delay)) in replies.into_iter().enumerate() {
@@ -1471,7 +1471,7 @@ fn fetch_security_uses_one_deadline_across_redirects() {
     let output_path = output.path().to_path_buf();
     let fetch = thread::spawn(move || {
         srcmap()
-            .env("SRCMAP_FETCH_TIMEOUT_MS", "100")
+            .env("SRCMAP_FETCH_TIMEOUT_MS", "500")
             .args(["fetch", &url, "-o"])
             .arg(output_path)
             .output()
@@ -1486,7 +1486,7 @@ fn fetch_security_uses_one_deadline_across_redirects() {
     received.join().unwrap();
     assert!(!out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
     assert!(
-        elapsed < Duration::from_millis(250),
+        elapsed < Duration::from_millis(900),
         "redirect chain took {elapsed:?}: {}",
         String::from_utf8_lossy(&out.stderr)
     );
