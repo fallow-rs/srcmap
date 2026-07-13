@@ -9,7 +9,7 @@ use std::fs;
 use std::io::{self, Read, Write};
 use std::path::{Component, Path, PathBuf};
 use std::process::ExitCode;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use cap_fs_ext::{DirExt, FollowSymlinks, OpenOptionsFollowExt};
 use cap_std::ambient_authority;
@@ -488,11 +488,18 @@ fn http_get(
     allow_cross_origin: bool,
 ) -> Result<(Url, String), CliError> {
     let mut current_url = initial_url.clone();
+    let deadline = Instant::now() + fetch_timeout();
 
     for redirect_count in 0..=MAX_FETCH_REDIRECTS {
+        let remaining = deadline
+            .checked_duration_since(Instant::now())
+            .ok_or_else(|| CliError::fetch_error(format!("fetch timed out for {current_url}")))?;
         let mut response = agent
             .get(current_url.as_str())
             .header("User-Agent", concat!("srcmap-cli/", env!("CARGO_PKG_VERSION")))
+            .config()
+            .timeout_global(Some(remaining))
+            .build()
             .call()
             .map_err(|error| fetch_request_error(&current_url, error))?;
         let status = response.status().as_u16();
@@ -536,7 +543,10 @@ fn http_get(
 }
 
 fn validate_url_filename(name: &str) -> Result<(), CliError> {
-    if matches!(name, "." | "..") || name.contains('/') || name.contains('\\') {
+    let bytes = name.as_bytes();
+    let has_drive_prefix =
+        bytes.first().is_some_and(u8::is_ascii_alphabetic) && bytes.get(1) == Some(&b':');
+    if matches!(name, "." | "..") || name.contains('/') || name.contains('\\') || has_drive_prefix {
         return Err(CliError::fetch_error(format!("unsafe filename in fetched URL: {name:?}")));
     }
     Ok(())
@@ -1765,6 +1775,26 @@ fn fetch_output_dir(output: &Option<PathBuf>) -> Result<PathBuf, CliError> {
     Ok(output_dir)
 }
 
+fn write_fetch_output(
+    output_dir: &Path,
+    filename: &str,
+    content: &str,
+) -> Result<PathBuf, CliError> {
+    validate_url_filename(filename)?;
+    let output = Dir::open_ambient_dir(output_dir, ambient_authority()).map_err(|error| {
+        CliError::io(format!("failed to open output directory {}: {error}", output_dir.display()))
+    })?;
+    let mut options = OpenOptions::new();
+    options.write(true).create_new(true).follow(FollowSymlinks::No);
+    let mut file = output.open_with(filename, &options).map_err(|error| {
+        CliError::io(format!("failed to create {}: {error}", output_dir.join(filename).display()))
+    })?;
+    file.write_all(content.as_bytes()).map_err(|error| {
+        CliError::io(format!("failed to write {}: {error}", output_dir.join(filename).display()))
+    })?;
+    Ok(output_dir.join(filename))
+}
+
 fn fetch_bundle(
     agent: &ureq::Agent,
     url: &Url,
@@ -1774,10 +1804,7 @@ fn fetch_bundle(
     eprintln!("Fetching {url}...");
     let (final_url, bundle_body) = http_get(agent, url, allow_cross_origin)?;
     let bundle_filename = url_filename(&final_url)?;
-    let bundle_path = output_dir.join(&bundle_filename);
-
-    fs::write(&bundle_path, &bundle_body)
-        .map_err(|e| CliError::io(format!("failed to write {}: {e}", bundle_path.display())))?;
+    let bundle_path = write_fetch_output(output_dir, &bundle_filename, &bundle_body)?;
     eprintln!("  Saved {} ({})", bundle_path.display(), format_size(bundle_body.len()));
 
     Ok((bundle_filename, bundle_path, bundle_body, final_url))
@@ -1789,9 +1816,7 @@ fn save_inline_source_map(
     decoded_json: String,
 ) -> Result<(String, usize, String), CliError> {
     let map_filename = format!("{bundle_filename}.map");
-    let map_path = output_dir.join(&map_filename);
-    fs::write(&map_path, &decoded_json)
-        .map_err(|e| CliError::io(format!("failed to write {}: {e}", map_path.display())))?;
+    let map_path = write_fetch_output(output_dir, &map_filename, &decoded_json)?;
     eprintln!("  Saved {} (inline, {})", map_path.display(), format_size(decoded_json.len()));
     Ok((map_path.display().to_string(), decoded_json.len(), "inline".to_string()))
 }
@@ -1811,9 +1836,7 @@ fn fetch_external_source_map(
     eprintln!("Fetching {map_url}...");
     let (final_url, map_body) = http_get(agent, &map_url, allow_cross_origin)?;
     let map_filename = url_filename(&final_url)?;
-    let map_path = output_dir.join(&map_filename);
-    fs::write(&map_path, &map_body)
-        .map_err(|e| CliError::io(format!("failed to write {}: {e}", map_path.display())))?;
+    let map_path = write_fetch_output(output_dir, &map_filename, &map_body)?;
     eprintln!("  Saved {} ({})", map_path.display(), format_size(map_body.len()));
     Ok((map_path.display().to_string(), map_body.len(), final_url.to_string()))
 }
@@ -1837,10 +1860,7 @@ fn fetch_conventional_source_map(
     match http_get(agent, &map_url, allow_cross_origin) {
         Ok((final_url, map_body)) => {
             let map_filename = url_filename(&final_url)?;
-            let map_path = output_dir.join(&map_filename);
-            fs::write(&map_path, &map_body).map_err(|e| {
-                CliError::io(format!("failed to write {}: {e}", map_path.display()))
-            })?;
+            let map_path = write_fetch_output(output_dir, &map_filename, &map_body)?;
             eprintln!(
                 "  Saved {} (convention, {})",
                 map_path.display(),
@@ -2398,7 +2418,7 @@ mod fetch_url_tests {
 
     #[test]
     fn fetched_filename_validation_rejects_path_components() {
-        for name in [".", "..", "nested/file.js", "nested\\file.js"] {
+        for name in [".", "..", "nested/file.js", "nested\\file.js", "C:bundle.js"] {
             assert!(validate_url_filename(name).is_err(), "accepted unsafe filename {name:?}");
         }
     }

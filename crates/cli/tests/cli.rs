@@ -894,14 +894,18 @@ fn fetch_invalid_url_json() {
 
 fn read_request(stream: &mut TcpStream) -> String {
     stream.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
-    let mut request = [0_u8; 4096];
-    let length = stream.read(&mut request).unwrap();
-    String::from_utf8_lossy(&request[..length])
-        .lines()
-        .next()
-        .and_then(|line| line.split_whitespace().nth(1))
-        .unwrap_or_default()
-        .to_string()
+    let mut request_line = Vec::with_capacity(128);
+    loop {
+        let mut byte = [0_u8; 1];
+        stream.read_exact(&mut byte).unwrap();
+        request_line.push(byte[0]);
+        if byte[0] == b'\n' {
+            break;
+        }
+        assert!(request_line.len() < 8_192, "HTTP request line is unexpectedly long");
+    }
+    let request_line = String::from_utf8_lossy(&request_line);
+    request_line.split_whitespace().nth(1).unwrap_or_default().to_string()
 }
 
 fn response(status: &str, headers: &[(&str, &str)], body: &str) -> String {
@@ -932,6 +936,134 @@ fn local_url(listener: &TcpListener, path: &str) -> String {
 
 fn source_map_json() -> &'static str {
     r#"{"version":3,"sources":[],"names":[],"mappings":""}"#
+}
+
+#[test]
+fn fetch_security_rejects_existing_bundle_destination() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let reply = response("200 OK", &[], "console.log(1)");
+    let received = serve_once(listener.try_clone().unwrap(), reply, Duration::ZERO);
+    let output = tempfile::tempdir().unwrap();
+    let bundle_path = output.path().join("bundle.js");
+    fs::write(&bundle_path, "sentinel").unwrap();
+
+    let out = srcmap()
+        .args(["fetch", &local_url(&listener, "/bundle.js"), "-o"])
+        .arg(output.path())
+        .output()
+        .unwrap();
+
+    received.recv_timeout(Duration::from_secs(2)).unwrap();
+    assert!(!out.status.success());
+    assert_eq!(fs::read_to_string(bundle_path).unwrap(), "sentinel");
+}
+
+#[test]
+fn fetch_security_rejects_existing_source_map_destination() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let server = listener.try_clone().unwrap();
+    let received = thread::spawn(move || {
+        for body in ["console.log(1);\n//# sourceMappingURL=bundle.js.map", source_map_json()] {
+            let (mut stream, _) = server.accept().unwrap();
+            let _ = read_request(&mut stream);
+            stream.write_all(response("200 OK", &[], body).as_bytes()).unwrap();
+        }
+    });
+    let output = tempfile::tempdir().unwrap();
+    let map_path = output.path().join("bundle.js.map");
+    fs::write(&map_path, "sentinel").unwrap();
+
+    let out = srcmap()
+        .args(["fetch", &local_url(&listener, "/bundle.js"), "-o"])
+        .arg(output.path())
+        .output()
+        .unwrap();
+
+    received.join().unwrap();
+    assert!(!out.status.success());
+    assert_eq!(fs::read_to_string(map_path).unwrap(), "sentinel");
+}
+
+#[cfg(unix)]
+#[test]
+fn fetch_security_rejects_symlink_bundle_destination() {
+    use std::os::unix::fs::symlink;
+
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let reply = response("200 OK", &[], "console.log(1)");
+    let received = serve_once(listener.try_clone().unwrap(), reply, Duration::ZERO);
+    let output = tempfile::tempdir().unwrap();
+    let outside = tempfile::NamedTempFile::new().unwrap();
+    fs::write(outside.path(), "sentinel").unwrap();
+    symlink(outside.path(), output.path().join("bundle.js")).unwrap();
+
+    let out = srcmap()
+        .args(["fetch", &local_url(&listener, "/bundle.js"), "-o"])
+        .arg(output.path())
+        .output()
+        .unwrap();
+
+    received.recv_timeout(Duration::from_secs(2)).unwrap();
+    assert!(!out.status.success());
+    assert_eq!(fs::read_to_string(outside.path()).unwrap(), "sentinel");
+}
+
+#[cfg(unix)]
+#[test]
+fn fetch_security_rejects_symlink_source_map_destination() {
+    use std::os::unix::fs::symlink;
+
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let server = listener.try_clone().unwrap();
+    let received = thread::spawn(move || {
+        for body in ["console.log(1);\n//# sourceMappingURL=bundle.js.map", source_map_json()] {
+            let (mut stream, _) = server.accept().unwrap();
+            let _ = read_request(&mut stream);
+            stream.write_all(response("200 OK", &[], body).as_bytes()).unwrap();
+        }
+    });
+    let output = tempfile::tempdir().unwrap();
+    let outside = tempfile::NamedTempFile::new().unwrap();
+    fs::write(outside.path(), "sentinel").unwrap();
+    symlink(outside.path(), output.path().join("bundle.js.map")).unwrap();
+
+    let out = srcmap()
+        .args(["fetch", &local_url(&listener, "/bundle.js"), "-o"])
+        .arg(output.path())
+        .output()
+        .unwrap();
+
+    received.join().unwrap();
+    assert!(!out.status.success());
+    assert_eq!(fs::read_to_string(outside.path()).unwrap(), "sentinel");
+}
+
+#[test]
+fn fetch_security_rejects_bundle_and_map_filename_collisions() {
+    for map_ref in ["?map", "#map", "bundle.js"] {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let server = listener.try_clone().unwrap();
+        let bundle = format!("console.log(1);\n//# sourceMappingURL={map_ref}");
+        let expected_bundle = bundle.clone();
+        let received = thread::spawn(move || {
+            for body in [bundle.as_str(), source_map_json()] {
+                let (mut stream, _) = server.accept().unwrap();
+                let _ = read_request(&mut stream);
+                stream.write_all(response("200 OK", &[], body).as_bytes()).unwrap();
+            }
+        });
+        let output = tempfile::tempdir().unwrap();
+
+        let out = srcmap()
+            .args(["fetch", &local_url(&listener, "/bundle.js"), "-o"])
+            .arg(output.path())
+            .output()
+            .unwrap();
+
+        received.join().unwrap();
+        assert!(!out.status.success(), "accepted colliding map reference {map_ref:?}");
+        assert_eq!(fs::read_to_string(output.path().join("bundle.js")).unwrap(), expected_bundle);
+    }
 }
 
 #[test]
@@ -1117,22 +1249,82 @@ fn fetch_security_times_out_slow_response() {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let inline = "console.log(1);\n//# sourceMappingURL=data:application/json;base64,eyJ2ZXJzaW9uIjozLCJzb3VyY2VzIjpbXSwibmFtZXMiOltdLCJtYXBwaW5ncyI6IiJ9";
     let slow_reply = response("200 OK", &[], inline);
-    serve_once(listener.try_clone().unwrap(), slow_reply, Duration::from_millis(1_500));
+    let accepted =
+        serve_once(listener.try_clone().unwrap(), slow_reply, Duration::from_millis(1_500));
     let output = tempfile::tempdir().unwrap();
+    let url = local_url(&listener, "/slow.js");
+    let output_path = output.path().to_path_buf();
+    let fetch = thread::spawn(move || {
+        srcmap()
+            .env("SRCMAP_FETCH_TIMEOUT_MS", "50")
+            .args(["fetch", &url, "-o"])
+            .arg(output_path)
+            .output()
+            .unwrap()
+    });
+    accepted.recv_timeout(Duration::from_secs(2)).unwrap();
     let started = Instant::now();
-
-    let out = srcmap()
-        .env("SRCMAP_FETCH_TIMEOUT_MS", "50")
-        .args(["fetch", &local_url(&listener, "/slow.js"), "-o"])
-        .arg(output.path())
-        .output()
-        .unwrap();
+    let out = fetch.join().unwrap();
 
     let elapsed = started.elapsed();
     assert!(!out.status.success());
     assert!(
         elapsed < Duration::from_secs(1),
         "fetch took {elapsed:?}: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(String::from_utf8_lossy(&out.stderr).contains("timed out"));
+}
+
+#[test]
+fn fetch_security_uses_one_deadline_across_redirects() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let server = listener.try_clone().unwrap();
+    let (accepted_sender, accepted_receiver) = mpsc::channel();
+    let received = thread::spawn(move || {
+        let replies = [
+            (response("302 Found", &[("Location", "/two")], ""), Duration::from_millis(35)),
+            (response("302 Found", &[("Location", "/final.js")], ""), Duration::from_millis(35)),
+            (
+                response(
+                    "200 OK",
+                    &[],
+                    "console.log(1);\n//# sourceMappingURL=data:application/json;base64,eyJ2ZXJzaW9uIjozLCJzb3VyY2VzIjpbXSwibmFtZXMiOltdLCJtYXBwaW5ncyI6IiJ9",
+                ),
+                Duration::from_millis(60),
+            ),
+        ];
+        for (index, (reply, delay)) in replies.into_iter().enumerate() {
+            let (mut stream, _) = server.accept().unwrap();
+            if index == 0 {
+                accepted_sender.send(()).unwrap();
+            }
+            let _ = read_request(&mut stream);
+            thread::sleep(delay);
+            let _ = stream.write_all(reply.as_bytes());
+        }
+    });
+    let output = tempfile::tempdir().unwrap();
+    let url = local_url(&listener, "/one");
+    let output_path = output.path().to_path_buf();
+    let fetch = thread::spawn(move || {
+        srcmap()
+            .env("SRCMAP_FETCH_TIMEOUT_MS", "100")
+            .args(["fetch", &url, "-o"])
+            .arg(output_path)
+            .output()
+            .unwrap()
+    });
+    accepted_receiver.recv_timeout(Duration::from_secs(2)).unwrap();
+    let started = Instant::now();
+    let out = fetch.join().unwrap();
+    let elapsed = started.elapsed();
+
+    received.join().unwrap();
+    assert!(!out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    assert!(
+        elapsed < Duration::from_millis(250),
+        "redirect chain took {elapsed:?}: {}",
         String::from_utf8_lossy(&out.stderr)
     );
     assert!(String::from_utf8_lossy(&out.stderr).contains("timed out"));
