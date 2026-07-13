@@ -7,6 +7,7 @@ const ROOT_URL = new URL("../../", import.meta.url);
 const WORKFLOWS_URL = new URL("workflows/", new URL("../", import.meta.url));
 const CI_WORKFLOW_URL = new URL("ci.yml", WORKFLOWS_URL);
 const COVERAGE_WORKFLOW_URL = new URL("coverage.yml", WORKFLOWS_URL);
+const FALLOW_CONFIG_URL = new URL(".fallowrc.json", ROOT_URL);
 
 const trackedPackageLocks = async () => {
   const tracked = execFileSync("git", ["ls-files", "--", ":(glob)**/package-lock.json"], {
@@ -64,6 +65,14 @@ describe("JavaScript dependency policy", () => {
         assert.match(install, /--frozen-lockfile\b/, `${entry.name}: ${install.trim()}`);
       }
     }
+  });
+});
+
+describe("Generated artifact policy", () => {
+  it("ignores generated wasm-pack binaries during artifactless analysis", async () => {
+    const config = JSON.parse(await readFile(FALLOW_CONFIG_URL, "utf8"));
+
+    assert.ok(config.ignoreUnresolvedImports.includes("**/srcmap_*_wasm_bg.wasm"));
   });
 });
 
