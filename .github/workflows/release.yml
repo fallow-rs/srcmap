@@ -119,6 +119,12 @@ jobs:
           node-version: 24
           registry-url: https://registry.npmjs.org/
 
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Install JS dependencies
+        run: corepack pnpm install --ignore-scripts --frozen-lockfile
+
       - uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7
         with:
           targets: ${{ matrix.settings.target }}
@@ -143,13 +149,10 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu musl-tools
 
-      - name: Install @napi-rs/cli
-        run: npm install -g @napi-rs/cli
-
       - name: Build codec NAPI binary
         run: |
           cd packages/codec
-          napi build --release --platform --target ${{ matrix.settings.target }}
+          corepack pnpm exec napi build --release --platform --target ${{ matrix.settings.target }}
         shell: bash
         env:
           CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: ${{ matrix.settings.linker || '' }}
@@ -158,7 +161,7 @@ jobs:
       - name: Build sourcemap NAPI binary
         run: |
           cd packages/sourcemap
-          napi build --release --platform --target ${{ matrix.settings.target }}
+          corepack pnpm exec napi build --release --platform --target ${{ matrix.settings.target }}
         shell: bash
         env:
           CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: ${{ matrix.settings.linker || '' }}
@@ -320,14 +323,14 @@ jobs:
           node-version: 24
           registry-url: https://registry.npmjs.org/
 
-      - name: Ensure latest npm (for trusted publishing)
-        run: npm install -g npm@10.9.8 && npm install -g npm@latest
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Install JS dependencies
+        run: corepack pnpm install --ignore-scripts --frozen-lockfile
 
       - name: Configure npm registry
         run: npm config set registry https://registry.npmjs.org/
-
-      - name: Install @napi-rs/cli
-        run: npm install -g @napi-rs/cli
 
       - name: Prepare publish helper
         shell: bash
@@ -417,11 +420,11 @@ jobs:
           path: packages/symbolicate-wasm/web
 
       - name: Move codec artifacts
-        run: napi artifacts -d artifacts
+        run: corepack pnpm exec napi artifacts -d artifacts
         working-directory: packages/codec
 
       - name: Move sourcemap artifacts
-        run: napi artifacts -d artifacts
+        run: corepack pnpm exec napi artifacts -d artifacts
         working-directory: packages/sourcemap
 
       - name: Publish @srcmap/codec platform packages

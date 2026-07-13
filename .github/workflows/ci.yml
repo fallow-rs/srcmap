@@ -36,7 +36,10 @@ jobs:
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
 
       - name: Run tests
-        run: cargo test --workspace --all-targets
+        run: cargo test --workspace --lib --bins --tests --examples
+
+      - name: Compile all targets
+        run: cargo check --workspace --all-targets
 
       - name: Run doc-tests
         run: cargo test --workspace --doc

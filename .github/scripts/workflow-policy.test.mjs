@@ -7,6 +7,7 @@ const ROOT_URL = new URL("../../", import.meta.url);
 const WORKFLOWS_URL = new URL("workflows/", new URL("../", import.meta.url));
 const CI_WORKFLOW_URL = new URL("ci.yml", WORKFLOWS_URL);
 const COVERAGE_WORKFLOW_URL = new URL("coverage.yml", WORKFLOWS_URL);
+const RELEASE_WORKFLOW_URL = new URL("release.yml", WORKFLOWS_URL);
 const FALLOW_CONFIG_URL = new URL(".fallowrc.json", ROOT_URL);
 
 const trackedPackageLocks = async () => {
@@ -77,6 +78,15 @@ describe("Generated artifact policy", () => {
 });
 
 describe("Rust feature coverage", () => {
+  it("keeps platform tests bounded and compiles every target", async () => {
+    const workflow = await readFile(CI_WORKFLOW_URL, "utf8");
+    const job = workflowJob(workflow, "check");
+
+    assert.match(job, /cargo test --workspace --lib --bins --tests --examples/);
+    assert.match(job, /cargo check --workspace --all-targets/);
+    assert.doesNotMatch(job, /cargo test --workspace --all-targets/);
+  });
+
   it("tests both parallel encoders in Linux CI", async () => {
     const workflow = await readFile(CI_WORKFLOW_URL, "utf8");
     const job = workflowJob(workflow, "parallel-features");
@@ -84,6 +94,21 @@ describe("Rust feature coverage", () => {
     assert.match(job, /^    runs-on: ubuntu-latest$/m);
     assert.match(job, /^        run: cargo test -p srcmap-codec --features parallel$/m);
     assert.match(job, /^        run: cargo test -p srcmap-generator --features parallel$/m);
+  });
+});
+
+describe("Release supply-chain policy", () => {
+  it("uses frozen workspace tooling for NAPI build and publish jobs", async () => {
+    const workflow = await readFile(RELEASE_WORKFLOW_URL, "utf8");
+    const install = "corepack pnpm install --ignore-scripts --frozen-lockfile";
+    const buildJob = workflowJob(workflow, "build-napi");
+    const publishJob = workflowJob(workflow, "publish-npm");
+
+    assert.doesNotMatch(workflow, /\bnpm install\b/);
+    assert.ok(buildJob.includes(install), "build-napi must install the frozen workspace");
+    assert.ok(publishJob.includes(install), "publish-npm must install the frozen workspace");
+    assert.match(buildJob, /corepack pnpm exec napi build --release --platform --target/);
+    assert.match(publishJob, /corepack pnpm exec napi artifacts -d artifacts/);
   });
 });
 
