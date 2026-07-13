@@ -57,16 +57,18 @@ packages/
   sourcemap-wasm/    WASM bindings for sourcemap
   generator-wasm/    WASM bindings for generator
   remapping-wasm/    WASM bindings for remapping
-  scopes-wasm/       WASM bindings for scopes
+  scopes-wasm/       Experimental WASM bindings for scopes (unpublished)
   symbolicate-wasm/  WASM bindings for symbolicate
   codec/             NAPI bindings for codec
   sourcemap/         NAPI bindings for sourcemap
-  generator/         NAPI bindings for generator
-  remapping/         NAPI bindings for remapping
+  generator/         Experimental NAPI bindings for generator (unpublished)
+  remapping/         JavaScript remapping wrapper plus experimental NAPI bindings
   trace-mapping/     Drop-in @jridgewell/trace-mapping replacement
 
 benchmarks/       JS benchmarks comparing against existing libraries
 ```
+
+The experimental `generator`, `remapping` NAPI, and `scopes-wasm` binding crates remain workspace members so they compile with the rest of the repository. They use `publish = false` and are not released as npm packages. The published `@srcmap/remapping` JavaScript wrapper shares the `packages/remapping` directory but does not publish the experimental NAPI binary.
 
 ## Development workflow
 

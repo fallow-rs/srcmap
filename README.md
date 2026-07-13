@@ -231,7 +231,7 @@ const pos = originalPositionFor(map, { line: 43, column: 10 })
 map.free() // Release WASM memory (or use `using` with Symbol.dispose)
 ```
 
-### All packages
+### Published npm packages
 
 | Package | Description |
 |---|---|
@@ -245,6 +245,16 @@ map.free() // Release WASM memory (or use `using` with Symbol.dispose)
 | [`@srcmap/symbolicate-wasm`](https://www.npmjs.com/package/@srcmap/symbolicate-wasm) | Stack trace symbolication (WASM) |
 | [`@srcmap/sourcemap`](https://www.npmjs.com/package/@srcmap/sourcemap) | Parser + consumer (NAPI) |
 | [`@srcmap/codec`](https://www.npmjs.com/package/@srcmap/codec) | VLQ codec (NAPI) |
+
+### Experimental bindings
+
+The Rust workspace also contains the following experimental binding crates. They are kept in the workspace for development and validation, but are not published as npm packages:
+
+| Workspace crate | Status |
+|---|---|
+| `srcmap-generator-napi` in `packages/generator` | Experimental NAPI binding, unpublished |
+| `srcmap-remapping-napi` in `packages/remapping` | Experimental NAPI binding, unpublished. The `@srcmap/remapping` JavaScript wrapper in the same directory is published separately. |
+| `srcmap-scopes-wasm` in `packages/scopes-wasm` | Experimental WASM binding, unpublished |
 
 ## CLI
 

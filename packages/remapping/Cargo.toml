@@ -5,7 +5,7 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "N-API bindings for srcmap-remapping"
+description = "Experimental unpublished N-API bindings for srcmap-remapping"
 publish = false
 
 [lib]

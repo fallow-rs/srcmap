@@ -5,7 +5,7 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "WebAssembly bindings for srcmap-scopes"
+description = "Experimental unpublished WebAssembly bindings for srcmap-scopes"
 publish = false
 
 [package.metadata.wasm-pack.profile.release]
