@@ -135,11 +135,8 @@ pub fn is_sourcemap(json: &str) -> bool {
 
 /// Resolve a relative `sourceMappingURL` against the minified file's URL.
 ///
-/// - If `source_map_ref` is already absolute (starts with `http://`, `https://`, or `/`),
-///   returns it as-is.
 /// - If `source_map_ref` starts with `data:`, returns `None` (inline maps).
-/// - Otherwise, replaces the filename portion of `minified_url` with `source_map_ref`
-///   and handles `../` traversal.
+/// - Otherwise, resolves the reference with the URL Standard.
 ///
 /// # Examples
 ///
@@ -149,28 +146,12 @@ pub fn is_sourcemap(json: &str) -> bool {
 /// assert_eq!(url, Some("https://example.com/js/app.js.map".to_string()));
 /// ```
 pub fn resolve_source_map_url(minified_url: &str, source_map_ref: &str) -> Option<String> {
-    // Inline data URLs don't need resolution
     if source_map_ref.starts_with("data:") {
         return None;
     }
 
-    // Already absolute
-    if source_map_ref.starts_with("http://")
-        || source_map_ref.starts_with("https://")
-        || source_map_ref.starts_with('/')
-    {
-        return Some(source_map_ref.to_string());
-    }
-
-    // Find the base directory of the minified URL
-    if let Some(last_slash) = minified_url.rfind('/') {
-        let base = &minified_url[..=last_slash];
-        let combined = format!("{base}{source_map_ref}");
-        Some(normalize_path_components(&combined))
-    } else {
-        // No directory component in the URL
-        Some(source_map_ref.to_string())
-    }
+    let base = url::Url::parse(minified_url).ok()?;
+    base.join(source_map_ref).ok().map(|url| url.to_string())
 }
 
 /// Resolve a source map reference against a filesystem path.
@@ -183,43 +164,6 @@ pub fn resolve_source_map_path(minified_path: &Path, source_map_ref: &str) -> Op
 
     // Normalize the path (resolve .. components without requiring the path to exist)
     Some(normalize_pathbuf(&joined))
-}
-
-/// Normalize `..` and `.` components in a URL path string.
-fn normalize_path_components(url: &str) -> String {
-    // Split off the protocol+host if present
-    let (prefix, path) = if let Some(idx) = url.find("://") {
-        let after_proto = &url[idx + 3..];
-        if let Some(slash_idx) = after_proto.find('/') {
-            let split_at = idx + 3 + slash_idx;
-            (&url[..split_at], &url[split_at..])
-        } else {
-            return url.to_string();
-        }
-    } else {
-        ("", url)
-    };
-
-    let mut segments: Vec<&str> = Vec::new();
-    for segment in path.split('/') {
-        match segment {
-            ".." => {
-                // Never pop past the root empty segment (leading `/`)
-                if segments.len() > 1 {
-                    segments.pop();
-                }
-            }
-            "." | "" if !segments.is_empty() => {
-                // skip `.` and empty segments (from double slashes), except the leading empty
-            }
-            _ => {
-                segments.push(segment);
-            }
-        }
-    }
-
-    let normalized = segments.join("/");
-    format!("{prefix}{normalized}")
 }
 
 /// Normalize a `PathBuf` by resolving `..` and `.` without filesystem access.
@@ -669,7 +613,7 @@ mod tests {
     #[test]
     fn resolve_url_absolute_slash() {
         let result = resolve_source_map_url("https://example.com/js/app.js", "/maps/app.js.map");
-        assert_eq!(result, Some("/maps/app.js.map".to_string()));
+        assert_eq!(result, Some("https://example.com/maps/app.js.map".to_string()));
     }
 
     #[test]
@@ -684,13 +628,13 @@ mod tests {
     #[test]
     fn resolve_url_filesystem_path() {
         let result = resolve_source_map_url("/js/app.js", "app.js.map");
-        assert_eq!(result, Some("/js/app.js.map".to_string()));
+        assert_eq!(result, None);
     }
 
     #[test]
     fn resolve_url_no_directory() {
         let result = resolve_source_map_url("app.js", "app.js.map");
-        assert_eq!(result, Some("app.js.map".to_string()));
+        assert_eq!(result, None);
     }
 
     #[test]
@@ -699,6 +643,23 @@ mod tests {
         let result =
             resolve_source_map_url("https://example.com/js/app.js", "../../../maps/app.js.map");
         assert_eq!(result, Some("https://example.com/maps/app.js.map".to_string()));
+    }
+
+    #[test]
+    fn resolve_url_rfc_relative_references() {
+        let base = "https://example.com/assets/js/app.js?build=1#old";
+        let cases = [
+            ("/maps/app.js.map", "https://example.com/maps/app.js.map"),
+            ("//cdn.example.com/maps/app.js.map", "https://cdn.example.com/maps/app.js.map"),
+            ("app.js.map?build=2", "https://example.com/assets/js/app.js.map?build=2"),
+            ("#source-map", "https://example.com/assets/js/app.js?build=1#source-map"),
+            ("./maps/../app.js.map", "https://example.com/assets/js/app.js.map"),
+            ("maps/app%20bundle.js.map", "https://example.com/assets/js/maps/app%20bundle.js.map"),
+        ];
+
+        for (reference, expected) in cases {
+            assert_eq!(resolve_source_map_url(base, reference).as_deref(), Some(expected));
+        }
     }
 
     // ── resolve_source_map_path ─────────────────────────────────

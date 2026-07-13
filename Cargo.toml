@@ -34,6 +34,7 @@ cap-std = "4.0.2"
 rustc-hash = "2"
 memchr = "2"
 ureq = "3"
+url = "2"
 
 [workspace.lints.clippy]
 all = { level = "warn", priority = -1 }

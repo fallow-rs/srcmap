@@ -9,6 +9,7 @@ use std::fs;
 use std::io::{self, Read, Write};
 use std::path::{Component, Path, PathBuf};
 use std::process::ExitCode;
+use std::time::Duration;
 
 use cap_fs_ext::{DirExt, FollowSymlinks, OpenOptionsFollowExt};
 use cap_std::ambient_authority;
@@ -20,6 +21,10 @@ use srcmap_sourcemap::utils::resolve_source_map_url;
 use srcmap_sourcemap::{
     Bias, Mapping, OriginalLocation, SourceMap, SourceMappingUrl, parse_source_mapping_url,
 };
+use url::Url;
+
+const FETCH_TIMEOUT: Duration = Duration::from_secs(30);
+const MAX_FETCH_REDIRECTS: usize = 10;
 
 // ── CLI definition ───────────────────────────────────────────────
 
@@ -231,6 +236,10 @@ enum Command {
         #[arg(short, long)]
         output: Option<PathBuf>,
 
+        /// Allow redirects and source maps on a different origin
+        #[arg(long)]
+        allow_cross_origin: bool,
+
         /// Output as JSON
         #[arg(long)]
         json: bool,
@@ -424,28 +433,123 @@ fn write_output(output: &Option<PathBuf>, content: &str) -> Result<(), CliError>
     }
 }
 
-fn http_get(url: &str) -> Result<String, CliError> {
-    let mut response = ureq::get(url)
-        .header("User-Agent", concat!("srcmap-cli/", env!("CARGO_PKG_VERSION")))
-        .call()
-        .map_err(|e| CliError::fetch_error(format!("failed to fetch {url}: {e}")))?;
-
-    let status = response.status();
-    if status != 200 {
-        return Err(CliError::fetch_error(format!("HTTP {status} for {url}")));
+fn fetch_timeout() -> Duration {
+    #[cfg(debug_assertions)]
+    if let Some(milliseconds) = std::env::var("SRCMAP_FETCH_TIMEOUT_MS")
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+        .filter(|value| *value > 0)
+    {
+        return Duration::from_millis(milliseconds);
     }
 
-    response
-        .body_mut()
-        .read_to_string()
-        .map_err(|e| CliError::fetch_error(format!("failed to read response body from {url}: {e}")))
+    FETCH_TIMEOUT
 }
 
-fn url_filename(url: &str) -> String {
-    let path = url.split('?').next().unwrap_or(url);
-    let path = path.split('#').next().unwrap_or(path);
-    let name = path.rsplit('/').next().unwrap_or("bundle.js");
-    if name.is_empty() { "bundle.js".to_string() } else { name.to_string() }
+fn http_agent() -> ureq::Agent {
+    let config = ureq::Agent::config_builder()
+        .timeout_global(Some(fetch_timeout()))
+        .max_redirects(0)
+        .build();
+    ureq::Agent::new_with_config(config)
+}
+
+fn same_origin(left: &Url, right: &Url) -> bool {
+    left.scheme() == right.scheme()
+        && left.host_str() == right.host_str()
+        && left.port_or_known_default() == right.port_or_known_default()
+}
+
+fn ensure_same_origin(
+    initial: &Url,
+    candidate: &Url,
+    allow_cross_origin: bool,
+) -> Result<(), CliError> {
+    if allow_cross_origin || same_origin(initial, candidate) {
+        return Ok(());
+    }
+
+    Err(CliError::fetch_error(format!(
+        "cross-origin fetch from {initial} to {candidate} requires --allow-cross-origin"
+    )))
+}
+
+fn fetch_request_error(url: &Url, error: ureq::Error) -> CliError {
+    if matches!(error, ureq::Error::Timeout(_)) {
+        CliError::fetch_error(format!("fetch timed out for {url}"))
+    } else {
+        CliError::fetch_error(format!("failed to fetch {url}: {error}"))
+    }
+}
+
+fn http_get(
+    agent: &ureq::Agent,
+    initial_url: &Url,
+    allow_cross_origin: bool,
+) -> Result<(Url, String), CliError> {
+    let mut current_url = initial_url.clone();
+
+    for redirect_count in 0..=MAX_FETCH_REDIRECTS {
+        let mut response = agent
+            .get(current_url.as_str())
+            .header("User-Agent", concat!("srcmap-cli/", env!("CARGO_PKG_VERSION")))
+            .call()
+            .map_err(|error| fetch_request_error(&current_url, error))?;
+        let status = response.status().as_u16();
+
+        if matches!(status, 301 | 302 | 303 | 307 | 308) {
+            if redirect_count == MAX_FETCH_REDIRECTS {
+                return Err(CliError::fetch_error(format!(
+                    "too many redirects while fetching {initial_url}"
+                )));
+            }
+            let location = response
+                .headers()
+                .get("Location")
+                .and_then(|value| value.to_str().ok())
+                .ok_or_else(|| {
+                    CliError::fetch_error(format!("redirect from {current_url} has no Location"))
+                })?;
+            let next_url = current_url.join(location).map_err(|error| {
+                CliError::fetch_error(format!(
+                    "invalid redirect URL {location:?} from {current_url}: {error}"
+                ))
+            })?;
+            validate_http_url(&next_url)?;
+            ensure_same_origin(initial_url, &next_url, allow_cross_origin)?;
+            current_url = next_url;
+            continue;
+        }
+
+        if status != 200 {
+            return Err(CliError::fetch_error(format!("HTTP {status} for {current_url}")));
+        }
+
+        let body = response
+            .body_mut()
+            .read_to_string()
+            .map_err(|error| fetch_request_error(&current_url, error))?;
+        return Ok((current_url, body));
+    }
+
+    unreachable!("bounded redirect loop always returns")
+}
+
+fn validate_url_filename(name: &str) -> Result<(), CliError> {
+    if matches!(name, "." | "..") || name.contains('/') || name.contains('\\') {
+        return Err(CliError::fetch_error(format!("unsafe filename in fetched URL: {name:?}")));
+    }
+    Ok(())
+}
+
+fn url_filename(url: &Url) -> Result<String, CliError> {
+    let name = url
+        .path_segments()
+        .and_then(|mut segments| segments.next_back())
+        .filter(|segment| !segment.is_empty())
+        .unwrap_or("bundle.js");
+    validate_url_filename(name)?;
+    Ok(name.to_string())
 }
 
 fn sanitize_source_path(source: &str) -> Result<PathBuf, CliError> {
@@ -1627,11 +1731,21 @@ fn cmd_scopes(file: &PathBuf, json: bool) -> Result<(), CliError> {
     Ok(())
 }
 
-fn validate_fetch_url(url: &str) -> Result<(), CliError> {
-    if !url.starts_with("http://") && !url.starts_with("https://") {
+fn validate_http_url(url: &Url) -> Result<(), CliError> {
+    if !matches!(url.scheme(), "http" | "https") {
         return Err(CliError::invalid_input("URL must start with http:// or https://"));
     }
     Ok(())
+}
+
+fn parse_fetch_url(input: &str) -> Result<Url, CliError> {
+    let url = Url::parse(input).map_err(|error| {
+        CliError::invalid_input(format!(
+            "URL must be a valid http:// or https:// URL, got {input:?}: {error}"
+        ))
+    })?;
+    validate_http_url(&url)?;
+    Ok(url)
 }
 
 fn fetch_output_dir(output: &Option<PathBuf>) -> Result<PathBuf, CliError> {
@@ -1651,17 +1765,22 @@ fn fetch_output_dir(output: &Option<PathBuf>) -> Result<PathBuf, CliError> {
     Ok(output_dir)
 }
 
-fn fetch_bundle(url: &str, output_dir: &Path) -> Result<(String, PathBuf, String), CliError> {
+fn fetch_bundle(
+    agent: &ureq::Agent,
+    url: &Url,
+    output_dir: &Path,
+    allow_cross_origin: bool,
+) -> Result<(String, PathBuf, String, Url), CliError> {
     eprintln!("Fetching {url}...");
-    let bundle_body = http_get(url)?;
-    let bundle_filename = url_filename(url);
+    let (final_url, bundle_body) = http_get(agent, url, allow_cross_origin)?;
+    let bundle_filename = url_filename(&final_url)?;
     let bundle_path = output_dir.join(&bundle_filename);
 
     fs::write(&bundle_path, &bundle_body)
         .map_err(|e| CliError::io(format!("failed to write {}: {e}", bundle_path.display())))?;
     eprintln!("  Saved {} ({})", bundle_path.display(), format_size(bundle_body.len()));
 
-    Ok((bundle_filename, bundle_path, bundle_body))
+    Ok((bundle_filename, bundle_path, bundle_body, final_url))
 }
 
 fn save_inline_source_map(
@@ -1678,33 +1797,46 @@ fn save_inline_source_map(
 }
 
 fn fetch_external_source_map(
-    url: &str,
+    agent: &ureq::Agent,
+    bundle_url: &Url,
     map_ref: &str,
     output_dir: &Path,
+    allow_cross_origin: bool,
 ) -> Result<(String, usize, String), CliError> {
-    let map_url = resolve_source_map_url(url, map_ref).ok_or_else(|| {
+    let map_url = resolve_source_map_url(bundle_url.as_str(), map_ref).ok_or_else(|| {
         CliError::fetch_error(format!("could not resolve source map URL: {map_ref}"))
     })?;
+    let map_url = parse_fetch_url(&map_url)?;
+    ensure_same_origin(bundle_url, &map_url, allow_cross_origin)?;
     eprintln!("Fetching {map_url}...");
-    let map_body = http_get(&map_url)?;
-    let map_filename = url_filename(&map_url);
+    let (final_url, map_body) = http_get(agent, &map_url, allow_cross_origin)?;
+    let map_filename = url_filename(&final_url)?;
     let map_path = output_dir.join(&map_filename);
     fs::write(&map_path, &map_body)
         .map_err(|e| CliError::io(format!("failed to write {}: {e}", map_path.display())))?;
     eprintln!("  Saved {} ({})", map_path.display(), format_size(map_body.len()));
-    Ok((map_path.display().to_string(), map_body.len(), map_url))
+    Ok((map_path.display().to_string(), map_body.len(), final_url.to_string()))
+}
+
+fn conventional_source_map_url(bundle_url: &Url) -> Url {
+    let mut map_url = bundle_url.clone();
+    map_url.set_path(&format!("{}.map", bundle_url.path()));
+    map_url.set_query(None);
+    map_url.set_fragment(None);
+    map_url
 }
 
 fn fetch_conventional_source_map(
-    url: &str,
-    bundle_filename: &str,
+    agent: &ureq::Agent,
+    bundle_url: &Url,
     output_dir: &Path,
+    allow_cross_origin: bool,
 ) -> Result<Option<(String, usize, String)>, CliError> {
-    let map_url = format!("{url}.map");
+    let map_url = conventional_source_map_url(bundle_url);
     eprintln!("No sourceMappingURL found, trying {map_url}...");
-    match http_get(&map_url) {
-        Ok(map_body) => {
-            let map_filename = format!("{bundle_filename}.map");
+    match http_get(agent, &map_url, allow_cross_origin) {
+        Ok((final_url, map_body)) => {
+            let map_filename = url_filename(&final_url)?;
             let map_path = output_dir.join(&map_filename);
             fs::write(&map_path, &map_body).map_err(|e| {
                 CliError::io(format!("failed to write {}: {e}", map_path.display()))
@@ -1714,7 +1846,7 @@ fn fetch_conventional_source_map(
                 map_path.display(),
                 format_size(map_body.len())
             );
-            Ok(Some((map_path.display().to_string(), map_body.len(), map_url)))
+            Ok(Some((map_path.display().to_string(), map_body.len(), final_url.to_string())))
         }
         Err(_) => {
             eprintln!("  No source map found");
@@ -1753,24 +1885,37 @@ fn print_fetch_result(
     }
 }
 
-fn cmd_fetch(url: &str, output: &Option<PathBuf>, json: bool) -> Result<(), CliError> {
-    validate_fetch_url(url)?;
+fn cmd_fetch(
+    url: &str,
+    output: &Option<PathBuf>,
+    allow_cross_origin: bool,
+    json: bool,
+) -> Result<(), CliError> {
+    let url = parse_fetch_url(url)?;
+    let agent = http_agent();
 
     let output_dir = fetch_output_dir(output)?;
-    let (bundle_filename, bundle_path, bundle_body) = fetch_bundle(url, &output_dir)?;
+    let (bundle_filename, bundle_path, bundle_body, bundle_url) =
+        fetch_bundle(&agent, &url, &output_dir, allow_cross_origin)?;
 
     // Extract sourceMappingURL
     let map_result = match parse_source_mapping_url(&bundle_body) {
         Some(SourceMappingUrl::Inline(decoded_json)) => {
             Some(save_inline_source_map(&bundle_filename, &output_dir, decoded_json)?)
         }
-        Some(SourceMappingUrl::External(ref map_ref)) => {
-            Some(fetch_external_source_map(url, map_ref, &output_dir)?)
+        Some(SourceMappingUrl::External(ref map_ref)) => Some(fetch_external_source_map(
+            &agent,
+            &bundle_url,
+            map_ref,
+            &output_dir,
+            allow_cross_origin,
+        )?),
+        None => {
+            fetch_conventional_source_map(&agent, &bundle_url, &output_dir, allow_cross_origin)?
         }
-        None => fetch_conventional_source_map(url, &bundle_filename, &output_dir)?,
     };
 
-    print_fetch_result(url, &bundle_path, bundle_body.len(), &map_result, json);
+    print_fetch_result(bundle_url.as_str(), &bundle_path, bundle_body.len(), &map_result, json);
 
     Ok(())
 }
@@ -2115,6 +2260,7 @@ fn schema_fetch_command() -> serde_json::Value {
         ],
         "flags": {
             "-o, --output": {"type": "path", "required": false, "description": "Output directory (default: current directory)"},
+            "--allow-cross-origin": {"type": "bool", "default": false, "description": "Allow redirects and source maps on a different origin"},
             "--json": {"type": "bool", "default": false, "description": "Output as JSON"}
         }
     })
@@ -2206,7 +2352,9 @@ fn main() -> ExitCode {
         }
         Command::Symbolicate { file, dir, maps, json } => cmd_symbolicate(file, dir, maps, *json),
         Command::Scopes { file, json } => cmd_scopes(file, *json),
-        Command::Fetch { url, output, json } => cmd_fetch(url, output, *json),
+        Command::Fetch { url, output, allow_cross_origin, json } => {
+            cmd_fetch(url, output, *allow_cross_origin, *json)
+        }
         Command::Sources { file, extract, output, json } => {
             cmd_sources(file, *extract, output, *json)
         }
@@ -2242,6 +2390,30 @@ fn command_json_mode(command: &Command) -> bool {
             | Command::Fetch { json: true, .. }
             | Command::Sources { json: true, .. }
     )
+}
+
+#[cfg(test)]
+mod fetch_url_tests {
+    use super::*;
+
+    #[test]
+    fn fetched_filename_validation_rejects_path_components() {
+        for name in [".", "..", "nested/file.js", "nested\\file.js"] {
+            assert!(validate_url_filename(name).is_err(), "accepted unsafe filename {name:?}");
+        }
+    }
+
+    #[test]
+    fn fetched_filename_uses_only_the_final_path_segment() {
+        let url = Url::parse("https://example.com/assets/bundle.js?build=1#fragment").unwrap();
+        let filename = url_filename(&url).unwrap_or_else(|error| panic!("{}", error.message));
+        assert_eq!(filename, "bundle.js");
+
+        let directory_url = Url::parse("https://example.com/assets/").unwrap();
+        let filename =
+            url_filename(&directory_url).unwrap_or_else(|error| panic!("{}", error.message));
+        assert_eq!(filename, "bundle.js");
+    }
 }
 
 #[cfg(all(test, unix))]

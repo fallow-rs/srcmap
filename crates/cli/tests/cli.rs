@@ -1,6 +1,12 @@
+use std::fmt::Write as _;
 use std::fs;
+use std::io::{Read, Write};
+use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::mpsc::{self, Receiver};
+use std::thread;
+use std::time::{Duration, Instant};
 
 fn srcmap() -> Command {
     Command::new(env!("CARGO_BIN_EXE_srcmap"))
@@ -886,6 +892,252 @@ fn fetch_invalid_url_json() {
     assert_eq!(v["code"], "INVALID_INPUT");
 }
 
+fn read_request(stream: &mut TcpStream) -> String {
+    stream.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
+    let mut request = [0_u8; 4096];
+    let length = stream.read(&mut request).unwrap();
+    String::from_utf8_lossy(&request[..length])
+        .lines()
+        .next()
+        .and_then(|line| line.split_whitespace().nth(1))
+        .unwrap_or_default()
+        .to_string()
+}
+
+fn response(status: &str, headers: &[(&str, &str)], body: &str) -> String {
+    let mut response = format!("HTTP/1.1 {status}\r\nContent-Length: {}\r\n", body.len());
+    for (name, value) in headers {
+        write!(response, "{name}: {value}\r\n").unwrap();
+    }
+    response.push_str("Connection: close\r\n\r\n");
+    response.push_str(body);
+    response
+}
+
+fn serve_once(listener: TcpListener, reply: String, delay: Duration) -> Receiver<()> {
+    let (sender, receiver) = mpsc::channel();
+    thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        let _ = sender.send(());
+        let _ = read_request(&mut stream);
+        thread::sleep(delay);
+        let _ = stream.write_all(reply.as_bytes());
+    });
+    receiver
+}
+
+fn local_url(listener: &TcpListener, path: &str) -> String {
+    format!("http://{}{path}", listener.local_addr().unwrap())
+}
+
+fn source_map_json() -> &'static str {
+    r#"{"version":3,"sources":[],"names":[],"mappings":""}"#
+}
+
+#[test]
+fn fetch_security_blocks_cross_origin_source_map_without_opt_in() {
+    let bundle_listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let map_listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let map_url = local_url(&map_listener, "/bundle.js.map");
+    let bundle = format!("console.log(1);\n//# sourceMappingURL={map_url}");
+    let bundle_reply = response("200 OK", &[], &bundle);
+    let bundle_received =
+        serve_once(bundle_listener.try_clone().unwrap(), bundle_reply, Duration::ZERO);
+    let map_reply = response("200 OK", &[], source_map_json());
+    let map_received = serve_once(map_listener, map_reply, Duration::ZERO);
+    let output = tempfile::tempdir().unwrap();
+
+    let out = srcmap()
+        .args(["fetch", &local_url(&bundle_listener, "/bundle.js"), "-o"])
+        .arg(output.path())
+        .output()
+        .unwrap();
+
+    bundle_received.recv_timeout(Duration::from_secs(2)).unwrap();
+    assert!(!out.status.success());
+    assert!(String::from_utf8_lossy(&out.stderr).contains("cross-origin"));
+    assert!(map_received.recv_timeout(Duration::from_millis(100)).is_err());
+}
+
+#[test]
+fn fetch_security_allows_cross_origin_source_map_with_opt_in() {
+    let bundle_listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let map_listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let map_url = local_url(&map_listener, "/bundle.js.map");
+    let bundle = format!("console.log(1);\n//# sourceMappingURL={map_url}");
+    let bundle_reply = response("200 OK", &[], &bundle);
+    serve_once(bundle_listener.try_clone().unwrap(), bundle_reply, Duration::ZERO);
+    let map_reply = response("200 OK", &[], source_map_json());
+    let map_received = serve_once(map_listener, map_reply, Duration::ZERO);
+    let output = tempfile::tempdir().unwrap();
+
+    let out = srcmap()
+        .args(["fetch", &local_url(&bundle_listener, "/bundle.js"), "--allow-cross-origin", "-o"])
+        .arg(output.path())
+        .output()
+        .unwrap();
+
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    map_received.recv_timeout(Duration::from_secs(2)).unwrap();
+    assert!(output.path().join("bundle.js.map").is_file());
+}
+
+#[test]
+fn fetch_security_blocks_cross_origin_redirect_without_request() {
+    let redirect_listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let target_listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let target_url = local_url(&target_listener, "/bundle.js");
+    let redirect_reply = response("302 Found", &[("Location", &target_url)], "");
+    serve_once(redirect_listener.try_clone().unwrap(), redirect_reply, Duration::ZERO);
+    let target_reply = response("200 OK", &[], "console.log(1)");
+    let target_received = serve_once(target_listener, target_reply, Duration::ZERO);
+    let output = tempfile::tempdir().unwrap();
+
+    let out = srcmap()
+        .args(["fetch", &local_url(&redirect_listener, "/bundle.js"), "-o"])
+        .arg(output.path())
+        .output()
+        .unwrap();
+
+    assert!(!out.status.success());
+    assert!(String::from_utf8_lossy(&out.stderr).contains("cross-origin"));
+    assert!(target_received.recv_timeout(Duration::from_millis(100)).is_err());
+}
+
+#[test]
+fn fetch_security_allows_cross_origin_redirect_with_opt_in() {
+    let redirect_listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let target_listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let target_url = local_url(&target_listener, "/bundle.js");
+    let redirect_reply = response("302 Found", &[("Location", &target_url)], "");
+    serve_once(redirect_listener.try_clone().unwrap(), redirect_reply, Duration::ZERO);
+    let inline = "console.log(1);\n//# sourceMappingURL=data:application/json;base64,eyJ2ZXJzaW9uIjozLCJzb3VyY2VzIjpbXSwibmFtZXMiOltdLCJtYXBwaW5ncyI6IiJ9";
+    let target_reply = response("200 OK", &[], inline);
+    let target_received = serve_once(target_listener, target_reply, Duration::ZERO);
+    let output = tempfile::tempdir().unwrap();
+
+    let out = srcmap()
+        .args(["fetch", &local_url(&redirect_listener, "/bundle.js"), "--allow-cross-origin", "-o"])
+        .arg(output.path())
+        .output()
+        .unwrap();
+
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    target_received.recv_timeout(Duration::from_secs(2)).unwrap();
+    assert!(output.path().join("bundle.js").is_file());
+    assert!(output.path().join("bundle.js.map").is_file());
+}
+
+#[test]
+fn fetch_security_allows_same_origin_relative_source_map() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let server = listener.try_clone().unwrap();
+    let received = thread::spawn(move || {
+        for body in ["console.log(1);\n//# sourceMappingURL=bundle.js.map", source_map_json()] {
+            let (mut stream, _) = server.accept().unwrap();
+            let _ = read_request(&mut stream);
+            stream.write_all(response("200 OK", &[], body).as_bytes()).unwrap();
+        }
+    });
+    let output = tempfile::tempdir().unwrap();
+
+    let out = srcmap()
+        .args(["fetch", &local_url(&listener, "/bundle.js"), "-o"])
+        .arg(output.path())
+        .output()
+        .unwrap();
+
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    received.join().unwrap();
+    assert!(output.path().join("bundle.js.map").is_file());
+}
+
+#[test]
+fn fetch_security_uses_final_redirect_url_for_relative_map_and_filename() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let server = listener.try_clone().unwrap();
+    let received = thread::spawn(move || {
+        let replies = [
+            response("302 Found", &[("Location", "/assets/final.js")], ""),
+            response("200 OK", &[], "console.log(1);\n//# sourceMappingURL=final.js.map"),
+            response("200 OK", &[], source_map_json()),
+        ];
+        let expected_paths = ["/old/bundle.js", "/assets/final.js", "/assets/final.js.map"];
+
+        for (reply, expected_path) in replies.iter().zip(expected_paths) {
+            let (mut stream, _) = server.accept().unwrap();
+            assert_eq!(read_request(&mut stream), expected_path);
+            stream.write_all(reply.as_bytes()).unwrap();
+        }
+    });
+    let output = tempfile::tempdir().unwrap();
+
+    let out = srcmap()
+        .args(["fetch", &local_url(&listener, "/old/bundle.js"), "-o"])
+        .arg(output.path())
+        .output()
+        .unwrap();
+
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    received.join().unwrap();
+    assert!(output.path().join("final.js").is_file());
+    assert!(output.path().join("final.js.map").is_file());
+    assert!(!output.path().join("bundle.js").exists());
+}
+
+#[test]
+fn fetch_security_bounds_redirects() {
+    const EXPECTED_REQUESTS: usize = 11;
+
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let server = listener.try_clone().unwrap();
+    let received = thread::spawn(move || {
+        for _ in 0..EXPECTED_REQUESTS {
+            let (mut stream, _) = server.accept().unwrap();
+            let _ = read_request(&mut stream);
+            let reply = response("302 Found", &[("Location", "/loop")], "");
+            stream.write_all(reply.as_bytes()).unwrap();
+        }
+    });
+    let output = tempfile::tempdir().unwrap();
+
+    let out = srcmap()
+        .args(["fetch", &local_url(&listener, "/loop"), "-o"])
+        .arg(output.path())
+        .output()
+        .unwrap();
+
+    assert!(!out.status.success());
+    assert!(String::from_utf8_lossy(&out.stderr).contains("too many redirects"));
+    received.join().unwrap();
+}
+
+#[test]
+fn fetch_security_times_out_slow_response() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let inline = "console.log(1);\n//# sourceMappingURL=data:application/json;base64,eyJ2ZXJzaW9uIjozLCJzb3VyY2VzIjpbXSwibmFtZXMiOltdLCJtYXBwaW5ncyI6IiJ9";
+    let slow_reply = response("200 OK", &[], inline);
+    serve_once(listener.try_clone().unwrap(), slow_reply, Duration::from_millis(1_500));
+    let output = tempfile::tempdir().unwrap();
+    let started = Instant::now();
+
+    let out = srcmap()
+        .env("SRCMAP_FETCH_TIMEOUT_MS", "50")
+        .args(["fetch", &local_url(&listener, "/slow.js"), "-o"])
+        .arg(output.path())
+        .output()
+        .unwrap();
+
+    let elapsed = started.elapsed();
+    assert!(!out.status.success());
+    assert!(
+        elapsed < Duration::from_secs(1),
+        "fetch took {elapsed:?}: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(String::from_utf8_lossy(&out.stderr).contains("timed out"));
+}
+
 // ── schema includes new commands ─────────────────────────────
 
 #[test]
@@ -897,6 +1149,10 @@ fn schema_includes_new_commands() {
     let names: Vec<&str> = commands.iter().map(|c| c["name"].as_str().unwrap()).collect();
     assert!(names.contains(&"fetch"));
     assert!(names.contains(&"sources"));
+
+    let fetch = commands.iter().find(|command| command["name"] == "fetch").unwrap();
+    assert_eq!(fetch["flags"]["--allow-cross-origin"]["type"], "bool");
+    assert_eq!(fetch["flags"]["--allow-cross-origin"]["default"], false);
 }
 
 // ── error handling ───────────────────────────────────────────────
