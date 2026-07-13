@@ -365,6 +365,28 @@ describe("originalPositionBuf (zero-alloc)", () => {
 });
 
 describe("indexed source maps", () => {
+  it("rejects indexed maps in the no-content constructor", () => {
+    const indexedMap = JSON.stringify({
+      version: 3,
+      sections: [
+        {
+          offset: { line: 0, column: 0 },
+          map: {
+            version: 3,
+            sources: ["a.js"],
+            names: [],
+            mappings: "AAAA",
+          },
+        },
+      ],
+    });
+
+    assert.throws(
+      () => SourceMap.fromJsonNoContent(indexedMap),
+      /section map must not be an indexed source map/,
+    );
+  });
+
   it("parses an indexed (sectioned) source map", () => {
     const indexedMap = JSON.stringify({
       version: 3,

@@ -810,11 +810,16 @@ impl SourceMap {
     /// Parse a source map from JSON, skipping sourcesContent allocation.
     /// Useful for WASM bindings where sourcesContent is kept on the JS side.
     /// The resulting SourceMap has an empty `sources_content` vec.
+    /// Indexed source maps are not supported; use [`SourceMap::from_json`] instead.
     pub fn from_json_no_content(json: &str) -> Result<Self, ParseError> {
         let raw: RawSourceMapLite<'_> = serde_json::from_str(json)?;
 
         if raw.version != 3 {
             return Err(ParseError::InvalidVersion(raw.version));
+        }
+
+        if raw.sections.is_some() {
+            return Err(ParseError::NestedIndexMap);
         }
 
         let source_root = raw.source_root.as_deref().unwrap_or("");
@@ -1662,11 +1667,16 @@ impl SourceMap {
     /// This is useful for large source maps where only a subset of lines is needed.
     /// VLQ state is maintained through skipped lines (required for correct delta decoding),
     /// but `Mapping` structs are only allocated for lines in the requested range.
+    /// Indexed source maps are not supported; use [`SourceMap::from_json`] instead.
     pub fn from_json_lines(json: &str, start_line: u32, end_line: u32) -> Result<Self, ParseError> {
         let raw: RawSourceMap<'_> = serde_json::from_str(json)?;
 
         if raw.version != 3 {
             return Err(ParseError::InvalidVersion(raw.version));
+        }
+
+        if raw.sections.is_some() {
+            return Err(ParseError::NestedIndexMap);
         }
 
         let source_root = raw.source_root.as_deref().unwrap_or("");
@@ -2027,11 +2037,16 @@ impl LazySourceMap {
     ///
     /// Parses all JSON metadata eagerly but stores the raw mappings string.
     /// VLQ mappings are decoded per-line on demand.
+    /// Indexed source maps are not supported; use [`SourceMap::from_json`] instead.
     pub fn from_json(json: &str) -> Result<Self, ParseError> {
         let raw: RawSourceMap<'_> = serde_json::from_str(json)?;
 
         if raw.version != 3 {
             return Err(ParseError::InvalidVersion(raw.version));
+        }
+
+        if raw.sections.is_some() {
+            return Err(ParseError::NestedIndexMap);
         }
 
         let source_root = raw.source_root.as_deref().unwrap_or("");
@@ -3545,6 +3560,10 @@ mod tests {
 
     fn simple_map() -> &'static str {
         r#"{"version":3,"sources":["input.js"],"names":["hello"],"mappings":"AAAA;AACA,EAAA;AACA"}"#
+    }
+
+    fn indexed_map() -> &'static str {
+        r#"{"version":3,"sections":[{"offset":{"line":0,"column":0},"map":{"version":3,"sources":["a.js"],"names":[],"mappings":"AAAA"}}]}"#
     }
 
     #[test]
@@ -7191,7 +7210,7 @@ mod tests {
 
     #[test]
     fn lazy_sourcemap_rejects_indexed_maps() {
-        let json = r#"{"version":3,"sections":[{"offset":{"line":0,"column":0},"map":{"version":3,"sources":["a.js"],"names":[],"mappings":"AAAA"}}]}"#;
+        let json = indexed_map();
         let result = LazySourceMap::from_json_fast(json);
         assert!(result.is_err());
         assert!(matches!(result.unwrap_err(), ParseError::NestedIndexMap));
@@ -7199,6 +7218,33 @@ mod tests {
         let result = LazySourceMap::from_json_no_content(json);
         assert!(result.is_err());
         assert!(matches!(result.unwrap_err(), ParseError::NestedIndexMap));
+    }
+
+    #[test]
+    fn source_map_no_content_rejects_indexed_maps() {
+        let json = indexed_map();
+        let err = SourceMap::from_json_no_content(json)
+            .expect_err("indexed maps must not be parsed as empty regular maps");
+
+        assert!(matches!(err, ParseError::NestedIndexMap));
+    }
+
+    #[test]
+    fn source_map_lines_rejects_indexed_maps() {
+        let json = indexed_map();
+        let err = SourceMap::from_json_lines(json, 0, 1)
+            .expect_err("indexed maps must not be parsed as empty regular maps");
+
+        assert!(matches!(err, ParseError::NestedIndexMap));
+    }
+
+    #[test]
+    fn lazy_source_map_rejects_indexed_maps() {
+        let json = indexed_map();
+        let err = LazySourceMap::from_json(json)
+            .expect_err("indexed maps must not be parsed as empty regular maps");
+
+        assert!(matches!(err, ParseError::NestedIndexMap));
     }
 
     #[test]
