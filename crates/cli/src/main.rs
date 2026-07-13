@@ -4,9 +4,9 @@
     reason = "CLI commands intentionally write user-facing output"
 )]
 
-use std::fs;
-use std::io::{self, Read};
-use std::path::{Path, PathBuf};
+use std::fs::{self, OpenOptions};
+use std::io::{self, Read, Write};
+use std::path::{Component, Path, PathBuf};
 use std::process::ExitCode;
 
 use clap::{Parser, Subcommand};
@@ -445,6 +445,10 @@ fn url_filename(url: &str) -> String {
 }
 
 fn sanitize_source_path(source: &str) -> Result<PathBuf, CliError> {
+    if source.contains('\\') {
+        return Err(CliError::path_traversal("source name contains a backslash"));
+    }
+
     let stripped = source
         .strip_prefix("webpack:///")
         .or_else(|| source.strip_prefix("webpack://"))
@@ -452,25 +456,27 @@ fn sanitize_source_path(source: &str) -> Result<PathBuf, CliError> {
         .or_else(|| source.strip_prefix("file://"))
         .unwrap_or(source);
 
-    let stripped = stripped.trim_start_matches('/');
-
     if stripped.is_empty() {
         return Err(CliError::invalid_input("empty source name after stripping prefixes"));
     }
 
-    // Normalize: resolve . and .., stripping leading ../ (relative to map file, safe to drop)
     let mut components = Vec::new();
     for component in Path::new(stripped).components() {
         match component {
-            std::path::Component::ParentDir => {
-                if !components.is_empty() {
-                    components.pop();
-                }
-                // Leading .. silently dropped — it's relative to the map file location
+            Component::Prefix(_) | Component::RootDir => {
+                return Err(CliError::path_traversal(format!("source name is absolute: {source}")));
             }
-            std::path::Component::CurDir => {}
-            _ => {
-                components.push(component);
+            Component::ParentDir => {
+                components.pop();
+            }
+            Component::CurDir => {}
+            Component::Normal(value) => {
+                if components.is_empty() && value.to_string_lossy().ends_with(':') {
+                    return Err(CliError::path_traversal(format!(
+                        "source name contains a drive prefix: {source}"
+                    )));
+                }
+                components.push(value.to_os_string());
             }
         }
     }
@@ -481,8 +487,101 @@ fn sanitize_source_path(source: &str) -> Result<PathBuf, CliError> {
         )));
     }
 
-    let path: PathBuf = components.iter().collect();
+    let path: PathBuf = components.into_iter().collect();
+    if !path.is_relative() {
+        return Err(CliError::path_traversal(format!("source name is not relative: {source}")));
+    }
     Ok(path)
+}
+
+fn prepare_extraction_path(output_dir: &Path, relative: &Path) -> Result<PathBuf, CliError> {
+    if !relative.is_relative() {
+        return Err(CliError::path_traversal(format!(
+            "extraction path is not relative: {}",
+            relative.display()
+        )));
+    }
+
+    fs::create_dir_all(output_dir).map_err(|e| {
+        CliError::io(format!("failed to create output directory {}: {e}", output_dir.display()))
+    })?;
+    let output_root = output_dir.canonicalize().map_err(|e| {
+        CliError::io(format!("failed to resolve output directory {}: {e}", output_dir.display()))
+    })?;
+    let file_name = relative.file_name().ok_or_else(|| {
+        CliError::path_traversal(format!(
+            "extraction path has no file name: {}",
+            relative.display()
+        ))
+    })?;
+
+    let mut current = output_root.clone();
+    for component in relative.parent().into_iter().flat_map(Path::components) {
+        let Component::Normal(value) = component else {
+            return Err(CliError::path_traversal(format!(
+                "extraction path contains an unsafe component: {}",
+                relative.display()
+            )));
+        };
+        let candidate = current.join(value);
+        match fs::symlink_metadata(&candidate) {
+            Ok(metadata) => {
+                if metadata.file_type().is_symlink() {
+                    return Err(CliError::path_traversal(format!(
+                        "extraction parent is a symlink: {}",
+                        candidate.display()
+                    )));
+                }
+                if !metadata.is_dir() {
+                    return Err(CliError::path_traversal(format!(
+                        "extraction parent is not a directory: {}",
+                        candidate.display()
+                    )));
+                }
+            }
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                fs::create_dir(&candidate).map_err(|e| {
+                    CliError::io(format!(
+                        "failed to create extraction directory {}: {e}",
+                        candidate.display()
+                    ))
+                })?;
+            }
+            Err(error) => {
+                return Err(CliError::io(format!(
+                    "failed to inspect extraction directory {}: {error}",
+                    candidate.display()
+                )));
+            }
+        }
+
+        let canonical = candidate.canonicalize().map_err(|e| {
+            CliError::io(format!(
+                "failed to resolve extraction directory {}: {e}",
+                candidate.display()
+            ))
+        })?;
+        if !canonical.starts_with(&output_root) {
+            return Err(CliError::path_traversal(format!(
+                "extraction path escapes output directory: {}",
+                relative.display()
+            )));
+        }
+        current = canonical;
+    }
+
+    let destination = current.join(file_name);
+    match fs::symlink_metadata(&destination) {
+        Ok(_) => Err(CliError::path_traversal(format!(
+            "refusing to overwrite existing extraction destination: {}",
+            destination.display()
+        ))),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(destination),
+        Err(error) => Err(CliError::io(format!(
+            "failed to inspect extraction destination {}: {error}",
+            destination.display()
+        ))),
+    }
 }
 
 fn format_size(bytes: usize) -> String {
@@ -1669,22 +1768,32 @@ fn extract_source_contents(
             }
         };
 
-        let dest_path = match sanitize_source_path(source_name) {
-            Ok(p) => output_dir.join(p),
+        let relative = match sanitize_source_path(source_name) {
+            Ok(path) => path,
             Err(_) => {
                 skipped.push(source_name.clone());
                 continue;
             }
         };
-
-        if let Some(parent) = dest_path.parent() {
-            fs::create_dir_all(parent).map_err(|e| {
-                CliError::io(format!("failed to create directory {}: {e}", parent.display()))
-            })?;
+        let dest_path = match prepare_extraction_path(output_dir, &relative) {
+            Ok(path) => path,
+            Err(_) => {
+                skipped.push(source_name.clone());
+                continue;
+            }
+        };
+        let mut file = match OpenOptions::new().write(true).create_new(true).open(&dest_path) {
+            Ok(file) => file,
+            Err(_) => {
+                skipped.push(source_name.clone());
+                continue;
+            }
+        };
+        if let Err(error) = file.write_all(content.as_bytes()) {
+            drop(file);
+            let _ = fs::remove_file(&dest_path);
+            return Err(CliError::io(format!("failed to write {}: {error}", dest_path.display())));
         }
-
-        fs::write(&dest_path, content)
-            .map_err(|e| CliError::io(format!("failed to write {}: {e}", dest_path.display())))?;
 
         extracted.push(serde_json::json!({
             "source": source_name,

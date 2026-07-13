@@ -1,5 +1,5 @@
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 fn srcmap() -> Command {
@@ -8,6 +8,38 @@ fn srcmap() -> Command {
 
 fn fixture(name: &str) -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures").join(name)
+}
+
+fn write_sources_map(dir: &Path, sources: &[&str]) -> PathBuf {
+    let path = dir.join("security.js.map");
+    let contents: Vec<String> =
+        sources.iter().map(|source| format!("malicious content for {source}")).collect();
+    let map = serde_json::json!({
+        "version": 3,
+        "file": "security.js",
+        "sources": sources,
+        "names": [],
+        "mappings": "",
+        "sourcesContent": contents,
+    });
+    fs::write(&path, serde_json::to_vec(&map).unwrap()).unwrap();
+    path
+}
+
+fn extract_sources(map: &Path, output_dir: &Path) -> serde_json::Value {
+    let out = srcmap()
+        .args([
+            "sources",
+            map.to_str().unwrap(),
+            "--extract",
+            "-o",
+            output_dir.to_str().unwrap(),
+            "--json",
+        ])
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    serde_json::from_slice(&out.stdout).unwrap()
 }
 
 // ── info ─────────────────────────────────────────────────────────
@@ -601,6 +633,12 @@ fn lookup_context_no_sources_content() {
 #[test]
 fn sources_extract_webpack_paths() {
     let dir = tempfile::tempdir().unwrap();
+    let output_dir = dir.path().join("output");
+    let outside_dir = dir.path().join("lib");
+    fs::create_dir(&output_dir).unwrap();
+    fs::create_dir(&outside_dir).unwrap();
+    let outside_sentinel = outside_dir.join("external.ts");
+    fs::write(&outside_sentinel, "sentinel").unwrap();
     let out = srcmap()
         .current_dir(dir.path())
         .args([
@@ -608,7 +646,7 @@ fn sources_extract_webpack_paths() {
             fixture("webpack.js.map").to_str().unwrap(),
             "--extract",
             "-o",
-            dir.path().to_str().unwrap(),
+            output_dir.to_str().unwrap(),
             "--json",
         ])
         .output()
@@ -618,18 +656,98 @@ fn sources_extract_webpack_paths() {
     assert_eq!(v["extracted"].as_array().unwrap().len(), 3);
 
     // webpack:///src/index.ts → src/index.ts
-    let index_path = dir.path().join("src/index.ts");
+    let index_path = output_dir.join("src/index.ts");
     assert!(index_path.exists());
     let content = fs::read_to_string(&index_path).unwrap();
     assert!(content.contains("export const init"));
 
     // webpack:///./src/helpers/utils.ts → src/helpers/utils.ts
-    let utils_path = dir.path().join("src/helpers/utils.ts");
+    let utils_path = output_dir.join("src/helpers/utils.ts");
     assert!(utils_path.exists());
 
     // ../lib/external.ts → lib/external.ts (leading ../ stripped)
-    let ext_path = dir.path().join("lib/external.ts");
+    let ext_path = output_dir.join("lib/external.ts");
     assert!(ext_path.exists());
+    assert_eq!(fs::read_to_string(outside_sentinel).unwrap(), "sentinel");
+}
+
+#[test]
+fn sources_extract_security_skips_existing_destination() {
+    let dir = tempfile::tempdir().unwrap();
+    let output_dir = dir.path().join("output");
+    fs::create_dir(&output_dir).unwrap();
+    let sentinel = output_dir.join("existing.ts");
+    fs::write(&sentinel, "sentinel").unwrap();
+    let map = write_sources_map(dir.path(), &["existing.ts"]);
+
+    let result = extract_sources(&map, &output_dir);
+
+    assert_eq!(fs::read_to_string(sentinel).unwrap(), "sentinel");
+    assert_eq!(result["extracted"], serde_json::json!([]));
+    assert_eq!(result["skipped"], serde_json::json!(["existing.ts"]));
+}
+
+#[cfg(unix)]
+#[test]
+fn sources_extract_security_skips_parent_symlink() {
+    use std::os::unix::fs::symlink;
+
+    let dir = tempfile::tempdir().unwrap();
+    let output_dir = dir.path().join("output");
+    let outside_dir = dir.path().join("outside");
+    fs::create_dir(&output_dir).unwrap();
+    fs::create_dir(&outside_dir).unwrap();
+    let sentinel = outside_dir.join("target.ts");
+    fs::write(&sentinel, "sentinel").unwrap();
+    symlink(&outside_dir, output_dir.join("linked")).unwrap();
+    let map = write_sources_map(dir.path(), &["linked/target.ts"]);
+
+    let result = extract_sources(&map, &output_dir);
+
+    assert_eq!(fs::read_to_string(sentinel).unwrap(), "sentinel");
+    assert_eq!(result["extracted"], serde_json::json!([]));
+    assert_eq!(result["skipped"], serde_json::json!(["linked/target.ts"]));
+}
+
+#[cfg(unix)]
+#[test]
+fn sources_extract_security_skips_final_symlink() {
+    use std::os::unix::fs::symlink;
+
+    let dir = tempfile::tempdir().unwrap();
+    let output_dir = dir.path().join("output");
+    fs::create_dir(&output_dir).unwrap();
+    let sentinel = dir.path().join("outside.ts");
+    fs::write(&sentinel, "sentinel").unwrap();
+    symlink(&sentinel, output_dir.join("linked.ts")).unwrap();
+    let map = write_sources_map(dir.path(), &["linked.ts"]);
+
+    let result = extract_sources(&map, &output_dir);
+
+    assert_eq!(fs::read_to_string(sentinel).unwrap(), "sentinel");
+    assert_eq!(result["extracted"], serde_json::json!([]));
+    assert_eq!(result["skipped"], serde_json::json!(["linked.ts"]));
+}
+
+#[test]
+fn sources_extract_security_skips_absolute_and_backslash_paths() {
+    let dir = tempfile::tempdir().unwrap();
+    let output_dir = dir.path().join("output");
+    fs::create_dir(&output_dir).unwrap();
+    let sources = [
+        "/absolute.ts",
+        "C:/outside.ts",
+        r"C:\outside.ts",
+        r"\\server\share\outside.ts",
+        r"..\outside.ts",
+    ];
+    let map = write_sources_map(dir.path(), &sources);
+
+    let result = extract_sources(&map, &output_dir);
+
+    assert_eq!(result["extracted"], serde_json::json!([]));
+    assert_eq!(result["skipped"], serde_json::json!(sources));
+    assert_eq!(fs::read_dir(&output_dir).unwrap().count(), 0);
 }
 
 // ── fetch ────────────────────────────────────────────────────
