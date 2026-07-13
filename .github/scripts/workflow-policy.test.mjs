@@ -35,6 +35,17 @@ const workflowFiles = async () => {
   return entries.filter((entry) => entry.isFile() && /\.ya?ml$/.test(entry.name));
 };
 
+const workflowJob = (workflow, jobName) => {
+  const marker = `  ${jobName}:\n`;
+  const start = workflow.indexOf(marker);
+  assert.notEqual(start, -1, `missing ${jobName} job`);
+
+  const bodyStart = start + marker.length;
+  const remaining = workflow.slice(bodyStart);
+  const nextJob = remaining.search(/^  [\w-]+:/m);
+  return nextJob === -1 ? remaining : remaining.slice(0, nextJob);
+};
+
 describe("JavaScript dependency policy", () => {
   it("keeps pnpm-lock.yaml as the only tracked JavaScript lockfile", async () => {
     assert.deepEqual(await trackedPackageLocks(), []);
@@ -58,8 +69,10 @@ describe("JavaScript dependency policy", () => {
 describe("Rust feature coverage", () => {
   it("tests both parallel encoders in Linux CI", async () => {
     const workflow = await readFile(CI_WORKFLOW_URL, "utf8");
+    const job = workflowJob(workflow, "parallel-features");
 
-    assert.match(workflow, /cargo test -p srcmap-codec --features parallel\b/);
-    assert.match(workflow, /cargo test -p srcmap-generator --features parallel\b/);
+    assert.match(job, /^    runs-on: ubuntu-latest$/m);
+    assert.match(job, /^        run: cargo test -p srcmap-codec --features parallel$/m);
+    assert.match(job, /^        run: cargo test -p srcmap-generator --features parallel$/m);
   });
 });
