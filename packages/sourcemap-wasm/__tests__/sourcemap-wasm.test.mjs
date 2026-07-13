@@ -3,7 +3,12 @@ import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 
 const require = createRequire(import.meta.url);
-const { SourceMap, resultPtr, wasmMemory } = require("../pkg/srcmap_sourcemap_wasm.js");
+const {
+  LazySourceMap,
+  SourceMap,
+  resultPtr,
+  wasmMemory,
+} = require("../pkg/srcmap_sourcemap_wasm.js");
 
 const SIMPLE_MAP = JSON.stringify({
   version: 3,
@@ -424,5 +429,137 @@ describe("indexed source maps", () => {
     assert.ok(pos10);
     assert.equal(pos10.source, "b.js");
     sm.free();
+  });
+});
+
+describe("LazySourceMap", () => {
+  const indexedMap = JSON.stringify({
+    version: 3,
+    sections: [
+      {
+        offset: { line: 0, column: 0 },
+        map: {
+          version: 3,
+          sources: ["a.js"],
+          names: [],
+          mappings: "AAAA",
+        },
+      },
+    ],
+  });
+
+  const compareLookup = (eager, lazy, line, column) => {
+    assert.deepEqual(
+      lazy.originalPositionFor(line, column),
+      eager.originalPositionFor(line, column),
+    );
+  };
+
+  it("constructs from JSON and matches eager structured lookups", () => {
+    const eager = new SourceMap(MULTI_SOURCE_MAP);
+    const lazy = new LazySourceMap(MULTI_SOURCE_MAP);
+
+    assert.deepEqual(lazy.sources, eager.sources);
+    assert.deepEqual(lazy.names, eager.names);
+    compareLookup(eager, lazy, 0, 0);
+    compareLookup(eager, lazy, 1, 0);
+    compareLookup(eager, lazy, 999, 999);
+
+    lazy.free();
+    eager.free();
+  });
+
+  it("constructs from mappings and metadata", () => {
+    const map = JSON.parse(MULTI_SOURCE_MAP);
+    const metadata = JSON.stringify({
+      version: map.version,
+      sources: map.sources,
+      names: map.names,
+    });
+    const eager = new SourceMap(MULTI_SOURCE_MAP);
+    const lazy = LazySourceMap.fromParts(map.mappings, metadata);
+
+    compareLookup(eager, lazy, 0, 0);
+    compareLookup(eager, lazy, 1, 5);
+
+    lazy.free();
+    eager.free();
+  });
+
+  it("matches eager flat lookups", () => {
+    const eager = new SourceMap(SIMPLE_MAP);
+    const lazy = new LazySourceMap(SIMPLE_MAP);
+
+    assert.deepEqual([...lazy.originalPositionFlat(0, 9)], [...eager.originalPositionFlat(0, 9)]);
+    assert.deepEqual(
+      [...lazy.originalPositionFlat(999, 999)],
+      [...eager.originalPositionFlat(999, 999)],
+    );
+
+    lazy.free();
+    eager.free();
+  });
+
+  it("matches eager static-buffer lookups", () => {
+    const eager = new SourceMap(MULTI_SOURCE_MAP);
+    const lazy = new LazySourceMap(MULTI_SOURCE_MAP);
+    const offset = resultPtr();
+
+    assert.equal(lazy.originalPositionBuf(1, 5), true);
+    const view = new Int32Array(wasmMemory().buffer, offset, 4);
+    assert.deepEqual([...view], [...eager.originalPositionFlat(1, 5)]);
+    assert.equal(lazy.originalPositionBuf(999, 999), false);
+
+    lazy.free();
+    eager.free();
+  });
+
+  it("matches eager batch lookups", () => {
+    const eager = new SourceMap(MULTI_SOURCE_MAP);
+    const lazy = new LazySourceMap(MULTI_SOURCE_MAP);
+    const queries = new Int32Array([0, 0, 1, 0, 1, 5, 999, 999]);
+
+    assert.deepEqual(
+      [...lazy.originalPositionsFor(queries)],
+      [...eager.originalPositionsFor(queries)],
+    );
+
+    lazy.free();
+    eager.free();
+  });
+
+  it("keeps cached results stable across repeated and backward queries", () => {
+    const eager = new SourceMap(MULTI_SOURCE_MAP);
+    const lazy = new LazySourceMap(MULTI_SOURCE_MAP);
+    const queries = [
+      [1, 5],
+      [1, 0],
+      [0, 0],
+      [1, 5],
+      [0, 0],
+    ];
+
+    for (const [line, column] of queries) {
+      compareLookup(eager, lazy, line, column);
+    }
+
+    lazy.free();
+    eager.free();
+  });
+
+  it("rejects invalid and indexed JSON", () => {
+    assert.throws(() => new LazySourceMap("not json"));
+    assert.throws(
+      () => new LazySourceMap(indexedMap),
+      /section map must not be an indexed source map/,
+    );
+  });
+
+  it("releases its WASM allocation", () => {
+    const lazy = new LazySourceMap(SIMPLE_MAP);
+
+    lazy.free();
+
+    assert.throws(() => lazy.originalPositionFor(0, 0));
   });
 });
