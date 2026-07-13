@@ -202,7 +202,7 @@ Benchmarked against [`@jridgewell/trace-mapping`](https://github.com/jridgewell/
 
 Per-lookup amortized cost on a large map: **12 ns** (WASM batch) vs 17 ns (trace-mapping) — **1.4x faster**.
 
-Run `cd benchmarks && npm run download-fixtures && npm run bench:real-world` to reproduce.
+Run `corepack pnpm --dir benchmarks run download-fixtures && corepack pnpm --dir benchmarks run bench:real-world` from the repository root to reproduce.
 
 </details>
 
@@ -302,18 +302,23 @@ cargo bench -p srcmap-remapping       # remap vs remap_streaming
 <summary>Building WASM/NAPI packages and running JS benchmarks</summary>
 
 ```bash
+# Install the pinned workspace dependencies
+corepack enable
+corepack pnpm install --frozen-lockfile
+
 # WASM packages
-cd packages/sourcemap-wasm && npm run build:all
-cd packages/generator-wasm && npm run build:all
-cd packages/remapping-wasm && npm run build:all
-cd packages/symbolicate-wasm && npm run build:all
+corepack pnpm --filter @srcmap/sourcemap-wasm build:all
+corepack pnpm --filter @srcmap/generator-wasm build:all
+corepack pnpm --filter @srcmap/remapping-wasm build:all
+corepack pnpm --filter @srcmap/symbolicate-wasm build:all
 
 # NAPI packages
-cd packages/sourcemap && npm run build
-cd packages/codec && npm run build
+corepack pnpm --filter @srcmap/sourcemap build
+corepack pnpm --filter @srcmap/codec build
 
 # JS benchmarks
-cd benchmarks && npm install && npm run bench:real-world
+corepack pnpm --dir benchmarks run download-fixtures
+corepack pnpm --dir benchmarks run bench:real-world
 ```
 
 </details>
