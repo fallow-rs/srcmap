@@ -2,6 +2,10 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+## Completion status
+
+Completed and landed on `main` on 2026-07-13. The unchecked boxes below are preserved as the original planning record and do not represent the current completion state. Follow-up sweep corrections are tracked separately from this historical plan.
+
 **Goal:** Fix every non-security finding from the 2026-07-13 srcmap audit and prove the resulting package, CI, release, documentation, and performance contracts.
 
 **Architecture:** Preserve existing public APIs wherever possible. Reject unsupported inputs explicitly, make package exports and declarations match runtime behavior, tighten CI and release gates, and optimize lazy lookup internals behind the existing API. Keep the current Rust workspace and pnpm monorepo structure.

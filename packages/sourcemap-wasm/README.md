@@ -100,8 +100,8 @@ Parse a source map from a JSON string.
 | `allMappingsFlat()` | `Int32Array` | All mappings as a flat array. Each mapping: 7 values `[genLine, genCol, srcIdx, origLine, origCol, nameIdx, isRange]` (`-1` = unmapped) |
 | `encodedMappings()` | `string` | Get the VLQ-encoded mappings string |
 | `encodedRangeMappings()` | `string \| null` | Get the VLQ-encoded range mappings string, or `null` if none |
-| `source(index)` | `string \| null` | Resolve source index to filename. Returns `null` for out-of-bounds indices |
-| `name(index)` | `string \| null` | Resolve name index to string. Returns `null` for out-of-bounds indices |
+| `source(index)` | `string \| undefined` | Resolve source index to filename. Returns `undefined` for out-of-bounds indices |
+| `name(index)` | `string \| undefined` | Resolve name index to string. Returns `undefined` for out-of-bounds indices |
 | `sourceContentFor(index)` | `string \| null` | Get source content by index. Returns `null` if index is out of bounds or content is missing |
 | `isIgnoredIndex(index)` | `boolean` | Check if a source index is in the `ignoreList` |
 | `free()` | `void` | Release WASM memory (also via `Symbol.dispose`) |
@@ -113,7 +113,7 @@ Parse a source map from a JSON string.
 | `sources` | `string[]` | All source filenames |
 | `names` | `string[]` | All names |
 | `sourcesContent` | `(string \| null)[]` | Source file contents (parallel to `sources`) |
-| `ignoreList` | `number[]` | Source ignore list indices |
+| `ignoreList` | `Uint32Array` | Source ignore list indices |
 | `file` | `string \| undefined` | Output filename |
 | `sourceRoot` | `string \| undefined` | Source root prefix |
 | `debugId` | `string \| undefined` | `debugId` proposal field |
@@ -154,8 +154,8 @@ sm.free();
 | `originalPositionFlat(line, column)` | `Int32Array` | Forward lookup returning `[sourceIdx, line, column, nameIdx]` (`-1` = no mapping/name) |
 | `originalPositionBuf(line, column)` | `boolean` | Zero-allocation lookup via static buffer |
 | `originalPositionsFor(positions: Int32Array)` | `Int32Array` | Batch forward lookup |
-| `source(index)` | `string \| null` | Resolve source index to filename. Returns `null` for out-of-bounds indices |
-| `name(index)` | `string \| null` | Resolve name index to string. Returns `null` for out-of-bounds indices |
+| `source(index)` | `string \| undefined` | Resolve source index to filename. Returns `undefined` for out-of-bounds indices |
+| `name(index)` | `string \| undefined` | Resolve name index to string. Returns `undefined` for out-of-bounds indices |
 | `isIgnoredIndex(index)` | `boolean` | Check if a source index is in the `ignoreList` |
 | `free()` | `void` | Release WASM memory (also via `Symbol.dispose`) |
 
@@ -165,7 +165,7 @@ sm.free();
 |----------|------|-------------|
 | `sources` | `string[]` | All source filenames |
 | `names` | `string[]` | All names |
-| `ignoreList` | `number[]` | Source ignore list indices |
+| `ignoreList` | `Uint32Array` | Source ignore list indices |
 | `file` | `string \| undefined` | Output filename |
 | `sourceRoot` | `string \| undefined` | Source root prefix |
 | `debugId` | `string \| undefined` | `debugId` proposal field |

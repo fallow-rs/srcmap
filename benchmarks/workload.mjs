@@ -15,6 +15,16 @@ const createRandom = (seed) => {
 
 /** Create repeatable zero-based lookup positions within exclusive bounds. */
 export const createDeterministicLookups = (count, maxLine, maxColumn, seed) => {
+  if (!Number.isInteger(count) || count < 0) {
+    throw new RangeError("count must be a non-negative integer");
+  }
+  if (!Number.isInteger(maxLine) || maxLine <= 0) {
+    throw new RangeError("maxLine must be a positive integer");
+  }
+  if (!Number.isInteger(maxColumn) || maxColumn <= 0) {
+    throw new RangeError("maxColumn must be a positive integer");
+  }
+
   const random = createRandom(seed);
   const lookups = [];
 

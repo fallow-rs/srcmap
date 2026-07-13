@@ -48,6 +48,13 @@ describe("sources and names", () => {
     assert.deepEqual(sm.names, ["foo", "bar"]);
     sm.free();
   });
+
+  it("returns undefined for out-of-range indices", () => {
+    const sm = new SourceMap(SIMPLE_MAP);
+    assert.equal(sm.source(999), undefined);
+    assert.equal(sm.name(999), undefined);
+    sm.free();
+  });
 });
 
 describe("mappingCount and lineCount", () => {
@@ -224,6 +231,7 @@ describe("ignoreList getter", () => {
       ignoreList: [1],
     });
     const sm = new SourceMap(map);
+    assert.ok(sm.ignoreList instanceof Uint32Array);
     assert.deepEqual([...sm.ignoreList], [1]);
     sm.free();
   });
@@ -467,6 +475,24 @@ describe("LazySourceMap", () => {
 
     lazy.free();
     eager.free();
+  });
+
+  it("exposes typed ignore lists and undefined out-of-range metadata", () => {
+    const map = JSON.stringify({
+      version: 3,
+      sources: ["app.js", "lib.js"],
+      names: ["main"],
+      mappings: "AAAAA",
+      ignoreList: [1],
+    });
+    const lazy = new LazySourceMap(map);
+
+    assert.equal(lazy.source(999), undefined);
+    assert.equal(lazy.name(999), undefined);
+    assert.ok(lazy.ignoreList instanceof Uint32Array);
+    assert.deepEqual([...lazy.ignoreList], [1]);
+
+    lazy.free();
   });
 
   it("constructs from mappings and metadata", () => {

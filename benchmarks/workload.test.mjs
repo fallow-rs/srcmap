@@ -31,6 +31,37 @@ test("lookups stay within the configured bounds", () => {
   }
 });
 
+test("rejects invalid count values", () => {
+  for (const count of [-1, 1.5, Number.NaN]) {
+    assert.throws(() => createDeterministicLookups(count, 80, 200, 12345), {
+      name: "RangeError",
+      message: "count must be a non-negative integer",
+    });
+  }
+});
+
+test("rejects invalid maxLine values", () => {
+  for (const maxLine of [-1, 0, 1.5, Number.NaN]) {
+    assert.throws(() => createDeterministicLookups(100, maxLine, 200, 12345), {
+      name: "RangeError",
+      message: "maxLine must be a positive integer",
+    });
+  }
+});
+
+test("rejects invalid maxColumn values", () => {
+  for (const maxColumn of [-1, 0, 1.5, Number.NaN]) {
+    assert.throws(() => createDeterministicLookups(100, 80, maxColumn, 12345), {
+      name: "RangeError",
+      message: "maxColumn must be a positive integer",
+    });
+  }
+});
+
+test("accepts zero count", () => {
+  assert.deepEqual(createDeterministicLookups(0, 80, 200, 12345), []);
+});
+
 test("a failed WASM correctness result sets the process exit code", () => {
   setFailureExitCode([
     { wasmPass: true, napiPass: true },
