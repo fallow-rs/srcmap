@@ -11,31 +11,27 @@
  * call init() before using any exports.
  */
 
-let initialized = false;
+import initWasm, {
+  LazySourceMap,
+  SourceMap,
+  resultPtr,
+  wasmMemory,
+} from "../web/srcmap_sourcemap_wasm.js";
+
+export { LazySourceMap, SourceMap, resultPtr, wasmMemory };
+
 let initPromise = null;
 
 /**
  * Initialize the WASM module. Must be called before using any exports.
- * Safe to call multiple times — subsequent calls return immediately.
- * @param {string|URL|Request|BufferSource} [input] - Optional WASM module source
+ * Safe to call multiple times, subsequent calls return the same promise.
+ * @param {string|URL|Request|BufferSource} [input] Optional WASM module source
  * @returns {Promise<void>}
  */
-export default async function init(input) {
-  if (initialized) return;
-  if (initPromise) return initPromise;
-
-  initPromise = (async () => {
-    const wasm = await import("../web/srcmap_sourcemap_wasm.js");
-    await wasm.default(input);
-    initialized = true;
-
-    // Re-export all WASM exports
-    Object.assign(exports, wasm);
-  })();
+export default function init(input) {
+  if (!initPromise) {
+    initPromise = initWasm(input).then(() => undefined);
+  }
 
   return initPromise;
 }
-
-const exports = {};
-
-export { exports as wasm };

@@ -128,7 +128,17 @@ Parse a source map from a JSON string.
 
 A fast-scan alternative to `SourceMap` that defers VLQ decoding until lookup time. On construction it only parses JSON metadata and byte-scans the mappings string for semicolons (to identify line boundaries). VLQ decoding happens per-line on demand with progressive state tracking. This makes parse time near-instant at the cost of slightly slower first lookups.
 
-`LazySourceMap` does **not** parse `sourcesContent` -- use the fast-scan wrapper (see below) if you need it.
+Import it directly from the supported package entrypoint:
+
+```js
+import { LazySourceMap } from "@srcmap/sourcemap-wasm";
+
+const sm = new LazySourceMap(jsonString);
+const loc = sm.originalPositionFor(42, 10);
+sm.free();
+```
+
+`LazySourceMap` does **not** parse `sourcesContent`. Use `SourceMap` when source contents are required.
 
 #### Static methods
 
@@ -161,59 +171,6 @@ A fast-scan alternative to `SourceMap` that defers VLQ decoding until lookup tim
 | `debugId` | `string \| undefined` | `debugId` proposal field |
 | `lineCount` | `number` | Number of generated lines |
 
----
-
-### Fast-scan mode (`fast.js`)
-
-The `fast.js` entry point wraps `LazySourceMap` with lazy `sourcesContent` extraction from the original JSON string. It exposes a `SourceMap` class with the same interface you would expect, but internally:
-
-1. Parses using fast-scan mode (no VLQ decode at parse time).
-2. Keeps the raw JSON string on the JS side and only calls `JSON.parse()` to extract `sourcesContent` on first access (then releases the JSON for GC).
-3. Forwards all lookups to the underlying `LazySourceMap`.
-
-This is ideal when you only need to look up a few positions and want the fastest possible parse time.
-
-```js
-const { SourceMap } = require('@srcmap/sourcemap-wasm/pkg/fast.js');
-
-const sm = new SourceMap(jsonString);
-
-// Lookups work the same as the regular SourceMap
-const loc = sm.originalPositionFor(42, 10);
-
-// sourcesContent is extracted lazily from JSON on first access
-const content = sm.sourceContentFor(0);
-
-sm.free();
-```
-
-#### Instance methods
-
-| Method | Returns | Description |
-|--------|---------|-------------|
-| `originalPositionFor(line, column)` | `{ source, line, column, name } \| null` | Forward lookup (0-based) |
-| `originalPositionFlat(line, column)` | `Int32Array` | Forward lookup returning flat indices |
-| `originalPositionBuf(line, column)` | `boolean` | Zero-allocation lookup via static buffer |
-| `originalPositionsFor(positions: Int32Array)` | `Int32Array` | Batch forward lookup |
-| `source(index)` | `string \| null` | Resolve source index to filename |
-| `name(index)` | `string \| null` | Resolve name index to string |
-| `sourceContentFor(index)` | `string \| null` | Get source content by index (triggers lazy JSON parse on first call) |
-| `isIgnoredIndex(index)` | `boolean` | Check if a source index is in the `ignoreList` |
-| `free()` | `void` | Release WASM memory |
-
-#### Instance properties
-
-| Property | Type | Description |
-|----------|------|-------------|
-| `sources` | `string[]` | All source filenames |
-| `names` | `string[]` | All names |
-| `sourcesContent` | `(string \| null)[] \| null` | Source file contents (lazily extracted from JSON on first access) |
-| `ignoreList` | `number[]` | Source ignore list indices |
-| `file` | `string \| undefined` | Output filename |
-| `sourceRoot` | `string \| undefined` | Source root prefix |
-| `debugId` | `string \| undefined` | `debugId` proposal field |
-| `lineCount` | `number` | Number of generated lines |
-
 ## Performance
 
 ### Batch API vs trace-mapping
@@ -231,7 +188,7 @@ The batch API (`originalPositionsFor`) returns a flat `Int32Array`, avoiding per
 | Use case | Recommended package |
 |----------|-------------------|
 | Batch lookups (error stacks, coverage) | **@srcmap/sourcemap-wasm** (batch API) |
-| Few lookups, fast parse | **@srcmap/sourcemap-wasm** (fast-scan mode via `fast.js`) |
+| Few lookups, fast parse | **@srcmap/sourcemap-wasm** (`LazySourceMap`) |
 | Few individual lookups | `@jridgewell/trace-mapping` (lower per-call overhead) |
 | Native Node.js addons | `@srcmap/sourcemap` (NAPI) |
 | Browser environments | **@srcmap/sourcemap-wasm** |

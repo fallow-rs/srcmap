@@ -51,7 +51,7 @@
     "build:web": "wasm-pack build --target web --out-dir web",
     "build:bundler": "wasm-pack build --target bundler --out-dir bundler",
     "build:all": "pnpm run build && pnpm run build:web",
-    "test": "node --test __tests__/sourcemap-wasm.test.mjs __tests__/coverage-utils.test.mjs",
+    "test": "node --test __tests__/sourcemap-wasm.test.mjs __tests__/coverage-utils.test.mjs __tests__/browser.test.mjs",
     "test:coverage": "mkdir -p coverage && node --test --experimental-test-coverage --test-reporter=lcov --test-reporter-destination=coverage/lcov.info --test-reporter=spec --test-reporter-destination=stdout __tests__/sourcemap-wasm.test.mjs __tests__/coverage-utils.test.mjs"
   }
 }
