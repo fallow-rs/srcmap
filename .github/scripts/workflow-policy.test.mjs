@@ -5,6 +5,7 @@ import { describe, it } from "node:test";
 
 const ROOT_URL = new URL("../../", import.meta.url);
 const WORKFLOWS_URL = new URL("workflows/", new URL("../", import.meta.url));
+const CI_WORKFLOW_URL = new URL("ci.yml", WORKFLOWS_URL);
 
 const trackedPackageLocks = async () => {
   const tracked = execFileSync("git", ["ls-files", "--", ":(glob)**/package-lock.json"], {
@@ -51,5 +52,14 @@ describe("JavaScript dependency policy", () => {
         assert.match(install, /--frozen-lockfile\b/, `${entry.name}: ${install.trim()}`);
       }
     }
+  });
+});
+
+describe("Rust feature coverage", () => {
+  it("tests both parallel encoders in Linux CI", async () => {
+    const workflow = await readFile(CI_WORKFLOW_URL, "utf8");
+
+    assert.match(workflow, /cargo test -p srcmap-codec --features parallel\b/);
+    assert.match(workflow, /cargo test -p srcmap-generator --features parallel\b/);
   });
 });

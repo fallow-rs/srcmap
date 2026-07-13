@@ -50,6 +50,21 @@ jobs:
       - name: Check for uncommitted changes
         run: git diff --exit-code
 
+  parallel-features:
+    name: Parallel features
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+      - name: Test codec parallel feature
+        run: cargo test -p srcmap-codec --features parallel
+      - name: Test generator parallel feature
+        run: cargo test -p srcmap-generator --features parallel
+
   doc:
     name: Documentation
     runs-on: ubuntu-latest
