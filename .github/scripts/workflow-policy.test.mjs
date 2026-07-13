@@ -38,6 +38,19 @@ const workflowFiles = async () => {
   return entries.filter((entry) => entry.isFile() && /\.ya?ml$/.test(entry.name));
 };
 
+const workflowSteps = (workflow, action) => {
+  const matches = [...workflow.matchAll(new RegExp(`^(\\s*)- uses: ${action}[^\\n]*$`, "gm"))];
+
+  return matches.map((match) => {
+    const start = match.index;
+    const remaining = workflow.slice(start + match[0].length + 1);
+    const nextStep = remaining.search(new RegExp(`^${match[1]}- `, "m"));
+    return nextStep === -1
+      ? workflow.slice(start)
+      : workflow.slice(start, start + match[0].length + 1 + nextStep);
+  });
+};
+
 const workflowJob = (workflow, jobName) => {
   const marker = `  ${jobName}:\n`;
   const start = workflow.indexOf(marker);
@@ -74,6 +87,22 @@ describe("Generated artifact policy", () => {
     const config = JSON.parse(await readFile(FALLOW_CONFIG_URL, "utf8"));
 
     assert.ok(config.ignoreUnresolvedImports.includes("**/srcmap_*_wasm_bg.wasm"));
+  });
+});
+
+describe("Checkout credential policy", () => {
+  it("does not persist GitHub credentials in workflow worktrees", async () => {
+    for (const entry of await workflowFiles()) {
+      const workflow = await readFile(new URL(entry.name, WORKFLOWS_URL), "utf8");
+
+      for (const step of workflowSteps(workflow, "actions/checkout@")) {
+        assert.match(
+          step,
+          /^\s+persist-credentials: false$/m,
+          `${entry.name}: checkout must disable persisted credentials`,
+        );
+      }
+    }
   });
 });
 
