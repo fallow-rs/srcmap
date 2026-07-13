@@ -36,7 +36,7 @@ Existing correctness checks must affect process exit status. Parallel encoder te
 
 ### Lazy lookup performance
 
-Fast lazy decoding will retain cumulative VLQ checkpoints so backward lookups resume from the nearest known state instead of line zero. Internal lookup paths will borrow cached mapping slices without cloning them. The public `decode_line` owned return type stays compatible.
+Investigation confirmed that public lazy lookups cache every traversed line and never create the backward cache miss assumed by the prefix-rescan finding. That finding is therefore invalid, and no VLQ checkpoints are retained. Internal lookup paths borrow cached mapping slices without cloning them. The public `decode_line` owned return type stays compatible.
 
 Performance changes must be measured against deterministic ascending, descending, repeated, and randomized real-world lookup workloads. Revert any optimization that does not improve its target without a meaningful regression elsewhere.
 

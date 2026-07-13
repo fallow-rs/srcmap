@@ -181,7 +181,7 @@
 - [ ] Add a web-module export smoke test without instantiating browser-only globals.
 - [ ] Run the symbolicate WASM package tests after building both targets.
 
-### Task 10: Remove fast-lazy prefix rescans and lookup clones
+### Task 10: Validate fast-lazy prefix rescans and remove lookup clones
 
 **Files:**
 - Modify: `crates/sourcemap/src/lib.rs`
@@ -191,14 +191,14 @@
 **Interfaces:**
 - Preserve public `LazySourceMap::decode_line() -> Result<Vec<Mapping>, DecodeError>`.
 - Internal original-position lookup must use cached slices without cloning.
-- Fast mode stores cumulative VLQ state checkpoints keyed by the next undecoded line.
+- Do not add checkpoints unless a reachable public cache-miss path is proven.
 
-- [ ] Add behavioral tests for descending and randomized lookup order and a test-only decode-work counter or equivalent observable proof that backward queries resume from a checkpoint.
-- [ ] Confirm the descending case performs prefix rescans before implementation.
-- [ ] Add a checkpoint map initialized with line zero state; select the nearest checkpoint at or before the target and store each decoded line's end state.
+- [ ] Add behavioral tests for descending and randomized lookup order.
+- [ ] Confirm that public backward queries cannot miss previously traversed cached lines, classifying the prefix-rescan finding as invalid.
+- [ ] Remove the experimental checkpoint implementation and its unreachable private-cache regression test.
 - [ ] Split cache population from access so internal lookup borrows the cached vector while public `decode_line` clones only for its owned return contract.
 - [ ] Add deterministic ascending, descending, repeated, and randomized fast-lazy lookup benchmarks.
-- [ ] Measure baseline and candidate using Criterion2 or CodSpeed simulation. Keep the change only if target workloads improve and eager parse or lookup workloads do not materially regress.
+- [ ] Measure baseline and candidate using Criterion2. Keep only the clone-removal change after isolated warm-cache workloads improve without a meaningful eager regression.
 - [ ] Run all sourcemap Rust and WASM tests.
 
 ### Task 11: Make contributor onboarding executable
