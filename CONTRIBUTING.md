@@ -6,8 +6,8 @@ Thanks for your interest in contributing to srcmap! Whether it's a bug fix, new 
 
 **Prerequisites:**
 
-- [Rust](https://rustup.rs/) (latest stable, edition 2024)
-- [Node.js](https://nodejs.org/) (for running JS tests and benchmarks)
+- [Rust](https://rustup.rs/) 1.88 or newer (edition 2024)
+- [Node.js](https://nodejs.org/) 22 with Corepack available (for running JS tests and benchmarks)
 - [wasm-pack](https://rustwasm.github.io/wasm-pack/installer/) (for building WASM packages)
 - [cargo-deny](https://github.com/EmbarkStudios/cargo-deny) and [typos](https://github.com/crate-ci/typos) (for the root checks)
 
