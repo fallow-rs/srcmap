@@ -29,7 +29,7 @@ jobs:
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
 
       - name: Publish srcmap-codec
-        run: cargo publish -p srcmap-codec || echo "Already published, skipping"
+        run: .github/scripts/publish-crate-if-needed.sh srcmap-codec
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
 
@@ -37,7 +37,7 @@ jobs:
         run: sleep 30
 
       - name: Publish srcmap-scopes
-        run: cargo publish -p srcmap-scopes || echo "Already published, skipping"
+        run: .github/scripts/publish-crate-if-needed.sh srcmap-scopes
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
 
@@ -45,7 +45,7 @@ jobs:
         run: sleep 30
 
       - name: Publish srcmap-sourcemap
-        run: cargo publish -p srcmap-sourcemap || echo "Already published, skipping"
+        run: .github/scripts/publish-crate-if-needed.sh srcmap-sourcemap
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
 
@@ -53,12 +53,12 @@ jobs:
         run: sleep 30
 
       - name: Publish srcmap-symbolicate
-        run: cargo publish -p srcmap-symbolicate || echo "Already published, skipping"
+        run: .github/scripts/publish-crate-if-needed.sh srcmap-symbolicate
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
 
       - name: Publish srcmap-generator
-        run: cargo publish -p srcmap-generator || echo "Already published, skipping"
+        run: .github/scripts/publish-crate-if-needed.sh srcmap-generator
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
 
@@ -66,22 +66,22 @@ jobs:
         run: sleep 30
 
       - name: Publish srcmap-hermes
-        run: cargo publish -p srcmap-hermes || echo "Already published, skipping"
+        run: .github/scripts/publish-crate-if-needed.sh srcmap-hermes
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
 
       - name: Publish srcmap-ram-bundle
-        run: cargo publish -p srcmap-ram-bundle || echo "Already published, skipping"
+        run: .github/scripts/publish-crate-if-needed.sh srcmap-ram-bundle
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
 
       - name: Publish srcmap-remapping
-        run: cargo publish -p srcmap-remapping || echo "Already published, skipping"
+        run: .github/scripts/publish-crate-if-needed.sh srcmap-remapping
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
 
       - name: Publish srcmap-cli
-        run: cargo publish -p srcmap-cli || echo "Already published, skipping"
+        run: .github/scripts/publish-crate-if-needed.sh srcmap-cli
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
 
