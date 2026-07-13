@@ -38,7 +38,7 @@
     "coverage:rust:html": "cargo llvm-cov --html"
   },
   "devDependencies": {
-    "fallow": "2.103.0",
+    "fallow": "3.2.0",
     "oxfmt": "0.57.0",
     "oxlint": "1.72.0"
   },
