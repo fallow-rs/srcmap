@@ -100,7 +100,7 @@ jobs:
 
       - name: Install wasm-pack
         if: matrix.kind == 'node'
-        uses: taiki-e/install-action@15449e3094499af05d8d964a1c884208e4b8b595 # v2.81.11
+        uses: taiki-e/install-action@4684b8405694ae9dd42c9f39ba901a70ae83f4a3 # v2.82.9
         with:
           tool: wasm-pack@0.13.1
 
@@ -117,7 +117,7 @@ jobs:
 
       - name: Install cargo-codspeed
         if: matrix.kind == 'rust'
-        uses: taiki-e/install-action@15449e3094499af05d8d964a1c884208e4b8b595 # v2.81.11
+        uses: taiki-e/install-action@4684b8405694ae9dd42c9f39ba901a70ae83f4a3 # v2.82.9
         with:
           tool: cargo-codspeed@4.7.0
 
