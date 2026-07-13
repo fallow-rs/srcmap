@@ -44,8 +44,8 @@ pub use encode::encode;
 #[cfg(feature = "parallel")]
 pub use encode::encode_parallel;
 pub use vlq::{
-    vlq_decode, vlq_decode_unsigned, vlq_encode, vlq_encode_unchecked, vlq_encode_unsigned,
-    vlq_encode_unsigned_unchecked,
+    MAX_VLQ_BYTES, vlq_decode, vlq_decode_unsigned, vlq_encode, vlq_encode_unchecked,
+    vlq_encode_unsigned, vlq_encode_unsigned_unchecked,
 };
 
 use std::fmt;

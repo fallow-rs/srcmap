@@ -1,5 +1,5 @@
 use crate::SourceMapMappings;
-use crate::vlq::vlq_encode_unchecked;
+use crate::vlq::{MAX_VLQ_BYTES, vlq_encode_unchecked};
 
 /// Encode decoded source map mappings back into a VLQ-encoded string.
 ///
@@ -12,10 +12,10 @@ pub fn encode(mappings: &SourceMapMappings) -> String {
         return String::new();
     }
 
-    // Estimate capacity: up to 7 bytes per VLQ value, ~5 fields per segment,
+    // Estimate capacity: up to MAX_VLQ_BYTES per VLQ value, ~5 fields per segment,
     // plus separators. Over-estimating avoids reallocations.
     let segment_count: usize = mappings.iter().map(|line| line.len()).sum();
-    let mut buf: Vec<u8> = Vec::with_capacity(segment_count * 7 * 5 + mappings.len());
+    let mut buf: Vec<u8> = Vec::with_capacity(segment_count * MAX_VLQ_BYTES * 5 + mappings.len());
 
     // Cumulative state
     let mut prev_source: i64 = 0;
@@ -42,9 +42,15 @@ pub fn encode(mappings: &SourceMapMappings) -> String {
             }
             wrote_segment = true;
 
-            // SAFETY: buffer was pre-allocated with segment_count * 35 + mappings.len() bytes.
-            // Each segment writes at most 5 VLQ values × 7 bytes = 35 bytes plus 1 separator.
-            // Total writes per segment ≤ 36 bytes, and we allocated 36 bytes per segment.
+            let field_count = if segment.len() >= 5 {
+                5
+            } else if segment.len() >= 4 {
+                4
+            } else {
+                1
+            };
+            buf.reserve(field_count * MAX_VLQ_BYTES);
+            // SAFETY: the exact number of fields for this segment was reserved immediately above.
             unsafe {
                 // Field 1: generated column (delta from previous in this line)
                 vlq_encode_unchecked(&mut buf, segment[0] - prev_generated_column);
@@ -91,7 +97,7 @@ fn encode_line_to_bytes(
     init_original_column: i64,
     init_name: i64,
 ) -> Vec<u8> {
-    let mut buf = Vec::with_capacity(segments.len() * 7 * 5);
+    let mut buf = Vec::with_capacity(segments.len() * MAX_VLQ_BYTES * 5);
     let mut prev_generated_column: i64 = 0;
     let mut prev_source = init_source;
     let mut prev_original_line = init_original_line;
@@ -109,7 +115,15 @@ fn encode_line_to_bytes(
         }
         wrote_segment = true;
 
-        // SAFETY: buffer pre-allocated with enough capacity for all segments.
+        let field_count = if segment.len() >= 5 {
+            5
+        } else if segment.len() >= 4 {
+            4
+        } else {
+            1
+        };
+        buf.reserve(field_count * MAX_VLQ_BYTES);
+        // SAFETY: the exact number of fields for this segment was reserved immediately above.
         unsafe {
             vlq_encode_unchecked(&mut buf, segment[0] - prev_generated_column);
             prev_generated_column = segment[0];

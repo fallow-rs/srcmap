@@ -11,9 +11,8 @@ const VLQ_BASE: u64 = 1 << VLQ_BASE_SHIFT; // 32
 const VLQ_BASE_MASK: u64 = VLQ_BASE - 1; // 0b11111
 const VLQ_CONTINUATION_BIT: u64 = VLQ_BASE; // 0b100000
 
-/// Maximum shift before overflow. 13 VLQ digits × 5 bits = 65 bits,
-/// which exceeds i64 range. We allow shift up to 60 (13th digit).
-const VLQ_MAX_SHIFT: u32 = 60;
+/// Maximum bytes required to encode any signed or unsigned 64-bit VLQ value.
+pub const MAX_VLQ_BYTES: usize = 13;
 
 /// Pre-computed base64 encode lookup table (index -> char byte).
 #[rustfmt::skip]
@@ -60,34 +59,24 @@ const BASE64_DECODE: [u8; 128] = {
 /// Encode a single signed VLQ value directly into the buffer using unchecked writes.
 ///
 /// # Safety
-/// Caller must ensure `out` has at least 7 bytes of spare capacity
-/// (`out.capacity() - out.len() >= 7`).
+/// Caller must ensure `out` has exactly [`MAX_VLQ_BYTES`] bytes of spare capacity
+/// available for this write (`out.capacity() - out.len() >= MAX_VLQ_BYTES`).
 #[inline(always)]
 pub unsafe fn vlq_encode_unchecked(out: &mut Vec<u8>, value: i64) {
-    // Convert to VLQ signed representation using u64 to avoid overflow.
-    // Sign bit goes in the LSB. Two's complement negation via bit ops
-    // handles all values including i64::MIN safely.
-    let mut vlq: u64 = if value >= 0 {
-        (value as u64) << 1
-    } else {
-        // !(x as u64) + 1 computes the absolute value for any negative i64.
-        // For i64::MIN (-2^63), abs = 2^63, and (2^63 << 1) wraps to 0 in u64.
-        // This produces an incorrect encoding for i64::MIN, but that value
-        // is unreachable in valid source maps (max ~4 billion lines/columns).
-        (((!(value as u64)) + 1) << 1) | 1
-    };
+    let magnitude = value.unsigned_abs() as u128;
+    let mut vlq = (magnitude << 1) | u128::from(value.is_negative());
 
     let table = &BASE64_TABLE.0;
-    // SAFETY: caller guarantees at least 7 bytes of spare capacity.
+    // SAFETY: caller guarantees at least MAX_VLQ_BYTES bytes of spare capacity.
     let ptr = unsafe { out.as_mut_ptr().add(out.len()) };
     let mut i = 0;
 
     loop {
-        let digit = vlq & VLQ_BASE_MASK;
+        let digit = vlq & u128::from(VLQ_BASE_MASK);
         vlq >>= VLQ_BASE_SHIFT;
         if vlq == 0 {
-            // Last byte — no continuation bit needed
-            // SAFETY: i < 7 and we have 7 bytes of spare capacity.
+            // Last byte, no continuation bit needed.
+            // SAFETY: i < MAX_VLQ_BYTES and the required spare capacity is available.
             // digit is always in 0..64 so the table lookup is in bounds.
             unsafe {
                 *ptr.add(i) = *table.get_unchecked(digit as usize);
@@ -97,7 +86,7 @@ pub unsafe fn vlq_encode_unchecked(out: &mut Vec<u8>, value: i64) {
         }
         // SAFETY: same as above; digit | VLQ_CONTINUATION_BIT is in 0..64.
         unsafe {
-            *ptr.add(i) = *table.get_unchecked((digit | VLQ_CONTINUATION_BIT) as usize);
+            *ptr.add(i) = *table.get_unchecked((digit | u128::from(VLQ_CONTINUATION_BIT)) as usize);
         }
         i += 1;
     }
@@ -109,11 +98,8 @@ pub unsafe fn vlq_encode_unchecked(out: &mut Vec<u8>, value: i64) {
 /// Encode a single VLQ value, appending base64 chars to the output buffer.
 #[inline(always)]
 pub fn vlq_encode(out: &mut Vec<u8>, value: i64) {
-    out.reserve(7);
-    // SAFETY: we just reserved 7 bytes, which is the maximum a single
-    // i64 VLQ value can produce (63 data bits / 5 bits per char = 13,
-    // but the sign bit reduces the effective range, and real source map
-    // values are far smaller — 7 bytes handles up to ±2^34).
+    out.reserve(MAX_VLQ_BYTES);
+    // SAFETY: we just reserved MAX_VLQ_BYTES, the maximum for one signed i64 VLQ value.
     unsafe { vlq_encode_unchecked(out, value) }
 }
 
@@ -142,9 +128,10 @@ pub fn vlq_decode(input: &[u8], pos: usize) -> Result<(i64, usize), DecodeError>
     }
 
     // Multi-character VLQ
-    let mut result: u64 = (d0 & 0x1F) as u64;
+    let mut result: u128 = (d0 & 0x1F) as u128;
     let mut shift: u32 = 5;
     let mut i = pos + 1;
+    let mut digits = 1;
 
     loop {
         if i >= input.len() {
@@ -164,12 +151,13 @@ pub fn vlq_decode(input: &[u8], pos: usize) -> Result<(i64, usize), DecodeError>
         }
 
         i += 1;
+        digits += 1;
 
-        if shift >= VLQ_MAX_SHIFT {
+        if digits > MAX_VLQ_BYTES {
             return Err(DecodeError::VlqOverflow { offset: pos });
         }
 
-        result += ((digit & 0x1F) as u64) << shift;
+        result += ((digit & 0x1F) as u128) << shift;
         shift += VLQ_BASE_SHIFT;
 
         if (digit & 0x20) == 0 {
@@ -177,8 +165,14 @@ pub fn vlq_decode(input: &[u8], pos: usize) -> Result<(i64, usize), DecodeError>
         }
     }
 
-    // Extract sign from LSB
-    let value = if (result & 1) == 1 { -((result >> 1) as i64) } else { (result >> 1) as i64 };
+    let magnitude = result >> 1;
+    let value = if result & 1 == 0 {
+        i64::try_from(magnitude).map_err(|_| DecodeError::VlqOverflow { offset: pos })?
+    } else if magnitude == 1_u128 << 63 {
+        i64::MIN
+    } else {
+        -i64::try_from(magnitude).map_err(|_| DecodeError::VlqOverflow { offset: pos })?
+    };
 
     Ok((value, i - pos))
 }
@@ -186,12 +180,12 @@ pub fn vlq_decode(input: &[u8], pos: usize) -> Result<(i64, usize), DecodeError>
 /// Encode a single unsigned VLQ value directly into the buffer using unchecked writes.
 ///
 /// # Safety
-/// Caller must ensure `out` has at least 7 bytes of spare capacity
-/// (`out.capacity() - out.len() >= 7`).
+/// Caller must ensure `out` has exactly [`MAX_VLQ_BYTES`] bytes of spare capacity
+/// available for this write (`out.capacity() - out.len() >= MAX_VLQ_BYTES`).
 #[inline(always)]
 pub unsafe fn vlq_encode_unsigned_unchecked(out: &mut Vec<u8>, value: u64) {
     let table = &BASE64_TABLE.0;
-    // SAFETY: caller guarantees at least 7 bytes of spare capacity.
+    // SAFETY: caller guarantees at least MAX_VLQ_BYTES bytes of spare capacity.
     let ptr = unsafe { out.as_mut_ptr().add(out.len()) };
     let mut i = 0;
     let mut vlq = value;
@@ -200,8 +194,8 @@ pub unsafe fn vlq_encode_unsigned_unchecked(out: &mut Vec<u8>, value: u64) {
         let digit = vlq & VLQ_BASE_MASK;
         vlq >>= VLQ_BASE_SHIFT;
         if vlq == 0 {
-            // Last byte — no continuation bit needed
-            // SAFETY: i < 7 and we have 7 bytes of spare capacity.
+            // Last byte, no continuation bit needed.
+            // SAFETY: i < MAX_VLQ_BYTES and the required spare capacity is available.
             // digit is always in 0..64 so the table lookup is in bounds.
             unsafe {
                 *ptr.add(i) = *table.get_unchecked(digit as usize);
@@ -226,9 +220,8 @@ pub unsafe fn vlq_encode_unsigned_unchecked(out: &mut Vec<u8>, value: u64) {
 /// Used by the ECMA-426 scopes proposal for tags, flags, and unsigned values.
 #[inline(always)]
 pub fn vlq_encode_unsigned(out: &mut Vec<u8>, value: u64) {
-    out.reserve(7);
-    // SAFETY: we just reserved 7 bytes, which is the maximum a single
-    // u64 VLQ value can produce in practice.
+    out.reserve(MAX_VLQ_BYTES);
+    // SAFETY: we just reserved MAX_VLQ_BYTES, the maximum for one unsigned u64 VLQ value.
     unsafe { vlq_encode_unsigned_unchecked(out, value) }
 }
 
@@ -257,9 +250,10 @@ pub fn vlq_decode_unsigned(input: &[u8], pos: usize) -> Result<(u64, usize), Dec
     }
 
     // Multi-character unsigned VLQ
-    let mut result: u64 = (d0 & 0x1F) as u64;
+    let mut result: u128 = (d0 & 0x1F) as u128;
     let mut shift: u32 = 5;
     let mut i = pos + 1;
+    let mut digits = 1;
 
     loop {
         if i >= input.len() {
@@ -279,12 +273,13 @@ pub fn vlq_decode_unsigned(input: &[u8], pos: usize) -> Result<(u64, usize), Dec
         }
 
         i += 1;
+        digits += 1;
 
-        if shift >= VLQ_MAX_SHIFT {
+        if digits > MAX_VLQ_BYTES {
             return Err(DecodeError::VlqOverflow { offset: pos });
         }
 
-        result += ((digit & 0x1F) as u64) << shift;
+        result += ((digit & 0x1F) as u128) << shift;
         shift += VLQ_BASE_SHIFT;
 
         if (digit & 0x20) == 0 {
@@ -292,7 +287,8 @@ pub fn vlq_decode_unsigned(input: &[u8], pos: usize) -> Result<(u64, usize), Dec
         }
     }
 
-    Ok((result, i - pos))
+    let value = u64::try_from(result).map_err(|_| DecodeError::VlqOverflow { offset: pos })?;
+    Ok((value, i - pos))
 }
 
 #[cfg(test)]
@@ -354,6 +350,16 @@ mod tests {
             let (decoded, consumed) = vlq_decode(&buf, 0).unwrap();
             assert_eq!(decoded, v, "roundtrip failed for {v}");
             assert_eq!(consumed, buf.len());
+        }
+    }
+
+    #[test]
+    fn signed_extremes_roundtrip() {
+        for value in [i64::MIN, i64::MAX] {
+            let mut encoded = Vec::new();
+            vlq_encode(&mut encoded, value);
+            assert!(encoded.len() <= MAX_VLQ_BYTES);
+            assert_eq!(vlq_decode(&encoded, 0).unwrap(), (value, encoded.len()));
         }
     }
 
@@ -433,6 +439,14 @@ mod tests {
             assert_eq!(decoded, v, "unsigned roundtrip failed for {v}");
             assert_eq!(consumed, buf.len());
         }
+    }
+
+    #[test]
+    fn unsigned_max_roundtrips() {
+        let mut encoded = Vec::new();
+        vlq_encode_unsigned(&mut encoded, u64::MAX);
+        assert_eq!(encoded.len(), MAX_VLQ_BYTES);
+        assert_eq!(vlq_decode_unsigned(&encoded, 0).unwrap(), (u64::MAX, encoded.len()));
     }
 
     #[test]

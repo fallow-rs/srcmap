@@ -25,7 +25,7 @@
 //! ```
 
 use rustc_hash::FxHashMap;
-use srcmap_codec::{vlq_encode_unchecked, vlq_encode_unsigned};
+use srcmap_codec::{MAX_VLQ_BYTES, vlq_encode_unchecked, vlq_encode_unsigned};
 
 use srcmap_scopes::ScopeInfo;
 
@@ -454,9 +454,9 @@ impl SourceMapGenerator {
     /// based on mapping count and max generated line.
     #[inline]
     fn encode_sequential_into<T: std::borrow::Borrow<Mapping>>(sorted: &[T], out: &mut Vec<u8>) {
-        // Ensure enough capacity: 36 bytes per mapping + semicolons for line gaps
+        // Estimate capacity for five VLQ fields, a separator, and line gaps.
         let max_line = sorted.last().map_or(0, |m| m.borrow().generated_line as usize);
-        out.reserve(sorted.len() * 36 + max_line + 1);
+        out.reserve(sorted.len() * (5 * MAX_VLQ_BYTES + 1) + max_line + 1);
 
         let mut prev_gen_col: i64 = 0;
         let mut prev_source: i64 = 0;
@@ -480,10 +480,15 @@ impl SourceMapGenerator {
             }
             first_in_line = false;
 
-            // SAFETY: buffer pre-allocated with 36 bytes per mapping + max_line
-            // semicolons. Each mapping writes at most 5 × 7 = 35 VLQ bytes
-            // plus 1 separator, and each line gap writes 1 semicolon.
-            // Total capacity = sorted.len() * 36 + max_line + 1 ≥ all writes.
+            let field_count = if m.source.is_none() {
+                1
+            } else if m.name.is_some() {
+                5
+            } else {
+                4
+            };
+            out.reserve(field_count * MAX_VLQ_BYTES);
+            // SAFETY: the exact number of fields for this mapping was reserved immediately above.
             unsafe {
                 vlq_encode_unchecked(out, m.generated_column as i64 - prev_gen_col);
                 prev_gen_col = m.generated_column as i64;
@@ -511,7 +516,8 @@ impl SourceMapGenerator {
     #[allow(dead_code, reason = "used by tests and the parallel encoding path")]
     fn encode_sequential_impl<T: std::borrow::Borrow<Mapping>>(sorted: &[T]) -> String {
         let max_line = sorted.last().map_or(0, |m| m.borrow().generated_line as usize);
-        let mut out: Vec<u8> = Vec::with_capacity(sorted.len() * 36 + max_line + 1);
+        let mut out: Vec<u8> =
+            Vec::with_capacity(sorted.len() * (5 * MAX_VLQ_BYTES + 1) + max_line + 1);
         Self::encode_sequential_into(sorted, &mut out);
 
         debug_assert!(out.is_ascii());
@@ -1159,15 +1165,13 @@ impl StreamingGenerator {
     pub fn add_generated_mapping(&mut self, generated_line: u32, generated_column: u32) {
         self.advance_to_line(generated_line);
 
-        // Reserve enough for separator (1) + 1 VLQ value (7) = 8 bytes
-        self.vlq_out.reserve(8);
-
         if !self.first_in_line {
             self.vlq_out.push(b',');
         }
         self.first_in_line = false;
 
-        // SAFETY: we just reserved 8 bytes, vlq_encode_unchecked needs at most 7.
+        self.vlq_out.reserve(MAX_VLQ_BYTES);
+        // SAFETY: one VLQ field was reserved immediately above.
         unsafe {
             vlq_encode_unchecked(&mut self.vlq_out, generated_column as i64 - self.prev_gen_col);
         }
@@ -1190,15 +1194,13 @@ impl StreamingGenerator {
     ) {
         self.advance_to_line(generated_line);
 
-        // Reserve enough for separator (1) + 4 VLQ values (4 × 7 = 28) = 29 bytes
-        self.vlq_out.reserve(29);
-
         if !self.first_in_line {
             self.vlq_out.push(b',');
         }
         self.first_in_line = false;
 
-        // SAFETY: we reserved 29 bytes; 4 vlq_encode_unchecked calls use at most 28.
+        self.vlq_out.reserve(4 * MAX_VLQ_BYTES);
+        // SAFETY: four VLQ fields were reserved immediately above.
         unsafe {
             vlq_encode_unchecked(&mut self.vlq_out, generated_column as i64 - self.prev_gen_col);
             self.prev_gen_col = generated_column as i64;
@@ -1233,15 +1235,13 @@ impl StreamingGenerator {
         self.advance_to_line(generated_line);
         self.range_entries.push((self.prev_gen_line, self.line_local_index));
 
-        // Reserve enough for separator (1) + 4 VLQ values (4 × 7 = 28) = 29 bytes
-        self.vlq_out.reserve(29);
-
         if !self.first_in_line {
             self.vlq_out.push(b',');
         }
         self.first_in_line = false;
 
-        // SAFETY: we reserved 29 bytes; 4 vlq_encode_unchecked calls use at most 28.
+        self.vlq_out.reserve(4 * MAX_VLQ_BYTES);
+        // SAFETY: four VLQ fields were reserved immediately above.
         unsafe {
             vlq_encode_unchecked(&mut self.vlq_out, generated_column as i64 - self.prev_gen_col);
             self.prev_gen_col = generated_column as i64;
@@ -1275,15 +1275,13 @@ impl StreamingGenerator {
     ) {
         self.advance_to_line(generated_line);
 
-        // Reserve enough for separator (1) + 5 VLQ values (5 × 7 = 35) = 36 bytes
-        self.vlq_out.reserve(36);
-
         if !self.first_in_line {
             self.vlq_out.push(b',');
         }
         self.first_in_line = false;
 
-        // SAFETY: we reserved 36 bytes; 5 vlq_encode_unchecked calls use at most 35.
+        self.vlq_out.reserve(5 * MAX_VLQ_BYTES);
+        // SAFETY: five VLQ fields were reserved immediately above.
         unsafe {
             vlq_encode_unchecked(&mut self.vlq_out, generated_column as i64 - self.prev_gen_col);
             self.prev_gen_col = generated_column as i64;
@@ -1323,15 +1321,13 @@ impl StreamingGenerator {
         self.advance_to_line(generated_line);
         self.range_entries.push((self.prev_gen_line, self.line_local_index));
 
-        // Reserve enough for separator (1) + 5 VLQ values (5 × 7 = 35) = 36 bytes
-        self.vlq_out.reserve(36);
-
         if !self.first_in_line {
             self.vlq_out.push(b',');
         }
         self.first_in_line = false;
 
-        // SAFETY: we reserved 36 bytes; 5 vlq_encode_unchecked calls use at most 35.
+        self.vlq_out.reserve(5 * MAX_VLQ_BYTES);
+        // SAFETY: five VLQ fields were reserved immediately above.
         unsafe {
             vlq_encode_unchecked(&mut self.vlq_out, generated_column as i64 - self.prev_gen_col);
             self.prev_gen_col = generated_column as i64;
@@ -1693,8 +1689,8 @@ fn encode_mapping_slice(
     init_orig_col: i64,
     init_name: i64,
 ) -> Vec<u8> {
-    // Pre-allocate: 36 bytes per mapping (5 VLQ × 7 + 1 separator)
-    let mut buf = Vec::with_capacity(mappings.len() * 36);
+    // Pre-allocate for five VLQ fields and one separator per mapping.
+    let mut buf = Vec::with_capacity(mappings.len() * (5 * MAX_VLQ_BYTES + 1));
     let mut prev_gen_col: i64 = 0;
     let mut prev_source = init_source;
     let mut prev_orig_line = init_orig_line;
@@ -1708,8 +1704,15 @@ fn encode_mapping_slice(
         }
         first = false;
 
-        // SAFETY: buffer pre-allocated with 36 bytes per mapping.
-        // Each iteration writes at most 5 × 7 = 35 VLQ bytes + 1 separator.
+        let field_count = if m.source.is_none() {
+            1
+        } else if m.name.is_some() {
+            5
+        } else {
+            4
+        };
+        buf.reserve(field_count * MAX_VLQ_BYTES);
+        // SAFETY: the exact number of fields for this mapping was reserved immediately above.
         unsafe {
             vlq_encode_unchecked(&mut buf, m.generated_column as i64 - prev_gen_col);
             prev_gen_col = m.generated_column as i64;
