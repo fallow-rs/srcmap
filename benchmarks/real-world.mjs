@@ -1,4 +1,5 @@
 import { createBench, latencyMeanMs, latencyP99Ms, throughputHz } from "./codspeed.mjs";
+import { createDeterministicLookups, setFailureExitCode } from "./workload.mjs";
 import { readFileSync, existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -13,6 +14,9 @@ import { SourceMap as NapiSourceMap } from "../packages/sourcemap/index.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const fixturesDir = join(__dirname, "fixtures");
+const LOOKUP_COUNT = 1_000;
+const LOOKUP_MAX_COLUMN = 200;
+const LOOKUP_SEED = 0x5eed1234;
 
 // ── Load fixtures ────────────────────────────────────────────────
 
@@ -80,6 +84,8 @@ const normalizePath = (s) => s?.replace(/\/\.\//g, "/") ?? null;
 
 console.log("\n--- Correctness Check ---\n");
 
+const correctnessResults = [];
+
 for (const { name, json } of maps) {
   const trace = new TraceMap(json);
   const wasm = new SourceMap(json);
@@ -130,7 +136,10 @@ for (const { name, json } of maps) {
   console.log(
     `  ${name}: WASM ${wasmPass ? "PASS" : "FAIL"}, NAPI ${napiPass ? "PASS" : "FAIL"} (${checked} lookups)`,
   );
+  correctnessResults.push({ wasmPass, napiPass });
 }
+
+setFailureExitCode(correctnessResults);
 
 // ── Parse benchmarks ─────────────────────────────────────────────
 
@@ -224,15 +233,8 @@ for (const { name, json, size } of maps) {
   const napi = new NapiSourceMap(json);
   const maxLine = wasm.lineCount;
 
-  const lookups = [];
-  const flatPositions = [];
-
-  for (let i = 0; i < 1000; i++) {
-    const line = Math.floor(Math.random() * maxLine);
-    const column = Math.floor(Math.random() * 200);
-    lookups.push({ line, column });
-    flatPositions.push(line, column);
-  }
+  const lookups = createDeterministicLookups(LOOKUP_COUNT, maxLine, LOOKUP_MAX_COLUMN, LOOKUP_SEED);
+  const flatPositions = lookups.flatMap(({ line, column }) => [line, column]);
   const posArray = new Int32Array(flatPositions);
 
   const isLargeMap = size > 1024 * 1024;

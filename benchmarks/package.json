@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "test": "node --test workload.test.mjs",
     "bench:codec": "node codec.mjs",
     "bench:sourcemap": "node sourcemap.mjs",
     "bench:wasm": "node sourcemap-wasm.mjs",
