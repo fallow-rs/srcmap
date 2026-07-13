@@ -737,6 +737,7 @@ fn sources_extract_security_skips_absolute_and_backslash_paths() {
     let sources = [
         "/absolute.ts",
         "C:/outside.ts",
+        "C:outside.ts",
         r"C:\outside.ts",
         r"\\server\share\outside.ts",
         r"..\outside.ts",
@@ -748,6 +749,123 @@ fn sources_extract_security_skips_absolute_and_backslash_paths() {
     assert_eq!(result["extracted"], serde_json::json!([]));
     assert_eq!(result["skipped"], serde_json::json!(sources));
     assert_eq!(fs::read_dir(&output_dir).unwrap().count(), 0);
+}
+
+#[test]
+fn sources_extract_security_reports_output_file_as_io_error() {
+    let dir = tempfile::tempdir().unwrap();
+    let output_file = dir.path().join("not-a-directory");
+    fs::write(&output_file, "sentinel").unwrap();
+    let map = write_sources_map(dir.path(), &["source.ts"]);
+
+    let out = srcmap()
+        .args([
+            "sources",
+            map.to_str().unwrap(),
+            "--extract",
+            "-o",
+            output_file.to_str().unwrap(),
+            "--json",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(!out.status.success());
+    let error: serde_json::Value = serde_json::from_slice(&out.stderr).unwrap();
+    assert_eq!(error["code"], "IO_ERROR");
+    assert_eq!(fs::read_to_string(output_file).unwrap(), "sentinel");
+}
+
+#[test]
+fn sources_extract_security_human_skip_message_is_neutral() {
+    let dir = tempfile::tempdir().unwrap();
+    let output_dir = dir.path().join("output");
+    fs::create_dir(&output_dir).unwrap();
+    let map = write_sources_map(dir.path(), &["C:outside.ts"]);
+
+    let out = srcmap()
+        .args(["sources", map.to_str().unwrap(), "--extract", "-o", output_dir.to_str().unwrap()])
+        .output()
+        .unwrap();
+
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    let stdout = String::from_utf8(out.stdout).unwrap();
+    assert!(stdout.contains("Skipped 1 source"));
+    assert!(!stdout.contains("without content"));
+}
+
+#[cfg(unix)]
+#[test]
+fn sources_extract_security_resists_parent_swap_race() {
+    use std::os::unix::fs::symlink;
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::thread;
+
+    const RACE_SOURCES: usize = 4_096;
+
+    let dir = tempfile::tempdir().unwrap();
+    let output_dir = dir.path().join("output");
+    let raced_dir = output_dir.join("raced");
+    let parked_dir = output_dir.join("parked");
+    let outside_dir = dir.path().join("outside");
+    fs::create_dir(&output_dir).unwrap();
+    fs::create_dir(&raced_dir).unwrap();
+    fs::create_dir(&outside_dir).unwrap();
+    let sources: Vec<String> =
+        (0..RACE_SOURCES).map(|index| format!("raced/source-{index}.ts")).collect();
+    let contents = vec!["content"; sources.len()];
+    let map_path = dir.path().join("race.js.map");
+    let map = serde_json::json!({
+        "version": 3,
+        "file": "race.js",
+        "sources": sources,
+        "names": [],
+        "mappings": "",
+        "sourcesContent": contents,
+    });
+    fs::write(&map_path, serde_json::to_vec(&map).unwrap()).unwrap();
+
+    let stop = Arc::new(AtomicBool::new(false));
+    let attacker_stop = Arc::clone(&stop);
+    let attacker_raced = raced_dir;
+    let attacker_parked = parked_dir;
+    let attacker_outside = outside_dir.clone();
+    let attacker = thread::spawn(move || {
+        while !attacker_stop.load(Ordering::Relaxed) {
+            if fs::rename(&attacker_raced, &attacker_parked).is_ok() {
+                if symlink(&attacker_outside, &attacker_raced).is_ok() {
+                    thread::yield_now();
+                    let _ = fs::remove_file(&attacker_raced);
+                }
+                if fs::rename(&attacker_parked, &attacker_raced).is_err() {
+                    let _ = fs::remove_dir_all(&attacker_raced);
+                    let _ = fs::rename(&attacker_parked, &attacker_raced);
+                }
+            }
+            thread::yield_now();
+        }
+    });
+
+    let out = srcmap()
+        .args([
+            "sources",
+            map_path.to_str().unwrap(),
+            "--extract",
+            "-o",
+            output_dir.to_str().unwrap(),
+            "--json",
+        ])
+        .output()
+        .unwrap();
+    stop.store(true, Ordering::Relaxed);
+    attacker.join().unwrap();
+
+    if !out.status.success() {
+        let error: serde_json::Value = serde_json::from_slice(&out.stderr).unwrap();
+        assert_eq!(error["code"], "IO_ERROR");
+    }
+    assert_eq!(fs::read_dir(outside_dir).unwrap().count(), 0);
 }
 
 // ── fetch ────────────────────────────────────────────────────

@@ -4,11 +4,15 @@
     reason = "CLI commands intentionally write user-facing output"
 )]
 
-use std::fs::{self, OpenOptions};
+use std::ffi::{OsStr, OsString};
+use std::fs;
 use std::io::{self, Read, Write};
 use std::path::{Component, Path, PathBuf};
 use std::process::ExitCode;
 
+use cap_fs_ext::{DirExt, FollowSymlinks, OpenOptionsFollowExt};
+use cap_std::ambient_authority;
+use cap_std::fs::{Dir, OpenOptions};
 use clap::{Parser, Subcommand};
 use srcmap_codec::{decode, encode};
 use srcmap_remapping::{ConcatBuilder, remap};
@@ -459,6 +463,12 @@ fn sanitize_source_path(source: &str) -> Result<PathBuf, CliError> {
     if stripped.is_empty() {
         return Err(CliError::invalid_input("empty source name after stripping prefixes"));
     }
+    let bytes = stripped.as_bytes();
+    if bytes.len() >= 2 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':' {
+        return Err(CliError::path_traversal(format!(
+            "source name contains a drive prefix: {source}"
+        )));
+    }
 
     let mut components = Vec::new();
     for component in Path::new(stripped).components() {
@@ -471,11 +481,6 @@ fn sanitize_source_path(source: &str) -> Result<PathBuf, CliError> {
             }
             Component::CurDir => {}
             Component::Normal(value) => {
-                if components.is_empty() && value.to_string_lossy().ends_with(':') {
-                    return Err(CliError::path_traversal(format!(
-                        "source name contains a drive prefix: {source}"
-                    )));
-                }
                 components.push(value.to_os_string());
             }
         }
@@ -494,93 +499,118 @@ fn sanitize_source_path(source: &str) -> Result<PathBuf, CliError> {
     Ok(path)
 }
 
-fn prepare_extraction_path(output_dir: &Path, relative: &Path) -> Result<PathBuf, CliError> {
-    if !relative.is_relative() {
-        return Err(CliError::path_traversal(format!(
-            "extraction path is not relative: {}",
-            relative.display()
-        )));
+struct ExtractionTarget {
+    parent: Dir,
+    file_name: OsString,
+    display_path: PathBuf,
+}
+
+fn extraction_io(action: &str, path: &Path, error: &io::Error) -> CliError {
+    CliError::io(format!("{action} {}: {error}", path.display()))
+}
+
+fn parent_entry_is_unsafe(parent: &Dir, name: &OsStr) -> Result<bool, CliError> {
+    match parent.symlink_metadata(name) {
+        Ok(metadata) => Ok(metadata.file_type().is_symlink() || !metadata.is_dir()),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(false),
+        Err(error) => Err(CliError::io(format!(
+            "failed to inspect extraction parent {}: {error}",
+            name.to_string_lossy()
+        ))),
+    }
+}
+
+fn open_or_create_extraction_parent(parent: &Dir, name: &OsStr) -> Result<Option<Dir>, CliError> {
+    match parent.open_dir_nofollow(name) {
+        Ok(directory) => return Ok(Some(directory)),
+        Err(error) if error.kind() != io::ErrorKind::NotFound => {
+            return if parent_entry_is_unsafe(parent, name)? {
+                Ok(None)
+            } else {
+                Err(CliError::io(format!(
+                    "failed to open extraction parent {}: {error}",
+                    name.to_string_lossy()
+                )))
+            };
+        }
+        Err(_) => {}
     }
 
-    fs::create_dir_all(output_dir).map_err(|e| {
-        CliError::io(format!("failed to create output directory {}: {e}", output_dir.display()))
-    })?;
-    let output_root = output_dir.canonicalize().map_err(|e| {
-        CliError::io(format!("failed to resolve output directory {}: {e}", output_dir.display()))
-    })?;
-    let file_name = relative.file_name().ok_or_else(|| {
-        CliError::path_traversal(format!(
-            "extraction path has no file name: {}",
-            relative.display()
-        ))
-    })?;
+    match parent.create_dir(name) {
+        Ok(()) => {}
+        Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}
+        Err(error) => {
+            return Err(CliError::io(format!(
+                "failed to create extraction parent {}: {error}",
+                name.to_string_lossy()
+            )));
+        }
+    }
 
-    let mut current = output_root.clone();
+    match parent.open_dir_nofollow(name) {
+        Ok(directory) => Ok(Some(directory)),
+        Err(error) => {
+            if parent_entry_is_unsafe(parent, name)? {
+                Ok(None)
+            } else {
+                Err(CliError::io(format!(
+                    "failed to open extraction parent {}: {error}",
+                    name.to_string_lossy()
+                )))
+            }
+        }
+    }
+}
+
+fn prepare_extraction_target(
+    root: &Dir,
+    output_dir: &Path,
+    relative: &Path,
+) -> Result<Option<ExtractionTarget>, CliError> {
+    if !relative.is_relative() {
+        return Ok(None);
+    }
+
+    let Some(file_name) = relative.file_name() else {
+        return Ok(None);
+    };
+    let mut current = root.try_clone().map_err(|error| {
+        extraction_io("failed to clone output directory handle for", output_dir, &error)
+    })?;
     for component in relative.parent().into_iter().flat_map(Path::components) {
         let Component::Normal(value) = component else {
-            return Err(CliError::path_traversal(format!(
-                "extraction path contains an unsafe component: {}",
-                relative.display()
-            )));
+            return Ok(None);
         };
-        let candidate = current.join(value);
-        match fs::symlink_metadata(&candidate) {
-            Ok(metadata) => {
-                if metadata.file_type().is_symlink() {
-                    return Err(CliError::path_traversal(format!(
-                        "extraction parent is a symlink: {}",
-                        candidate.display()
-                    )));
-                }
-                if !metadata.is_dir() {
-                    return Err(CliError::path_traversal(format!(
-                        "extraction parent is not a directory: {}",
-                        candidate.display()
-                    )));
-                }
-            }
-            Err(error) if error.kind() == io::ErrorKind::NotFound => {
-                fs::create_dir(&candidate).map_err(|e| {
-                    CliError::io(format!(
-                        "failed to create extraction directory {}: {e}",
-                        candidate.display()
-                    ))
-                })?;
-            }
-            Err(error) => {
-                return Err(CliError::io(format!(
-                    "failed to inspect extraction directory {}: {error}",
-                    candidate.display()
-                )));
-            }
-        }
-
-        let canonical = candidate.canonicalize().map_err(|e| {
-            CliError::io(format!(
-                "failed to resolve extraction directory {}: {e}",
-                candidate.display()
-            ))
-        })?;
-        if !canonical.starts_with(&output_root) {
-            return Err(CliError::path_traversal(format!(
-                "extraction path escapes output directory: {}",
-                relative.display()
-            )));
-        }
-        current = canonical;
+        let Some(next) = open_or_create_extraction_parent(&current, value)? else {
+            return Ok(None);
+        };
+        current = next;
     }
 
-    let destination = current.join(file_name);
-    match fs::symlink_metadata(&destination) {
-        Ok(_) => Err(CliError::path_traversal(format!(
-            "refusing to overwrite existing extraction destination: {}",
-            destination.display()
-        ))),
-        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(destination),
-        Err(error) => Err(CliError::io(format!(
-            "failed to inspect extraction destination {}: {error}",
-            destination.display()
-        ))),
+    Ok(Some(ExtractionTarget {
+        parent: current,
+        file_name: file_name.to_os_string(),
+        display_path: output_dir.join(relative),
+    }))
+}
+
+fn create_extraction_file(
+    target: ExtractionTarget,
+) -> Result<Option<(cap_std::fs::File, ExtractionTarget)>, CliError> {
+    let mut options = OpenOptions::new();
+    options.write(true).create_new(true).follow(FollowSymlinks::No);
+    match target.parent.open_with(&target.file_name, &options) {
+        Ok(file) => Ok(Some((file, target))),
+        Err(error) if error.kind() == io::ErrorKind::AlreadyExists => Ok(None),
+        Err(error) => match target.parent.symlink_metadata(&target.file_name) {
+            Ok(_) => Ok(None),
+            Err(metadata_error) if metadata_error.kind() == io::ErrorKind::NotFound => {
+                Err(extraction_io("failed to create", &target.display_path, &error))
+            }
+            Err(metadata_error) => {
+                Err(extraction_io("failed to inspect", &target.display_path, &metadata_error))
+            }
+        },
     }
 }
 
@@ -1756,6 +1786,10 @@ fn extract_source_contents(
     sm: &SourceMap,
     output_dir: &Path,
 ) -> Result<(Vec<serde_json::Value>, Vec<String>), CliError> {
+    Dir::create_ambient_dir_all(output_dir, ambient_authority())
+        .map_err(|error| extraction_io("failed to create output directory", output_dir, &error))?;
+    let root = Dir::open_ambient_dir(output_dir, ambient_authority())
+        .map_err(|error| extraction_io("failed to open output directory", output_dir, &error))?;
     let mut extracted = Vec::new();
     let mut skipped = Vec::new();
 
@@ -1775,29 +1809,36 @@ fn extract_source_contents(
                 continue;
             }
         };
-        let dest_path = match prepare_extraction_path(output_dir, &relative) {
-            Ok(path) => path,
-            Err(_) => {
+        let target = match prepare_extraction_target(&root, output_dir, &relative)? {
+            Some(target) => target,
+            None => {
                 skipped.push(source_name.clone());
                 continue;
             }
         };
-        let mut file = match OpenOptions::new().write(true).create_new(true).open(&dest_path) {
-            Ok(file) => file,
-            Err(_) => {
+        let (mut file, target) = match create_extraction_file(target)? {
+            Some(opened) => opened,
+            None => {
                 skipped.push(source_name.clone());
                 continue;
             }
         };
         if let Err(error) = file.write_all(content.as_bytes()) {
             drop(file);
-            let _ = fs::remove_file(&dest_path);
-            return Err(CliError::io(format!("failed to write {}: {error}", dest_path.display())));
+            let cleanup = target.parent.remove_file_or_symlink(&target.file_name);
+            let cleanup_context = cleanup
+                .err()
+                .map(|cleanup_error| format!("; cleanup failed: {cleanup_error}"))
+                .unwrap_or_default();
+            return Err(CliError::io(format!(
+                "failed to write {}: {error}{cleanup_context}",
+                target.display_path.display()
+            )));
         }
 
         extracted.push(serde_json::json!({
             "source": source_name,
-            "file": dest_path.display().to_string(),
+            "file": target.display_path.display().to_string(),
             "size": content.len(),
         }));
     }
@@ -1823,7 +1864,8 @@ fn print_extracted_sources(
         println!("  {source} [{}]", format_size(size));
     }
     if !skipped.is_empty() {
-        println!("Skipped {} sources without content", skipped.len());
+        let suffix = if skipped.len() == 1 { "" } else { "s" };
+        println!("Skipped {} source{suffix}", skipped.len());
     }
 }
 
@@ -2200,4 +2242,40 @@ fn command_json_mode(command: &Command) -> bool {
             | Command::Fetch { json: true, .. }
             | Command::Sources { json: true, .. }
     )
+}
+
+#[cfg(all(test, unix))]
+mod extraction_security_tests {
+    use super::*;
+    use std::os::unix::fs::symlink;
+
+    #[test]
+    fn extraction_parent_handle_survives_path_swap() {
+        let dir = tempfile::tempdir().unwrap();
+        let output_dir = dir.path().join("output");
+        let raced_dir = output_dir.join("raced");
+        let parked_dir = output_dir.join("parked");
+        let outside_dir = dir.path().join("outside");
+        fs::create_dir(&output_dir).unwrap();
+        fs::create_dir(&raced_dir).unwrap();
+        fs::create_dir(&outside_dir).unwrap();
+        let root = Dir::open_ambient_dir(&output_dir, ambient_authority()).unwrap();
+        let target = prepare_extraction_target(&root, &output_dir, Path::new("raced/source.ts"))
+            .unwrap_or_else(|error| panic!("{}", error.message))
+            .unwrap();
+
+        fs::rename(&raced_dir, &parked_dir).unwrap();
+        symlink(&outside_dir, &raced_dir).unwrap();
+        let (mut file, target) = create_extraction_file(target)
+            .unwrap_or_else(|error| panic!("{}", error.message))
+            .unwrap();
+        file.write_all(b"contained").unwrap();
+        drop(file);
+
+        assert_eq!(fs::read_to_string(parked_dir.join("source.ts")).unwrap(), "contained");
+        assert_eq!(fs::read_dir(&outside_dir).unwrap().count(), 0);
+        target.parent.remove_file_or_symlink(&target.file_name).unwrap();
+        assert!(!parked_dir.join("source.ts").exists());
+        assert_eq!(fs::read_dir(outside_dir).unwrap().count(), 0);
+    }
 }
