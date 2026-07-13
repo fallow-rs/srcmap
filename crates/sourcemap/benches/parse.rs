@@ -642,6 +642,13 @@ fn randomized_lazy_lookup_input() -> LazyLookupInput {
     lazy_lookup_input(lookups)
 }
 
+fn warm_lazy_lookup_input(input: LazyLookupInput) -> LazyLookupInput {
+    for &(line, column) in &input.lookups {
+        black_box(input.sm.original_position_for(black_box(line), black_box(column)));
+    }
+    input
+}
+
 fn run_lazy_lookups(input: &mut LazyLookupInput) {
     for &(line, column) in &input.lookups {
         black_box(input.sm.original_position_for(black_box(line), black_box(column)));
@@ -667,26 +674,50 @@ fn bench_lookup(criterion: &mut Criterion) {
 fn bench_lazy_lookup(criterion: &mut Criterion) {
     bench_with_input(
         criterion,
-        "lazy_lookup_1000x_ascending",
+        "lazy_lookup_cold_1000x_ascending",
         ascending_lazy_lookup_input,
         run_lazy_lookups,
     );
     bench_with_input(
         criterion,
-        "lazy_lookup_1000x_descending",
+        "lazy_lookup_cold_1000x_descending",
         descending_lazy_lookup_input,
         run_lazy_lookups,
     );
     bench_with_input(
         criterion,
-        "lazy_lookup_1000x_repeated",
+        "lazy_lookup_cold_1000x_repeated",
         repeated_lazy_lookup_input,
         run_lazy_lookups,
     );
     bench_with_input(
         criterion,
-        "lazy_lookup_1000x_randomized",
+        "lazy_lookup_cold_1000x_randomized",
         randomized_lazy_lookup_input,
+        run_lazy_lookups,
+    );
+    bench_with_input(
+        criterion,
+        "lazy_lookup_warm_1000x_ascending",
+        || warm_lazy_lookup_input(ascending_lazy_lookup_input()),
+        run_lazy_lookups,
+    );
+    bench_with_input(
+        criterion,
+        "lazy_lookup_warm_1000x_descending",
+        || warm_lazy_lookup_input(descending_lazy_lookup_input()),
+        run_lazy_lookups,
+    );
+    bench_with_input(
+        criterion,
+        "lazy_lookup_warm_1000x_repeated",
+        || warm_lazy_lookup_input(repeated_lazy_lookup_input()),
+        run_lazy_lookups,
+    );
+    bench_with_input(
+        criterion,
+        "lazy_lookup_warm_1000x_randomized",
+        || warm_lazy_lookup_input(randomized_lazy_lookup_input()),
         run_lazy_lookups,
     );
 }

@@ -23,7 +23,7 @@
 //! assert_eq!(pos.column, 0);
 //! ```
 
-use std::cell::{OnceCell, RefCell};
+use std::cell::{Cell, OnceCell, RefCell};
 use std::collections::HashMap;
 use std::fmt;
 use std::io;
@@ -31,9 +31,6 @@ use std::io;
 use serde::Deserialize;
 use srcmap_codec::{DecodeError, vlq_encode_unsigned};
 use srcmap_scopes::{Binding, CallSite, GeneratedRange, OriginalScope, Position, ScopeInfo};
-
-#[cfg(test)]
-use std::cell::Cell;
 
 pub mod js_identifiers;
 pub mod offset_lookup;
@@ -1990,11 +1987,10 @@ pub struct LazySourceMap {
     /// If true, decode_line must decode sequentially from the start.
     fast_scan: bool,
 
-    /// Cumulative VLQ states indexed by the next undecoded line.
-    state_checkpoints: RefCell<Vec<VlqState>>,
-
-    #[cfg(test)]
-    decode_work: Cell<u32>,
+    /// Highest line fully decoded so far (for progressive decode in fast-scan mode).
+    /// VLQ state at the end of this line is stored in `decode_state`.
+    decode_watermark: Cell<u32>,
+    decode_state: Cell<VlqState>,
 }
 
 impl LazySourceMap {
@@ -2032,13 +2028,8 @@ impl LazySourceMap {
             decoded_lines: RefCell::new(HashMap::new()),
             source_map,
             fast_scan,
-            state_checkpoints: RefCell::new(if fast_scan {
-                vec![VlqState::default()]
-            } else {
-                Vec::new()
-            }),
-            #[cfg(test)]
-            decode_work: Cell::new(0),
+            decode_watermark: Cell::new(0),
+            decode_state: Cell::new(VlqState::default()),
         }
     }
 
@@ -2331,16 +2322,13 @@ impl LazySourceMap {
         }
 
         if self.fast_scan {
-            let mut checkpoints = self.state_checkpoints.borrow_mut();
-            let start = line_idx.min(checkpoints.len() - 1);
-            let mut state = checkpoints[start];
+            let watermark = self.decode_watermark.get();
+            let start = if line >= watermark { watermark } else { 0 };
+            let mut state =
+                if line >= watermark { self.decode_state.get() } else { VlqState::default() };
 
-            for current_line_idx in start..=line_idx {
-                #[cfg(test)]
-                self.decode_work.set(self.decode_work.get() + 1);
-
-                let current_line = current_line_idx as u32;
-                let info = &self.line_info[current_line_idx];
+            for current_line in start..=line {
+                let info = &self.line_info[current_line as usize];
                 if self.decoded_lines.borrow().contains_key(&current_line) {
                     // Already cached — just walk VLQ bytes to compute end-state
                     let bytes = self.raw_mappings.as_bytes();
@@ -2350,13 +2338,11 @@ impl LazySourceMap {
                     state = new_state;
                     self.decoded_lines.borrow_mut().insert(current_line, mappings);
                 }
+            }
 
-                let next_line_idx = current_line_idx + 1;
-                if next_line_idx == checkpoints.len() {
-                    checkpoints.push(state);
-                } else {
-                    checkpoints[next_line_idx] = state;
-                }
+            if line + 1 > self.decode_watermark.get() {
+                self.decode_watermark.set(line + 1);
+                self.decode_state.set(state);
             }
 
             return Ok(());
@@ -7300,22 +7286,6 @@ mod tests {
         // Backward again to line 0
         let loc0 = sm.original_position_for(0, 0).unwrap();
         assert_eq!(loc0.line, 0);
-    }
-
-    #[test]
-    fn lazy_sourcemap_backward_cache_miss_resumes_from_checkpoint() {
-        let mappings = std::iter::repeat_n("AACA", 64).collect::<Vec<_>>().join(";");
-        let json =
-            format!(r#"{{"version":3,"sources":["a.js"],"names":[],"mappings":"{mappings}"}}"#);
-        let sm = LazySourceMap::from_json_fast(&json).unwrap();
-
-        sm.decode_line(63).unwrap();
-        sm.decoded_lines.borrow_mut().remove(&15);
-        sm.decode_work.set(0);
-
-        sm.decode_line(15).unwrap();
-
-        assert_eq!(sm.decode_work.get(), 1, "must resume at the line-15 checkpoint");
     }
 
     #[test]

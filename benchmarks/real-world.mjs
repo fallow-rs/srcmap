@@ -1,5 +1,6 @@
 import { createBench, latencyMeanMs, latencyP99Ms, throughputHz } from "./codspeed.mjs";
 import { createDeterministicLookups, setFailureExitCode } from "./workload.mjs";
+import assert from "node:assert/strict";
 import { readFileSync, existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -26,6 +27,49 @@ const createOrderedLookups = (count, maxLine, descending) =>
       column: (index * 13) % LOOKUP_MAX_COLUMN,
     };
   });
+
+const createLookupPatterns = (maxLine) => {
+  const midLine = Math.floor(maxLine / 2);
+  return [
+    { name: "ascending", lookups: createOrderedLookups(LOOKUP_COUNT, maxLine, false) },
+    { name: "descending", lookups: createOrderedLookups(LOOKUP_COUNT, maxLine, true) },
+    {
+      name: "repeated",
+      lookups: Array.from({ length: LOOKUP_COUNT }, () => ({ line: midLine, column: 20 })),
+    },
+    {
+      name: "randomized",
+      lookups: createDeterministicLookups(LOOKUP_COUNT, maxLine, LOOKUP_MAX_COLUMN, LOOKUP_SEED),
+    },
+  ];
+};
+
+const assertLazyMatchesEager = (eager, lazy, lookups, context) => {
+  for (const { line, column } of lookups) {
+    assert.deepEqual(
+      lazy.originalPositionFor(line, column),
+      eager.originalPositionFor(line, column),
+      `${context} at ${line}:${column}`,
+    );
+  }
+};
+
+const consumeLookups = (map, lookups) => {
+  let checksum = 2_166_136_261;
+
+  for (const { line, column } of lookups) {
+    const result = map.originalPositionFor(line, column);
+    const value =
+      result === null
+        ? 0
+        : result.line ^ result.column ^ (result.source?.length ?? 0) ^ (result.name?.length ?? 0);
+    checksum = Math.imul(checksum ^ value, 16_777_619) >>> 0;
+  }
+
+  return checksum;
+};
+
+let lookupChecksum = 0;
 
 // ── Load fixtures ────────────────────────────────────────────────
 
@@ -181,39 +225,78 @@ for (const { name, json, size } of maps) {
   );
 }
 
-// ── Fast-lazy lookup order ───────────────────────────────────────
+// ── Fast-lazy cold map lookup order ─────────────────────────────
 
-console.log("\n--- Fast-Lazy Lookup Order ---\n");
+console.log("\n--- Fast-Lazy Cold Map: Construct and First Lookup Pass ---\n");
 
 for (const { name, json, size, lines } of maps) {
   console.log(`### ${name}\n`);
 
-  const midLine = Math.floor(lines / 2);
-  const patterns = [
-    { name: "ascending", lookups: createOrderedLookups(LOOKUP_COUNT, lines, false) },
-    { name: "descending", lookups: createOrderedLookups(LOOKUP_COUNT, lines, true) },
-    {
-      name: "repeated",
-      lookups: Array.from({ length: LOOKUP_COUNT }, () => ({ line: midLine, column: 20 })),
-    },
-    {
-      name: "randomized",
-      lookups: createDeterministicLookups(LOOKUP_COUNT, lines, LOOKUP_MAX_COLUMN, LOOKUP_SEED),
-    },
-  ].map((pattern) => ({ ...pattern, map: new FastSourceMap(json) }));
+  const eager = new SourceMap(json);
+  const patterns = createLookupPatterns(lines);
+
+  for (const pattern of patterns) {
+    const lazy = new FastSourceMap(json);
+    assertLazyMatchesEager(eager, lazy, pattern.lookups, `${name} ${pattern.name}`);
+    lazy.free();
+  }
+  eager.free();
+
+  const isLargeMap = size > 1024 * 1024;
+  const bench = createBench({
+    warmupIterations: isLargeMap ? 2 : 5,
+    iterations: isLargeMap ? 10 : 50,
+  });
+  const prefix = `real_world_lazy_lookup_cold_1000x[${name}]`;
+
+  for (const pattern of patterns) {
+    bench.add(`${prefix} ${pattern.name}`, () => {
+      const lazy = new FastSourceMap(json);
+      lookupChecksum = (lookupChecksum + consumeLookups(lazy, pattern.lookups)) >>> 0;
+      lazy.free();
+    });
+  }
+
+  await bench.run();
+
+  console.table(
+    bench.tasks.map((task) => ({
+      Name: task.name,
+      "ops/sec": Math.round(throughputHz(task)).toLocaleString(),
+      "avg (μs)": (latencyMeanMs(task) * 1000).toFixed(1),
+      "per lookup (ns)": Math.round(
+        (latencyMeanMs(task) * 1_000_000) / LOOKUP_COUNT,
+      ).toLocaleString(),
+    })),
+  );
+}
+
+// ── Fast-lazy warm cache lookup order ────────────────────────────
+
+console.log("\n--- Fast-Lazy Warm Cache: Reuse Decoded Lines ---\n");
+
+for (const { name, json, size, lines } of maps) {
+  console.log(`### ${name}\n`);
+
+  const patterns = createLookupPatterns(lines).map((pattern) => ({
+    ...pattern,
+    map: new FastSourceMap(json),
+  }));
+
+  for (const pattern of patterns) {
+    lookupChecksum = (lookupChecksum + consumeLookups(pattern.map, pattern.lookups)) >>> 0;
+  }
 
   const isLargeMap = size > 1024 * 1024;
   const bench = createBench({
     warmupIterations: isLargeMap ? 5 : 20,
     iterations: isLargeMap ? 50 : 200,
   });
-  const prefix = `real_world_lazy_lookup_1000x[${name}]`;
+  const prefix = `real_world_lazy_lookup_warm_1000x[${name}]`;
 
   for (const pattern of patterns) {
     bench.add(`${prefix} ${pattern.name}`, () => {
-      for (const { line, column } of pattern.lookups) {
-        pattern.map.originalPositionFor(line, column);
-      }
+      lookupChecksum = (lookupChecksum + consumeLookups(pattern.map, pattern.lookups)) >>> 0;
     });
   }
 
@@ -234,6 +317,8 @@ for (const { name, json, size, lines } of maps) {
     pattern.map.free();
   }
 }
+
+console.log(`Lookup checksum: ${lookupChecksum}`);
 
 // ── Single lookup ────────────────────────────────────────────────
 
