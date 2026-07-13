@@ -211,6 +211,8 @@ jobs:
         run: |
           corepack pnpm --filter @srcmap/codec build
           corepack pnpm --filter @srcmap/sourcemap build
+      - name: Check N-API declarations
+        run: node .github/scripts/check-napi-declarations.mjs
       - name: Build WASM packages
         run: |
           corepack pnpm --filter @srcmap/sourcemap-wasm build:all

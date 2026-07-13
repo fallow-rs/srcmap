@@ -78,6 +78,22 @@ describe("Rust feature coverage", () => {
   });
 });
 
+describe("NAPI declaration coverage", () => {
+  it("checks generated declarations after the NAPI build and before JavaScript tests", async () => {
+    const workflow = await readFile(CI_WORKFLOW_URL, "utf8");
+    const job = workflowJob(workflow, "js-runtime");
+    const build = "corepack pnpm --filter @srcmap/sourcemap build";
+    const declarationStep =
+      "      - name: Check N-API declarations\n        run: node .github/scripts/check-napi-declarations.mjs";
+    const check = "node .github/scripts/check-napi-declarations.mjs";
+    const test = "corepack pnpm run test:js";
+
+    assert.ok(job.includes(declarationStep), "missing explicit NAPI declaration check step");
+    assert.ok(job.indexOf(build) < job.indexOf(check), "NAPI declarations must build before check");
+    assert.ok(job.indexOf(check) < job.indexOf(test), "NAPI declarations must check before tests");
+  });
+});
+
 describe("WASM package coverage", () => {
   it("builds symbolicate WASM targets before JavaScript tests", async () => {
     const workflow = await readFile(CI_WORKFLOW_URL, "utf8");
