@@ -1801,16 +1801,14 @@ fn fetch_output_dir(output: &Option<PathBuf>) -> Result<PathBuf, CliError> {
 }
 
 fn write_fetch_output(
+    output: &Dir,
     output_dir: &Path,
     filename: &str,
     content: &str,
 ) -> Result<PathBuf, CliError> {
     validate_url_filename(filename)?;
-    let output = Dir::open_ambient_dir(output_dir, ambient_authority()).map_err(|error| {
-        CliError::io(format!("failed to open output directory {}: {error}", output_dir.display()))
-    })?;
     let display_path = output_dir.join(filename);
-    write_new_fetch_file(&output, &display_path, filename, content.as_bytes(), |file, bytes| {
+    write_new_fetch_file(output, &display_path, filename, content.as_bytes(), |file, bytes| {
         file.write_all(bytes)
     })?;
     Ok(display_path)
@@ -1849,13 +1847,14 @@ fn write_new_fetch_file(
 fn fetch_bundle(
     agent: &ureq::Agent,
     url: &Url,
+    output: &Dir,
     output_dir: &Path,
     allow_cross_origin: bool,
 ) -> Result<(String, PathBuf, String, Url), CliError> {
     eprintln!("Fetching {url}...");
     let (final_url, bundle_body) = http_get(agent, url, allow_cross_origin)?;
     let bundle_filename = url_filename(&final_url)?;
-    let bundle_path = write_fetch_output(output_dir, &bundle_filename, &bundle_body)?;
+    let bundle_path = write_fetch_output(output, output_dir, &bundle_filename, &bundle_body)?;
     eprintln!("  Saved {} ({})", bundle_path.display(), format_size(bundle_body.len()));
 
     Ok((bundle_filename, bundle_path, bundle_body, final_url))
@@ -1863,11 +1862,12 @@ fn fetch_bundle(
 
 fn save_inline_source_map(
     bundle_filename: &str,
+    output: &Dir,
     output_dir: &Path,
     decoded_json: String,
 ) -> Result<(String, usize, String), CliError> {
     let map_filename = format!("{bundle_filename}.map");
-    let map_path = write_fetch_output(output_dir, &map_filename, &decoded_json)?;
+    let map_path = write_fetch_output(output, output_dir, &map_filename, &decoded_json)?;
     eprintln!("  Saved {} (inline, {})", map_path.display(), format_size(decoded_json.len()));
     Ok((map_path.display().to_string(), decoded_json.len(), "inline".to_string()))
 }
@@ -1876,6 +1876,7 @@ fn fetch_external_source_map(
     agent: &ureq::Agent,
     bundle_url: &Url,
     map_ref: &str,
+    output: &Dir,
     output_dir: &Path,
     allow_cross_origin: bool,
 ) -> Result<(String, usize, String), CliError> {
@@ -1887,7 +1888,7 @@ fn fetch_external_source_map(
     eprintln!("Fetching {map_url}...");
     let (final_url, map_body) = http_get(agent, &map_url, allow_cross_origin)?;
     let map_filename = url_filename(&final_url)?;
-    let map_path = write_fetch_output(output_dir, &map_filename, &map_body)?;
+    let map_path = write_fetch_output(output, output_dir, &map_filename, &map_body)?;
     eprintln!("  Saved {} ({})", map_path.display(), format_size(map_body.len()));
     Ok((map_path.display().to_string(), map_body.len(), final_url.to_string()))
 }
@@ -1903,6 +1904,7 @@ fn conventional_source_map_url(bundle_url: &Url) -> Url {
 fn fetch_conventional_source_map(
     agent: &ureq::Agent,
     bundle_url: &Url,
+    output: &Dir,
     output_dir: &Path,
     allow_cross_origin: bool,
 ) -> Result<Option<(String, usize, String)>, CliError> {
@@ -1911,7 +1913,7 @@ fn fetch_conventional_source_map(
     match http_get(agent, &map_url, allow_cross_origin) {
         Ok((final_url, map_body)) => {
             let map_filename = url_filename(&final_url)?;
-            let map_path = write_fetch_output(output_dir, &map_filename, &map_body)?;
+            let map_path = write_fetch_output(output, output_dir, &map_filename, &map_body)?;
             eprintln!(
                 "  Saved {} (convention, {})",
                 map_path.display(),
@@ -1967,24 +1969,39 @@ fn cmd_fetch(
     let agent = http_agent();
 
     let output_dir = fetch_output_dir(output)?;
+    let output_handle =
+        Dir::open_ambient_dir(&output_dir, ambient_authority()).map_err(|error| {
+            CliError::io(format!(
+                "failed to open output directory {}: {error}",
+                output_dir.display()
+            ))
+        })?;
     let (bundle_filename, bundle_path, bundle_body, bundle_url) =
-        fetch_bundle(&agent, &url, &output_dir, allow_cross_origin)?;
+        fetch_bundle(&agent, &url, &output_handle, &output_dir, allow_cross_origin)?;
 
     // Extract sourceMappingURL
     let map_result = match parse_source_mapping_url(&bundle_body) {
-        Some(SourceMappingUrl::Inline(decoded_json)) => {
-            Some(save_inline_source_map(&bundle_filename, &output_dir, decoded_json)?)
-        }
+        Some(SourceMappingUrl::Inline(decoded_json)) => Some(save_inline_source_map(
+            &bundle_filename,
+            &output_handle,
+            &output_dir,
+            decoded_json,
+        )?),
         Some(SourceMappingUrl::External(ref map_ref)) => Some(fetch_external_source_map(
             &agent,
             &bundle_url,
             map_ref,
+            &output_handle,
             &output_dir,
             allow_cross_origin,
         )?),
-        None => {
-            fetch_conventional_source_map(&agent, &bundle_url, &output_dir, allow_cross_origin)?
-        }
+        None => fetch_conventional_source_map(
+            &agent,
+            &bundle_url,
+            &output_handle,
+            &output_dir,
+            allow_cross_origin,
+        )?,
     };
 
     print_fetch_result(bundle_url.as_str(), &bundle_path, bundle_body.len(), &map_result, json);
@@ -2502,6 +2519,31 @@ mod fetch_url_tests {
 
         assert!(result.is_err());
         assert!(!path.exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn fetch_output_handle_survives_directory_swap() {
+        use std::os::unix::fs::symlink;
+
+        let dir = tempfile::tempdir().unwrap();
+        let output_dir = dir.path().join("output");
+        let parked_dir = dir.path().join("parked");
+        let outside_dir = dir.path().join("outside");
+        fs::create_dir(&output_dir).unwrap();
+        fs::create_dir(&outside_dir).unwrap();
+        let output = Dir::open_ambient_dir(&output_dir, ambient_authority()).unwrap();
+        write_fetch_output(&output, &output_dir, "bundle.js", "bundle")
+            .unwrap_or_else(|error| panic!("{}", error.message));
+
+        fs::rename(&output_dir, &parked_dir).unwrap();
+        symlink(&outside_dir, &output_dir).unwrap();
+        write_fetch_output(&output, &output_dir, "bundle.js.map", "contained")
+            .unwrap_or_else(|error| panic!("{}", error.message));
+
+        assert_eq!(fs::read_to_string(parked_dir.join("bundle.js")).unwrap(), "bundle");
+        assert_eq!(fs::read_to_string(parked_dir.join("bundle.js.map")).unwrap(), "contained");
+        assert_eq!(fs::read_dir(outside_dir).unwrap().count(), 0);
     }
 }
 
