@@ -6,6 +6,7 @@ import { describe, it } from "node:test";
 const ROOT_URL = new URL("../../", import.meta.url);
 const WORKFLOWS_URL = new URL("workflows/", new URL("../", import.meta.url));
 const CI_WORKFLOW_URL = new URL("ci.yml", WORKFLOWS_URL);
+const COVERAGE_WORKFLOW_URL = new URL("coverage.yml", WORKFLOWS_URL);
 
 const trackedPackageLocks = async () => {
   const tracked = execFileSync("git", ["ls-files", "--", ":(glob)**/package-lock.json"], {
@@ -85,6 +86,22 @@ describe("WASM package coverage", () => {
     const test = "corepack pnpm run test:js";
 
     assert.ok(job.includes(build), "missing symbolicate WASM build");
-    assert.ok(job.indexOf(build) < job.indexOf(test), "symbolicate WASM must build before JS tests");
+    assert.ok(
+      job.indexOf(build) < job.indexOf(test),
+      "symbolicate WASM must build before JS tests",
+    );
+  });
+
+  it("builds symbolicate WASM targets before JavaScript coverage", async () => {
+    const workflow = await readFile(COVERAGE_WORKFLOW_URL, "utf8");
+    const job = workflowJob(workflow, "coverage");
+    const build = "corepack pnpm --filter @srcmap/symbolicate-wasm build:all";
+    const coverage = "corepack pnpm run coverage:js";
+
+    assert.ok(job.includes(build), "missing symbolicate WASM coverage build");
+    assert.ok(
+      job.indexOf(build) < job.indexOf(coverage),
+      "symbolicate WASM must build before JS coverage",
+    );
   });
 });

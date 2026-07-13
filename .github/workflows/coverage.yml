@@ -77,6 +77,7 @@ jobs:
           corepack pnpm --filter @srcmap/sourcemap-wasm build
           corepack pnpm --filter @srcmap/generator-wasm build
           corepack pnpm --filter @srcmap/remapping-wasm build
+          corepack pnpm --filter @srcmap/symbolicate-wasm build:all
 
       # JS coverage (lcov)
       - name: JS coverage
