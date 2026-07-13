@@ -316,6 +316,25 @@ impl CliError {
     }
 }
 
+enum HttpGetError {
+    NotFound(CliError),
+    Failure(CliError),
+}
+
+impl From<CliError> for HttpGetError {
+    fn from(error: CliError) -> Self {
+        Self::Failure(error)
+    }
+}
+
+impl From<HttpGetError> for CliError {
+    fn from(error: HttpGetError) -> Self {
+        match error {
+            HttpGetError::NotFound(error) | HttpGetError::Failure(error) => error,
+        }
+    }
+}
+
 // ── Input validation ─────────────────────────────────────────────
 
 /// Reject strings containing ASCII control characters (below 0x20, except newline/tab)
@@ -486,7 +505,7 @@ fn http_get(
     agent: &ureq::Agent,
     initial_url: &Url,
     allow_cross_origin: bool,
-) -> Result<(Url, String), CliError> {
+) -> Result<(Url, String), HttpGetError> {
     let mut current_url = initial_url.clone();
     let deadline = Instant::now() + fetch_timeout();
 
@@ -498,6 +517,7 @@ fn http_get(
             .get(current_url.as_str())
             .header("User-Agent", concat!("srcmap-cli/", env!("CARGO_PKG_VERSION")))
             .config()
+            .http_status_as_error(false)
             .timeout_global(Some(remaining))
             .build()
             .call()
@@ -508,7 +528,8 @@ fn http_get(
             if redirect_count == MAX_FETCH_REDIRECTS {
                 return Err(CliError::fetch_error(format!(
                     "too many redirects while fetching {initial_url}"
-                )));
+                ))
+                .into());
             }
             let location = response
                 .headers()
@@ -528,8 +549,14 @@ fn http_get(
             continue;
         }
 
+        if status == 404 {
+            return Err(HttpGetError::NotFound(CliError::fetch_error(format!(
+                "HTTP 404 for {current_url}"
+            ))));
+        }
+
         if status != 200 {
-            return Err(CliError::fetch_error(format!("HTTP {status} for {current_url}")));
+            return Err(CliError::fetch_error(format!("HTTP {status} for {current_url}")).into());
         }
 
         let body = response
@@ -543,10 +570,8 @@ fn http_get(
 }
 
 fn validate_url_filename(name: &str) -> Result<(), CliError> {
-    let bytes = name.as_bytes();
-    let has_drive_prefix =
-        bytes.first().is_some_and(u8::is_ascii_alphabetic) && bytes.get(1) == Some(&b':');
-    if matches!(name, "." | "..") || name.contains('/') || name.contains('\\') || has_drive_prefix {
+    if matches!(name, "." | "..") || name.contains('/') || name.contains('\\') || name.contains(':')
+    {
         return Err(CliError::fetch_error(format!("unsafe filename in fetched URL: {name:?}")));
     }
     Ok(())
@@ -1784,15 +1809,41 @@ fn write_fetch_output(
     let output = Dir::open_ambient_dir(output_dir, ambient_authority()).map_err(|error| {
         CliError::io(format!("failed to open output directory {}: {error}", output_dir.display()))
     })?;
+    let display_path = output_dir.join(filename);
+    write_new_fetch_file(&output, &display_path, filename, content.as_bytes(), |file, bytes| {
+        file.write_all(bytes)
+    })?;
+    Ok(display_path)
+}
+
+fn write_new_fetch_file(
+    output: &Dir,
+    display_path: &Path,
+    filename: &str,
+    content: &[u8],
+    write_content: impl FnOnce(&mut cap_std::fs::File, &[u8]) -> io::Result<()>,
+) -> Result<(), CliError> {
     let mut options = OpenOptions::new();
     options.write(true).create_new(true).follow(FollowSymlinks::No);
     let mut file = output.open_with(filename, &options).map_err(|error| {
-        CliError::io(format!("failed to create {}: {error}", output_dir.join(filename).display()))
+        CliError::io(format!("failed to create {}: {error}", display_path.display()))
     })?;
-    file.write_all(content.as_bytes()).map_err(|error| {
-        CliError::io(format!("failed to write {}: {error}", output_dir.join(filename).display()))
-    })?;
-    Ok(output_dir.join(filename))
+    if let Err(write_error) = write_content(&mut file, content) {
+        drop(file);
+        let cleanup_error = output
+            .remove_file(filename)
+            .err()
+            .filter(|error| error.kind() != io::ErrorKind::NotFound);
+        return if let Some(cleanup_error) = cleanup_error {
+            Err(CliError::io(format!(
+                "failed to write {}: {write_error}; failed to remove partial file: {cleanup_error}",
+                display_path.display()
+            )))
+        } else {
+            Err(CliError::io(format!("failed to write {}: {write_error}", display_path.display())))
+        };
+    }
+    Ok(())
 }
 
 fn fetch_bundle(
@@ -1868,10 +1919,11 @@ fn fetch_conventional_source_map(
             );
             Ok(Some((map_path.display().to_string(), map_body.len(), final_url.to_string())))
         }
-        Err(_) => {
+        Err(HttpGetError::NotFound(_)) => {
             eprintln!("  No source map found");
             Ok(None)
         }
+        Err(HttpGetError::Failure(error)) => Err(error),
     }
 }
 
@@ -2418,7 +2470,9 @@ mod fetch_url_tests {
 
     #[test]
     fn fetched_filename_validation_rejects_path_components() {
-        for name in [".", "..", "nested/file.js", "nested\\file.js", "C:bundle.js"] {
+        for name in
+            [".", "..", "nested/file.js", "nested\\file.js", "C:bundle.js", "bundle.js:payload"]
+        {
             assert!(validate_url_filename(name).is_err(), "accepted unsafe filename {name:?}");
         }
     }
@@ -2433,6 +2487,21 @@ mod fetch_url_tests {
         let filename =
             url_filename(&directory_url).unwrap_or_else(|error| panic!("{}", error.message));
         assert_eq!(filename, "bundle.js");
+    }
+
+    #[test]
+    fn failed_fetch_write_removes_partial_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let output = Dir::open_ambient_dir(dir.path(), ambient_authority()).unwrap();
+        let path = dir.path().join("bundle.js");
+        let result =
+            write_new_fetch_file(&output, &path, "bundle.js", b"complete content", |file, _| {
+                file.write_all(b"partial")?;
+                Err(io::Error::other("injected write failure"))
+            });
+
+        assert!(result.is_err());
+        assert!(!path.exists());
     }
 }
 
