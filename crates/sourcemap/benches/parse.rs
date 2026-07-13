@@ -596,6 +596,58 @@ fn batch_lookup_input() -> BatchLookupInput {
     BatchLookupInput { sm, lookups }
 }
 
+struct LazyLookupInput {
+    sm: LazySourceMap,
+    lookups: Vec<(u32, u32)>,
+}
+
+const LAZY_LOOKUP_LINES: u32 = 500;
+const LAZY_LOOKUP_COUNT: u32 = 1_000;
+
+fn lazy_lookup_input(lookups: Vec<(u32, u32)>) -> LazyLookupInput {
+    let sm = LazySourceMap::from_json_fast(&json_medium()).unwrap();
+    LazyLookupInput { sm, lookups }
+}
+
+fn ascending_lazy_lookup_input() -> LazyLookupInput {
+    lazy_lookup_input(
+        (0..LAZY_LOOKUP_COUNT)
+            .map(|index| (index * LAZY_LOOKUP_LINES / LAZY_LOOKUP_COUNT, 30))
+            .collect(),
+    )
+}
+
+fn descending_lazy_lookup_input() -> LazyLookupInput {
+    lazy_lookup_input(
+        (0..LAZY_LOOKUP_COUNT)
+            .map(|index| {
+                (LAZY_LOOKUP_LINES - 1 - index * LAZY_LOOKUP_LINES / LAZY_LOOKUP_COUNT, 30)
+            })
+            .collect(),
+    )
+}
+
+fn repeated_lazy_lookup_input() -> LazyLookupInput {
+    lazy_lookup_input(vec![(LAZY_LOOKUP_LINES / 2, 30); LAZY_LOOKUP_COUNT as usize])
+}
+
+fn randomized_lazy_lookup_input() -> LazyLookupInput {
+    let mut state = 0x5eed_1234_u32;
+    let lookups = std::iter::repeat_with(|| {
+        state = state.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+        (state % LAZY_LOOKUP_LINES, (state >> 16) % 200)
+    })
+    .take(LAZY_LOOKUP_COUNT as usize)
+    .collect();
+    lazy_lookup_input(lookups)
+}
+
+fn run_lazy_lookups(input: &mut LazyLookupInput) {
+    for &(line, column) in &input.lookups {
+        black_box(input.sm.original_position_for(black_box(line), black_box(column)));
+    }
+}
+
 fn bench_lookup(criterion: &mut Criterion) {
     bench_with_input(criterion, "lookup_single_original_position_for", lookup_input, |sm| {
         sm.original_position_for(black_box(250), black_box(30))
@@ -609,6 +661,33 @@ fn bench_lookup(criterion: &mut Criterion) {
                 black_box(input.sm.original_position_for(line, col));
             }
         },
+    );
+}
+
+fn bench_lazy_lookup(criterion: &mut Criterion) {
+    bench_with_input(
+        criterion,
+        "lazy_lookup_1000x_ascending",
+        ascending_lazy_lookup_input,
+        run_lazy_lookups,
+    );
+    bench_with_input(
+        criterion,
+        "lazy_lookup_1000x_descending",
+        descending_lazy_lookup_input,
+        run_lazy_lookups,
+    );
+    bench_with_input(
+        criterion,
+        "lazy_lookup_1000x_repeated",
+        repeated_lazy_lookup_input,
+        run_lazy_lookups,
+    );
+    bench_with_input(
+        criterion,
+        "lazy_lookup_1000x_randomized",
+        randomized_lazy_lookup_input,
+        run_lazy_lookups,
     );
 }
 
@@ -637,6 +716,7 @@ criterion_group!(
     bench_vlq_isolation,
     bench_json_only,
     bench_lookup,
+    bench_lazy_lookup,
     bench_vlq_decode,
 );
 criterion_main!(benches);

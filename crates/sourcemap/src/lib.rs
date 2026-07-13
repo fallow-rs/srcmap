@@ -23,7 +23,7 @@
 //! assert_eq!(pos.column, 0);
 //! ```
 
-use std::cell::{Cell, OnceCell, RefCell};
+use std::cell::{OnceCell, RefCell};
 use std::collections::HashMap;
 use std::fmt;
 use std::io;
@@ -31,6 +31,9 @@ use std::io;
 use serde::Deserialize;
 use srcmap_codec::{DecodeError, vlq_encode_unsigned};
 use srcmap_scopes::{Binding, CallSite, GeneratedRange, OriginalScope, Position, ScopeInfo};
+
+#[cfg(test)]
+use std::cell::Cell;
 
 pub mod js_identifiers;
 pub mod offset_lookup;
@@ -1987,10 +1990,11 @@ pub struct LazySourceMap {
     /// If true, decode_line must decode sequentially from the start.
     fast_scan: bool,
 
-    /// Highest line fully decoded so far (for progressive decode in fast-scan mode).
-    /// VLQ state at the end of this line is stored in `decode_state`.
-    decode_watermark: Cell<u32>,
-    decode_state: Cell<VlqState>,
+    /// Cumulative VLQ states indexed by the next undecoded line.
+    state_checkpoints: RefCell<Vec<VlqState>>,
+
+    #[cfg(test)]
+    decode_work: Cell<u32>,
 }
 
 impl LazySourceMap {
@@ -2028,8 +2032,13 @@ impl LazySourceMap {
             decoded_lines: RefCell::new(HashMap::new()),
             source_map,
             fast_scan,
-            decode_watermark: Cell::new(0),
-            decode_state: Cell::new(VlqState::default()),
+            state_checkpoints: RefCell::new(if fast_scan {
+                vec![VlqState::default()]
+            } else {
+                Vec::new()
+            }),
+            #[cfg(test)]
+            decode_work: Cell::new(0),
         }
     }
 
@@ -2311,62 +2320,61 @@ impl LazySourceMap {
         Ok((mappings, state))
     }
 
+    fn ensure_line_decoded(&self, line: u32) -> Result<(), DecodeError> {
+        if self.decoded_lines.borrow().contains_key(&line) {
+            return Ok(());
+        }
+
+        let line_idx = line as usize;
+        if line_idx >= self.line_info.len() {
+            return Ok(());
+        }
+
+        if self.fast_scan {
+            let mut checkpoints = self.state_checkpoints.borrow_mut();
+            let start = line_idx.min(checkpoints.len() - 1);
+            let mut state = checkpoints[start];
+
+            for current_line_idx in start..=line_idx {
+                #[cfg(test)]
+                self.decode_work.set(self.decode_work.get() + 1);
+
+                let current_line = current_line_idx as u32;
+                let info = &self.line_info[current_line_idx];
+                if self.decoded_lines.borrow().contains_key(&current_line) {
+                    // Already cached — just walk VLQ bytes to compute end-state
+                    let bytes = self.raw_mappings.as_bytes();
+                    state = walk_vlq_state(bytes, info.byte_offset, info.byte_end, state)?;
+                } else {
+                    let (mappings, new_state) = self.decode_line_with_state(current_line, state)?;
+                    state = new_state;
+                    self.decoded_lines.borrow_mut().insert(current_line, mappings);
+                }
+
+                let next_line_idx = current_line_idx + 1;
+                if next_line_idx == checkpoints.len() {
+                    checkpoints.push(state);
+                } else {
+                    checkpoints[next_line_idx] = state;
+                }
+            }
+
+            return Ok(());
+        }
+
+        let state = self.line_info[line_idx].state;
+        let (mappings, _) = self.decode_line_with_state(line, state)?;
+        self.decoded_lines.borrow_mut().insert(line, mappings);
+        Ok(())
+    }
+
     /// Decode a single line's mappings on demand.
     ///
     /// Returns the cached result if the line has already been decoded.
     /// The line index is 0-based.
     pub fn decode_line(&self, line: u32) -> Result<Vec<Mapping>, DecodeError> {
-        // Check cache first
-        if let Some(cached) = self.decoded_lines.borrow().get(&line) {
-            return Ok(cached.clone());
-        }
-
-        let line_idx = line as usize;
-        if line_idx >= self.line_info.len() {
-            return Ok(Vec::new());
-        }
-
-        if self.fast_scan {
-            // In fast-scan mode, VLQ state is not pre-computed.
-            // Decode sequentially from the watermark (or line 0 for backward seeks).
-            // For both forward and backward walks, use cached lines where available
-            // and only walk VLQ bytes to compute state for already-decoded lines.
-            let watermark = self.decode_watermark.get();
-            let start = if line >= watermark { watermark } else { 0 };
-            let mut state = if line >= watermark {
-                self.decode_state.get()
-            } else {
-                VlqState { source_index: 0, original_line: 0, original_column: 0, name_index: 0 }
-            };
-
-            for l in start..=line {
-                let info = &self.line_info[l as usize];
-                if self.decoded_lines.borrow().contains_key(&l) {
-                    // Already cached — just walk VLQ bytes to compute end-state
-                    let bytes = self.raw_mappings.as_bytes();
-                    state = walk_vlq_state(bytes, info.byte_offset, info.byte_end, state)?;
-                } else {
-                    let (mappings, new_state) = self.decode_line_with_state(l, state)?;
-                    state = new_state;
-                    self.decoded_lines.borrow_mut().insert(l, mappings);
-                }
-            }
-
-            // Update watermark (only advance, never regress)
-            if line + 1 > self.decode_watermark.get() {
-                self.decode_watermark.set(line + 1);
-                self.decode_state.set(state);
-            }
-
-            let cached = self.decoded_lines.borrow().get(&line).cloned();
-            return Ok(cached.unwrap_or_default());
-        }
-
-        // Normal mode: line_info has pre-computed VLQ state
-        let state = self.line_info[line_idx].state;
-        let (mappings, _) = self.decode_line_with_state(line, state)?;
-        self.decoded_lines.borrow_mut().insert(line, mappings.clone());
-        Ok(mappings)
+        self.ensure_line_decoded(line)?;
+        Ok(self.decoded_lines.borrow().get(&line).cloned().unwrap_or_default())
     }
 
     /// Look up the original source position for a generated position.
@@ -2374,7 +2382,9 @@ impl LazySourceMap {
     /// Both `line` and `column` are 0-based.
     /// Returns `None` if no mapping exists or the mapping has no source.
     pub fn original_position_for(&self, line: u32, column: u32) -> Option<OriginalLocation> {
-        let line_mappings = self.decode_line(line).ok()?;
+        self.ensure_line_decoded(line).ok()?;
+        let decoded_lines = self.decoded_lines.borrow();
+        let line_mappings = decoded_lines.get(&line)?;
 
         if line_mappings.is_empty() {
             return None;
@@ -7290,6 +7300,43 @@ mod tests {
         // Backward again to line 0
         let loc0 = sm.original_position_for(0, 0).unwrap();
         assert_eq!(loc0.line, 0);
+    }
+
+    #[test]
+    fn lazy_sourcemap_backward_cache_miss_resumes_from_checkpoint() {
+        let mappings = std::iter::repeat_n("AACA", 64).collect::<Vec<_>>().join(";");
+        let json =
+            format!(r#"{{"version":3,"sources":["a.js"],"names":[],"mappings":"{mappings}"}}"#);
+        let sm = LazySourceMap::from_json_fast(&json).unwrap();
+
+        sm.decode_line(63).unwrap();
+        sm.decoded_lines.borrow_mut().remove(&15);
+        sm.decode_work.set(0);
+
+        sm.decode_line(15).unwrap();
+
+        assert_eq!(sm.decode_work.get(), 1, "must resume at the line-15 checkpoint");
+    }
+
+    #[test]
+    fn lazy_sourcemap_fast_scan_matches_prescan_in_descending_and_randomized_order() {
+        let mappings = std::iter::repeat_n("AACA,CAAC", 64).collect::<Vec<_>>().join(";");
+        let json =
+            format!(r#"{{"version":3,"sources":["a.js"],"names":[],"mappings":"{mappings}"}}"#);
+        let fast = LazySourceMap::from_json_fast(&json).unwrap();
+        let prescan = LazySourceMap::from_json_no_content(&json).unwrap();
+        let position = |map: &LazySourceMap, line, column| {
+            map.original_position_for(line, column)
+                .map(|loc| (loc.source, loc.line, loc.column, loc.name))
+        };
+
+        for line in (0..64).rev() {
+            assert_eq!(position(&fast, line, 1), position(&prescan, line, 1));
+        }
+
+        for line in [17, 2, 61, 9, 42, 0, 31, 5, 63, 23, 17, 42] {
+            assert_eq!(position(&fast, line, 2), position(&prescan, line, 2));
+        }
     }
 
     #[test]

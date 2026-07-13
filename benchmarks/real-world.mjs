@@ -18,6 +18,15 @@ const LOOKUP_COUNT = 1_000;
 const LOOKUP_MAX_COLUMN = 200;
 const LOOKUP_SEED = 0x5eed1234;
 
+const createOrderedLookups = (count, maxLine, descending) =>
+  Array.from({ length: count }, (_, index) => {
+    const line = Math.floor((index * maxLine) / count);
+    return {
+      line: descending ? maxLine - 1 - line : line,
+      column: (index * 13) % LOOKUP_MAX_COLUMN,
+    };
+  });
+
 // ── Load fixtures ────────────────────────────────────────────────
 
 const FIXTURES = [
@@ -170,6 +179,60 @@ for (const { name, json, size } of maps) {
       "p99 (ms)": latencyP99Ms(task).toFixed(2),
     })),
   );
+}
+
+// ── Fast-lazy lookup order ───────────────────────────────────────
+
+console.log("\n--- Fast-Lazy Lookup Order ---\n");
+
+for (const { name, json, size, lines } of maps) {
+  console.log(`### ${name}\n`);
+
+  const midLine = Math.floor(lines / 2);
+  const patterns = [
+    { name: "ascending", lookups: createOrderedLookups(LOOKUP_COUNT, lines, false) },
+    { name: "descending", lookups: createOrderedLookups(LOOKUP_COUNT, lines, true) },
+    {
+      name: "repeated",
+      lookups: Array.from({ length: LOOKUP_COUNT }, () => ({ line: midLine, column: 20 })),
+    },
+    {
+      name: "randomized",
+      lookups: createDeterministicLookups(LOOKUP_COUNT, lines, LOOKUP_MAX_COLUMN, LOOKUP_SEED),
+    },
+  ].map((pattern) => ({ ...pattern, map: new FastSourceMap(json) }));
+
+  const isLargeMap = size > 1024 * 1024;
+  const bench = createBench({
+    warmupIterations: isLargeMap ? 5 : 20,
+    iterations: isLargeMap ? 50 : 200,
+  });
+  const prefix = `real_world_lazy_lookup_1000x[${name}]`;
+
+  for (const pattern of patterns) {
+    bench.add(`${prefix} ${pattern.name}`, () => {
+      for (const { line, column } of pattern.lookups) {
+        pattern.map.originalPositionFor(line, column);
+      }
+    });
+  }
+
+  await bench.run();
+
+  console.table(
+    bench.tasks.map((task) => ({
+      Name: task.name,
+      "ops/sec": Math.round(throughputHz(task)).toLocaleString(),
+      "avg (μs)": (latencyMeanMs(task) * 1000).toFixed(1),
+      "per lookup (ns)": Math.round(
+        (latencyMeanMs(task) * 1_000_000) / LOOKUP_COUNT,
+      ).toLocaleString(),
+    })),
+  );
+
+  for (const pattern of patterns) {
+    pattern.map.free();
+  }
 }
 
 // ── Single lookup ────────────────────────────────────────────────
