@@ -93,7 +93,7 @@ jobs:
 
       - name: Install JS dependencies
         if: matrix.kind == 'node'
-        run: corepack pnpm install --ignore-scripts --no-frozen-lockfile
+        run: corepack pnpm install --ignore-scripts --frozen-lockfile
 
       - name: Install wasm-pack
         if: matrix.kind == 'node'

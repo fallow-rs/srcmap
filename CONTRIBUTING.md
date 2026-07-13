@@ -15,6 +15,8 @@ Thanks for your interest in contributing to srcmap! Whether it's a bug fix, new 
 ```bash
 git clone https://github.com/fallow-rs/srcmap.git
 cd srcmap
+corepack enable
+corepack pnpm install --frozen-lockfile
 
 # Build all Rust crates
 cargo build
@@ -22,8 +24,8 @@ cargo build
 # Run tests
 cargo test
 
-# Run JS tests (requires building WASM packages first)
-npm test
+# Run JS tests (requires building NAPI and WASM packages first)
+corepack pnpm test
 ```
 
 ## Project structure
@@ -72,7 +74,7 @@ cd packages/sourcemap-wasm && wasm-pack build --target web
 ```bash
 cargo test                      # All Rust tests
 cargo test -p srcmap-sourcemap  # Single crate
-npm run test:js                 # JS/WASM tests
+corepack pnpm run test:js       # JS/WASM tests
 ```
 
 ### Benchmarks
@@ -82,14 +84,14 @@ npm run test:js                 # JS/WASM tests
 cargo bench -p srcmap-sourcemap
 
 # JS benchmarks (comparison with other libraries)
-cd benchmarks && npm install && node sourcemap-wasm.mjs
+corepack pnpm --dir benchmarks exec node sourcemap-wasm.mjs
 ```
 
 ### Coverage
 
 ```bash
-npm run coverage:rust           # Rust coverage (requires cargo-llvm-cov)
-npm run coverage:js             # JS coverage
+corepack pnpm run coverage:rust # Rust coverage (requires cargo-llvm-cov)
+corepack pnpm run coverage:js   # JS coverage
 ```
 
 ## Code standards
