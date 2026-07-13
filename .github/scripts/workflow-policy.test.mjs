@@ -9,6 +9,13 @@ const CI_WORKFLOW_URL = new URL("ci.yml", WORKFLOWS_URL);
 const COVERAGE_WORKFLOW_URL = new URL("coverage.yml", WORKFLOWS_URL);
 const RELEASE_WORKFLOW_URL = new URL("release.yml", WORKFLOWS_URL);
 const FALLOW_CONFIG_URL = new URL(".fallowrc.json", ROOT_URL);
+const WASM_PACK_INSTALL_ACTION = "taiki-e/install-action@15449e3094499af05d8d964a1c884208e4b8b595";
+const WASM_PACK_WORKFLOWS = new Map([
+  ["bench.yml", "        if: matrix.kind == 'node'\n"],
+  ["ci.yml", ""],
+  ["coverage.yml", ""],
+  ["release.yml", ""],
+]);
 
 const trackedPackageLocks = async () => {
   const tracked = execFileSync("git", ["ls-files", "--", ":(glob)**/package-lock.json"], {
@@ -104,6 +111,52 @@ describe("Checkout credential policy", () => {
       }
     }
   });
+
+  it("uses a step-scoped token and explicit authenticated remote for badge pushes", async () => {
+    const workflow = await readFile(COVERAGE_WORKFLOW_URL, "utf8");
+    const job = workflowJob(workflow, "coverage");
+    const badgeStep = job.slice(job.indexOf("      - name: Update coverage badges"));
+
+    assert.match(badgeStep, /^        env:\n          GH_TOKEN: \$\{\{ github\.token \}\}$/m);
+    assert.doesNotMatch(job, /^    env:\n(?:      .*\n)*      GH_TOKEN:/m);
+    assert.doesNotMatch(badgeStep, /git push origin badges/);
+    const authenticatedPushes = badgeStep.match(
+      /git push "https:\/\/x-access-token:\$\{GH_TOKEN\}@github\.com\/\$\{GITHUB_REPOSITORY\}\.git" badges/g,
+    );
+    assert.equal(authenticatedPushes?.length, 2);
+  });
+});
+
+describe("Pinned wasm-pack installation policy", () => {
+  it("uses only the pinned install action for wasm-pack in every workflow", async () => {
+    for (const entry of await workflowFiles()) {
+      const workflow = await readFile(new URL(entry.name, WORKFLOWS_URL), "utf8");
+
+      assert.doesNotMatch(workflow, /rustwasm\.github\.io\/wasm-pack/, entry.name);
+      assert.doesNotMatch(workflow, /curl[^\n|]*\|\s*sh/, entry.name);
+
+      const condition = WASM_PACK_WORKFLOWS.get(entry.name);
+      if (condition !== undefined) {
+        const install = [
+          "      - name: Install wasm-pack",
+          condition.trimEnd(),
+          `        uses: ${WASM_PACK_INSTALL_ACTION} # v2.81.11`,
+          "        with:",
+          "          tool: wasm-pack@0.13.1",
+        ]
+          .filter(Boolean)
+          .join("\n");
+        assert.ok(workflow.includes(install), `${entry.name}: missing pinned wasm-pack installer`);
+      }
+
+      if (/\bwasm-pack (?:build|test)\b/.test(workflow)) {
+        assert.ok(
+          WASM_PACK_WORKFLOWS.has(entry.name),
+          `${entry.name}: wasm-pack use is missing from the pinned installer policy`,
+        );
+      }
+    }
+  });
 });
 
 describe("Rust feature coverage", () => {
@@ -143,6 +196,17 @@ describe("Release supply-chain policy", () => {
     const workflow = await readFile(RELEASE_WORKFLOW_URL, "utf8");
 
     assert.doesNotMatch(workflow, /\bnpm install\b/);
+  });
+
+  it("requires provenance for every npm publish attempt", async () => {
+    const workflow = await readFile(RELEASE_WORKFLOW_URL, "utf8");
+    const publishes = workflow.split("\n").filter((line) => /\bnpm publish\b/.test(line));
+
+    assert.ok(publishes.length > 0, "release workflow must publish npm packages");
+    for (const publish of publishes) {
+      assert.match(publish, /--provenance\b/, publish.trim());
+    }
+    assert.doesNotMatch(workflow, /retrying without provenance/i);
   });
 
   it("uses ordered frozen tooling for both NAPI package builds", async () => {

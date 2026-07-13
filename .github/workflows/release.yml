@@ -202,22 +202,9 @@ jobs:
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
 
       - name: Install wasm-pack
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          install_script='https://rustwasm.github.io/wasm-pack/installer/init.sh'
-
-          for attempt in 1 2 3; do
-            if curl "$install_script" -sSf | sh; then
-              exit 0
-            fi
-
-            echo "wasm-pack installer attempt $attempt failed; retrying..." >&2
-            sleep 5
-          done
-
-          cargo install wasm-pack --locked --version 0.13.1
+        uses: taiki-e/install-action@15449e3094499af05d8d964a1c884208e4b8b595 # v2.81.11
+        with:
+          tool: wasm-pack@0.13.1
 
       - name: Build sourcemap-wasm (nodejs)
         run: wasm-pack build --target nodejs --out-dir pkg --release
@@ -358,10 +345,7 @@ jobs:
             exit 0
           fi
 
-          if ! npm publish --access public --provenance --ignore-scripts; then
-            echo "Provenance publish failed for ${name}@${version}, retrying without provenance..."
-            npm publish --access public --ignore-scripts
-          fi
+          npm publish --access public --provenance --ignore-scripts
           EOF
           chmod +x /tmp/publish-if-needed.sh
 
@@ -449,11 +433,8 @@ jobs:
             fi
 
             if ! npm publish "$dir" --access public --provenance; then
-              echo "Provenance publish failed for ${name}@${version}, retrying without provenance..."
-              if ! npm publish "$dir" --access public; then
-                echo "::error::Failed to publish ${name}@${version}"
-                failed=1
-              fi
+              echo "::error::Failed to publish ${name}@${version} with provenance"
+              failed=1
             fi
           done
 
@@ -480,11 +461,8 @@ jobs:
             fi
 
             if ! npm publish "$dir" --access public --provenance; then
-              echo "Provenance publish failed for ${name}@${version}, retrying without provenance..."
-              if ! npm publish "$dir" --access public; then
-                echo "::error::Failed to publish ${name}@${version}"
-                failed=1
-              fi
+              echo "::error::Failed to publish ${name}@${version} with provenance"
+              failed=1
             fi
           done
 

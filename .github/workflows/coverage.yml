@@ -44,22 +44,9 @@ jobs:
         run: corepack pnpm install --ignore-scripts --frozen-lockfile
 
       - name: Install wasm-pack
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          install_script='https://rustwasm.github.io/wasm-pack/installer/init.sh'
-
-          for attempt in 1 2 3; do
-            if curl "$install_script" -sSf | sh; then
-              exit 0
-            fi
-
-            echo "wasm-pack installer attempt $attempt failed; retrying..." >&2
-            sleep 5
-          done
-
-          cargo install wasm-pack --locked --version 0.13.1
+        uses: taiki-e/install-action@15449e3094499af05d8d964a1c884208e4b8b595 # v2.81.11
+        with:
+          tool: wasm-pack@0.13.1
 
       # Rust coverage (lcov)
       - name: Rust coverage
@@ -123,6 +110,8 @@ jobs:
 
       # Update badges branch
       - name: Update coverage badges
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -134,7 +123,7 @@ jobs:
             echo "{}" > rust-coverage.json
             git add coverage.json rust-coverage.json
             git commit -m "chore: init badges branch"
-            git push origin badges
+            git push "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" badges
             git checkout main
           fi
 
@@ -148,7 +137,7 @@ jobs:
 
           git add coverage.json rust-coverage.json
           git diff --cached --quiet || git commit -m "chore: update coverage badges to ${COVERAGE}%"
-          git push origin badges
+          git push "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" badges
 
           cd "$GITHUB_WORKSPACE"
           git worktree remove /tmp/srcmap-badges

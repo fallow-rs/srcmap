@@ -100,22 +100,9 @@ jobs:
 
       - name: Install wasm-pack
         if: matrix.kind == 'node'
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          install_script='https://rustwasm.github.io/wasm-pack/installer/init.sh'
-
-          for attempt in 1 2 3; do
-            if curl "$install_script" -sSf | sh; then
-              exit 0
-            fi
-
-            echo "wasm-pack installer attempt $attempt failed; retrying..." >&2
-            sleep 5
-          done
-
-          cargo install wasm-pack --locked --version 0.13.1
+        uses: taiki-e/install-action@15449e3094499af05d8d964a1c884208e4b8b595 # v2.81.11
+        with:
+          tool: wasm-pack@0.13.1
 
       - name: Build JS benchmark packages
         if: matrix.kind == 'node'
