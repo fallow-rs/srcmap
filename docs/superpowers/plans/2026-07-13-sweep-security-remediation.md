@@ -24,6 +24,7 @@
 ### Task 1: Make 64-bit VLQ encoding memory-safe
 
 **Files:**
+- Modify: `crates/codec/src/lib.rs`
 - Modify: `crates/codec/src/vlq.rs`
 - Modify: `crates/codec/src/encode.rs`
 - Modify: `crates/generator/src/lib.rs`
