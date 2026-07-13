@@ -15,34 +15,16 @@ const VLQ_CONTINUATION_BIT: u64 = VLQ_BASE; // 0b100000
 pub const MAX_VLQ_BYTES: usize = 13;
 
 /// Pre-computed base64 encode lookup table (index -> char byte).
-#[rustfmt::skip]
-const BASE64_ENCODE: [u8; 64] = [
-    b'A', b'B', b'C', b'D', b'E', b'F', b'G', b'H',
-    b'I', b'J', b'K', b'L', b'M', b'N', b'O', b'P',
-    b'Q', b'R', b'S', b'T', b'U', b'V', b'W', b'X',
-    b'Y', b'Z', b'a', b'b', b'c', b'd', b'e', b'f',
-    b'g', b'h', b'i', b'j', b'k', b'l', b'm', b'n',
-    b'o', b'p', b'q', b'r', b's', b't', b'u', b'v',
-    b'w', b'x', b'y', b'z', b'0', b'1', b'2', b'3',
-    b'4', b'5', b'6', b'7', b'8', b'9', b'+', b'/',
-];
+const BASE64_ENCODE: [u8; 64] =
+    *b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
 /// Cache-line-aligned base64 encode table for encoding hot paths.
 /// 64 bytes fits exactly in one cache line, avoiding split-load penalties.
 #[repr(align(64))]
 struct AlignedBase64Table([u8; 64]);
 
-#[rustfmt::skip]
-static BASE64_TABLE: AlignedBase64Table = AlignedBase64Table([
-    b'A', b'B', b'C', b'D', b'E', b'F', b'G', b'H',
-    b'I', b'J', b'K', b'L', b'M', b'N', b'O', b'P',
-    b'Q', b'R', b'S', b'T', b'U', b'V', b'W', b'X',
-    b'Y', b'Z', b'a', b'b', b'c', b'd', b'e', b'f',
-    b'g', b'h', b'i', b'j', b'k', b'l', b'm', b'n',
-    b'o', b'p', b'q', b'r', b's', b't', b'u', b'v',
-    b'w', b'x', b'y', b'z', b'0', b'1', b'2', b'3',
-    b'4', b'5', b'6', b'7', b'8', b'9', b'+', b'/',
-]);
+static BASE64_TABLE: AlignedBase64Table =
+    AlignedBase64Table(*b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/");
 
 /// Pre-computed base64 decode lookup table (char byte -> value).
 /// Invalid characters map to 255.
