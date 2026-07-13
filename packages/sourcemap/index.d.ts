@@ -133,17 +133,17 @@ export declare class SourceMap {
    * Resolve a source index to a source filename.
    *
    * @param index - Source index from a lookup result
-   * @returns The source filename
+   * @returns The source filename, or `null` if the index is out of range
    */
-  source(index: number): string;
+  source(index: number): string | null;
 
   /**
    * Resolve a name index to a name string.
    *
    * @param index - Name index from a lookup result
-   * @returns The name string
+   * @returns The name string, or `null` if the index is out of range
    */
-  name(index: number): string;
+  name(index: number): string | null;
 
   /** All source filenames in the source map. */
   readonly sources: string[];

@@ -46,6 +46,16 @@ describe("sources and names", () => {
     const sm = new SourceMap(MULTI_SOURCE_MAP);
     assert.deepEqual(sm.sources, ["a.js", "b.js"]);
   });
+
+  it("returns null for an out-of-range source index", () => {
+    const sm = new SourceMap(SIMPLE_MAP);
+    assert.equal(sm.source(1), null);
+  });
+
+  it("returns null for an out-of-range name index", () => {
+    const sm = new SourceMap(SIMPLE_MAP);
+    assert.equal(sm.name(2), null);
+  });
 });
 
 describe("mappingCount and lineCount", () => {
