@@ -76,3 +76,15 @@ describe("Rust feature coverage", () => {
     assert.match(job, /^        run: cargo test -p srcmap-generator --features parallel$/m);
   });
 });
+
+describe("WASM package coverage", () => {
+  it("builds symbolicate WASM targets before JavaScript tests", async () => {
+    const workflow = await readFile(CI_WORKFLOW_URL, "utf8");
+    const job = workflowJob(workflow, "js-runtime");
+    const build = "corepack pnpm --filter @srcmap/symbolicate-wasm build:all";
+    const test = "corepack pnpm run test:js";
+
+    assert.ok(job.includes(build), "missing symbolicate WASM build");
+    assert.ok(job.indexOf(build) < job.indexOf(test), "symbolicate WASM must build before JS tests");
+  });
+});

@@ -216,6 +216,7 @@ jobs:
           corepack pnpm --filter @srcmap/sourcemap-wasm build:all
           corepack pnpm --filter @srcmap/generator-wasm build:all
           corepack pnpm --filter @srcmap/remapping-wasm build:all
+          corepack pnpm --filter @srcmap/symbolicate-wasm build:all
       - name: Run JS tests
         run: corepack pnpm run test:js
 
