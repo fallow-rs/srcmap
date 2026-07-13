@@ -1,6 +1,6 @@
 # Contributing to srcmap
 
-Thanks for your interest in contributing to srcmap! Whether it's a bug fix, new feature, documentation improvement, or benchmark — all contributions are welcome.
+Thanks for your interest in contributing to srcmap! Whether it's a bug fix, new feature, documentation improvement, or benchmark, all contributions are welcome.
 
 ## Quick start
 
@@ -9,6 +9,7 @@ Thanks for your interest in contributing to srcmap! Whether it's a bug fix, new 
 - [Rust](https://rustup.rs/) (latest stable, edition 2024)
 - [Node.js](https://nodejs.org/) (for running JS tests and benchmarks)
 - [wasm-pack](https://rustwasm.github.io/wasm-pack/installer/) (for building WASM packages)
+- [cargo-deny](https://github.com/EmbarkStudios/cargo-deny) and [typos](https://github.com/crate-ci/typos) (for the root checks)
 
 **Setup:**
 
@@ -18,13 +19,23 @@ cd srcmap
 corepack enable
 corepack pnpm install --frozen-lockfile
 
-# Build all Rust crates
-cargo build
+# Build the Rust workspace
+cargo build --workspace
 
-# Run tests
-cargo test
+# Build the NAPI packages used by the JavaScript tests
+corepack pnpm --filter @srcmap/codec build
+corepack pnpm --filter @srcmap/sourcemap build
 
-# Run JS tests (requires building NAPI and WASM packages first)
+# Build the Node.js and browser WASM packages used by the JavaScript tests
+corepack pnpm --filter @srcmap/sourcemap-wasm build:all
+corepack pnpm --filter @srcmap/generator-wasm build:all
+corepack pnpm --filter @srcmap/remapping-wasm build:all
+corepack pnpm --filter @srcmap/symbolicate-wasm build:all
+
+# Run all repository checks
+corepack pnpm run check
+
+# Run the Rust and JavaScript test suites
 corepack pnpm test
 ```
 
@@ -65,8 +76,11 @@ benchmarks/       JS benchmarks comparing against existing libraries
 cargo build                     # Debug build
 cargo build --release           # Optimized build
 
-# Build a specific WASM package
-cd packages/sourcemap-wasm && wasm-pack build --target web
+# Build a specific NAPI package
+corepack pnpm --filter @srcmap/sourcemap build
+
+# Build a specific WASM package for Node.js and browsers
+corepack pnpm --filter @srcmap/sourcemap-wasm build:all
 ```
 
 ### Testing
@@ -74,7 +88,7 @@ cd packages/sourcemap-wasm && wasm-pack build --target web
 ```bash
 cargo test                      # All Rust tests
 cargo test -p srcmap-sourcemap  # Single crate
-corepack pnpm run test:js       # JS/WASM tests
+corepack pnpm run test:js       # JS/WASM tests (run the binding builds above first)
 ```
 
 ### Benchmarks
@@ -84,7 +98,7 @@ corepack pnpm run test:js       # JS/WASM tests
 cargo bench -p srcmap-sourcemap
 
 # JS benchmarks (comparison with other libraries)
-corepack pnpm --dir benchmarks exec node sourcemap-wasm.mjs
+corepack pnpm --dir benchmarks run bench:wasm
 ```
 
 ### Coverage
@@ -96,7 +110,7 @@ corepack pnpm run coverage:js   # JS coverage
 
 ## Code standards
 
-- **Formatting:** `cargo fmt` is enforced by a pre-commit hook and CI. Run it before committing.
+- **Formatting:** `cargo fmt` is enforced by CI. Run it before committing.
 - **Linting:** `cargo clippy` must pass without warnings.
 - **Tests:** Add or update tests for any changed behavior. All crates should maintain good test coverage.
 - **Documentation:** Public APIs should have doc comments. Use `cargo doc --open` to preview.
@@ -105,21 +119,21 @@ corepack pnpm run coverage:js   # JS coverage
 
 We use [conventional commits](https://www.conventionalcommits.org/):
 
-- `feat:` — new feature
-- `fix:` — bug fix
-- `refactor:` — code change that neither fixes a bug nor adds a feature
-- `test:` — adding or updating tests
-- `docs:` — documentation only
-- `chore:` — maintenance, CI, dependencies
-- `perf:` — performance improvement
+- `feat:`: new feature
+- `fix:`: bug fix
+- `refactor:`: code change that neither fixes a bug nor adds a feature
+- `test:`: adding or updating tests
+- `docs:`: documentation only
+- `chore:`: maintenance, CI, dependencies
+- `perf:`: performance improvement
 
 Example: `feat: add name resolution to scopes decoder`
 
 ## Pull request process
 
 1. Fork the repo and create a branch from `main`.
-2. Make your changes, ensuring `cargo fmt`, `cargo clippy`, and `cargo test` all pass.
-3. Write a clear PR description — the repo has a [PR template](.github/PULL_REQUEST_TEMPLATE.md) to guide you.
+2. Make your changes, ensuring `corepack pnpm run check` and `corepack pnpm test` both pass.
+3. Write a clear PR description. The repo has a [PR template](.github/PULL_REQUEST_TEMPLATE.md) to guide you.
 4. For performance-sensitive changes, include benchmark results.
 5. Keep PRs focused. Prefer smaller, reviewable changes over large ones.
 
