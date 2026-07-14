@@ -1,6 +1,6 @@
 use std::fmt::Write as _;
 use std::fs;
-use std::io::{Read, Write};
+use std::io::{Cursor, Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -955,10 +955,14 @@ const MAX_REQUEST_HEADERS_SIZE: usize = 32 * 1024;
 
 fn read_request(stream: &mut TcpStream) -> String {
     stream.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
+    read_request_from(stream)
+}
+
+fn read_request_from<R: Read>(reader: &mut R) -> String {
     let mut request = Vec::with_capacity(512);
     while !request.ends_with(b"\r\n\r\n") {
         let mut byte = [0_u8; 1];
-        stream.read_exact(&mut byte).unwrap();
+        reader.read_exact(&mut byte).unwrap();
         request.push(byte[0]);
         assert!(
             request.len() <= MAX_REQUEST_HEADERS_SIZE,
@@ -971,29 +975,51 @@ fn read_request(stream: &mut TcpStream) -> String {
     request_line.split_whitespace().nth(1).unwrap_or_default().to_string()
 }
 
+struct StagedRequest {
+    request_line: Cursor<Vec<u8>>,
+    headers: Cursor<Vec<u8>>,
+    waiting_sender: Option<mpsc::Sender<()>>,
+    release_receiver: Receiver<()>,
+}
+
+impl Read for StagedRequest {
+    fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
+        let read = self.request_line.read(buffer)?;
+        if read > 0 {
+            return Ok(read);
+        }
+
+        if let Some(sender) = self.waiting_sender.take() {
+            sender.send(()).unwrap();
+            self.release_receiver.recv().unwrap();
+        }
+
+        self.headers.read(buffer)
+    }
+}
+
 #[test]
 fn read_request_waits_for_complete_headers() {
-    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-    let address = listener.local_addr().unwrap();
-    let (accepted_sender, accepted_receiver) = mpsc::channel();
+    let (waiting_sender, waiting_receiver) = mpsc::channel();
+    let (release_sender, release_receiver) = mpsc::channel();
     let (path_sender, path_receiver) = mpsc::channel();
+    let mut request = StagedRequest {
+        request_line: Cursor::new(b"GET /complete HTTP/1.1\r\n".to_vec()),
+        headers: Cursor::new(b"Host: localhost\r\nConnection: close\r\n\r\n".to_vec()),
+        waiting_sender: Some(waiting_sender),
+        release_receiver,
+    };
     let server = thread::spawn(move || {
-        let (mut stream, _) = listener.accept().unwrap();
-        accepted_sender.send(()).unwrap();
-        path_sender.send(read_request(&mut stream)).unwrap();
+        path_sender.send(read_request_from(&mut request)).unwrap();
     });
 
-    let mut client = TcpStream::connect(address).unwrap();
-    accepted_receiver.recv_timeout(Duration::from_secs(2)).unwrap();
-    client.write_all(b"GET /complete HTTP/1.1\r\n").unwrap();
-    client.flush().unwrap();
-
+    waiting_receiver.recv_timeout(Duration::from_secs(2)).unwrap();
     assert!(
-        path_receiver.recv_timeout(Duration::from_millis(100)).is_err(),
+        matches!(path_receiver.try_recv(), Err(mpsc::TryRecvError::Empty)),
         "request completed before the header terminator"
     );
 
-    client.write_all(b"Host: localhost\r\nConnection: close\r\n\r\n").unwrap();
+    release_sender.send(()).unwrap();
     assert_eq!(path_receiver.recv_timeout(Duration::from_secs(2)).unwrap(), "/complete");
     server.join().unwrap();
 }
