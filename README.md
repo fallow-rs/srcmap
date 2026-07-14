@@ -313,8 +313,7 @@ corepack pnpm --filter @srcmap/remapping-wasm build:all
 corepack pnpm --filter @srcmap/symbolicate-wasm build:all
 
 # NAPI packages
-corepack pnpm --filter @srcmap/sourcemap build
-corepack pnpm --filter @srcmap/codec build
+corepack pnpm run build:test-artifacts:napi
 
 # JS benchmarks
 corepack pnpm --dir benchmarks run download-fixtures

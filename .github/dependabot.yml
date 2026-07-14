@@ -13,6 +13,10 @@ updates:
         patterns: ["napi", "napi-derive", "napi-build"]
       wasm-bindgen:
         patterns: ["wasm-bindgen", "js-sys"]
+    ignore:
+      # memchr 2.8.3 regressed the performance gate; retry with the next release.
+      - dependency-name: memchr
+        versions: ["2.8.3"]
     open-pull-requests-limit: 10
 
   - package-ecosystem: npm

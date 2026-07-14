@@ -5,11 +5,15 @@ import { describe, it } from "node:test";
 
 const ROOT_URL = new URL("../../", import.meta.url);
 const WORKFLOWS_URL = new URL("workflows/", new URL("../", import.meta.url));
+const BENCH_WORKFLOW_URL = new URL("bench.yml", WORKFLOWS_URL);
 const CI_WORKFLOW_URL = new URL("ci.yml", WORKFLOWS_URL);
 const COVERAGE_WORKFLOW_URL = new URL("coverage.yml", WORKFLOWS_URL);
 const RELEASE_WORKFLOW_URL = new URL("release.yml", WORKFLOWS_URL);
+const CONTRIBUTING_URL = new URL("CONTRIBUTING.md", ROOT_URL);
+const DEPENDABOT_CONFIG_URL = new URL(".github/dependabot.yml", ROOT_URL);
 const FALLOW_CONFIG_URL = new URL(".fallowrc.json", ROOT_URL);
 const PACKAGE_JSON_URL = new URL("package.json", ROOT_URL);
+const README_URL = new URL("README.md", ROOT_URL);
 const WASM_PACK_INSTALL_ACTION = "taiki-e/install-action@43aecc8d72668fbcfe75c31400bc4f890f1c5853";
 const WASM_PACK_WORKFLOWS = new Map([
   ["bench.yml", "        if: matrix.kind == 'node'\n"],
@@ -70,6 +74,19 @@ const workflowJob = (workflow, jobName) => {
   return nextJob === -1 ? remaining : remaining.slice(0, nextJob);
 };
 
+const assertSafeNapiConsumer = (name, contents) => {
+  const unsafeBuilds = [
+    /\bnapi build\b/,
+    /\bpnpm\b[^\n]*--filter @srcmap\/(?:codec|sourcemap)(?=\s)[^\n]*\bbuild\b/,
+    /\b(?:cd|working-directory:)\s+packages\/(?:codec|sourcemap)(?=\s|$)/m,
+    /\bpnpm\b[^\n]*--dir\s+packages\/(?:codec|sourcemap)(?=\s)[^\n]*\bbuild\b/,
+  ];
+
+  for (const unsafeBuild of unsafeBuilds) {
+    assert.doesNotMatch(contents, unsafeBuild, `${name}: use the no-js bootstrap`);
+  }
+};
+
 describe("JavaScript dependency policy", () => {
   it("keeps pnpm-lock.yaml as the only tracked JavaScript lockfile", async () => {
     assert.deepEqual(await trackedPackageLocks(), []);
@@ -119,6 +136,50 @@ describe("Generated artifact policy", () => {
       /      - name: Build JavaScript test artifacts\n        run: corepack pnpm run build:test-artifacts/,
     );
     assert.doesNotMatch(job, /corepack pnpm --filter @srcmap\/.+ build/);
+  });
+
+  it("keeps every non-release NAPI consumer on the no-js bootstrap", async () => {
+    const ci = await readFile(CI_WORKFLOW_URL, "utf8");
+    const coverage = await readFile(COVERAGE_WORKFLOW_URL, "utf8");
+    const bench = await readFile(BENCH_WORKFLOW_URL, "utf8");
+    const contributing = await readFile(CONTRIBUTING_URL, "utf8");
+    const readme = await readFile(README_URL, "utf8");
+    assert.match(workflowJob(ci, "js-runtime"), /corepack pnpm run build:test-artifacts/);
+    assert.match(workflowJob(coverage, "coverage"), /corepack pnpm run build:test-artifacts:napi/);
+    assert.match(bench, /corepack pnpm run build:test-artifacts:napi/);
+    assert.match(contributing, /corepack pnpm run build:test-artifacts:napi/);
+    assert.match(readme, /corepack pnpm run build:test-artifacts:napi/);
+
+    for (const [name, contents] of [
+      ["ci.yml", ci],
+      ["coverage.yml", coverage],
+      ["bench.yml", bench],
+      ["CONTRIBUTING.md", contributing],
+      ["README.md", readme],
+    ]) {
+      assertSafeNapiConsumer(name, contents);
+    }
+  });
+
+  it("rejects direct and package-local NAPI build variants", () => {
+    for (const unsafeBuild of [
+      "corepack pnpm exec napi build --release",
+      "run: corepack pnpm run build\nworking-directory: packages/codec",
+      "corepack pnpm --dir packages/sourcemap run build",
+    ]) {
+      assert.throws(() => assertSafeNapiConsumer("fixture", unsafeBuild));
+    }
+  });
+});
+
+describe("Dependabot policy", () => {
+  it("holds only memchr 2.8.3 after its failed performance gate", async () => {
+    const config = await readFile(DEPENDABOT_CONFIG_URL, "utf8");
+
+    assert.match(
+      config,
+      /# memchr 2\.8\.3 regressed the performance gate; retry with the next release\.\n\s+- dependency-name: memchr\n\s+versions: \["2\.8\.3"\]/,
+    );
   });
 });
 
