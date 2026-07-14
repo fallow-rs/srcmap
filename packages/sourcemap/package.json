@@ -44,7 +44,7 @@
     "detect-libc": "^2.0.0"
   },
   "devDependencies": {
-    "@napi-rs/cli": "^3.7.2"
+    "@napi-rs/cli": "^3.7.3"
   },
   "optionalDependencies": {
     "@srcmap/sourcemap-darwin-arm64": "0.3.9",
