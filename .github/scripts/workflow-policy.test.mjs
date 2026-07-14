@@ -127,6 +127,18 @@ describe("Checkout credential policy", () => {
   });
 });
 
+describe("Pinned installer policy", () => {
+  it("specifies a tool for every install-action step", async () => {
+    for (const entry of await workflowFiles()) {
+      const workflow = await readFile(new URL(entry.name, WORKFLOWS_URL), "utf8");
+
+      for (const step of workflowSteps(workflow, "taiki-e/install-action@")) {
+        assert.match(step, /^\s+tool: \S+$/m, `${entry.name}: install-action must specify a tool`);
+      }
+    }
+  });
+});
+
 describe("Pinned wasm-pack installation policy", () => {
   it("uses only the pinned install action for wasm-pack in every workflow", async () => {
     for (const entry of await workflowFiles()) {
