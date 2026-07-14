@@ -9,7 +9,7 @@ const CI_WORKFLOW_URL = new URL("ci.yml", WORKFLOWS_URL);
 const COVERAGE_WORKFLOW_URL = new URL("coverage.yml", WORKFLOWS_URL);
 const RELEASE_WORKFLOW_URL = new URL("release.yml", WORKFLOWS_URL);
 const FALLOW_CONFIG_URL = new URL(".fallowrc.json", ROOT_URL);
-const WASM_PACK_INSTALL_ACTION = "taiki-e/install-action@15449e3094499af05d8d964a1c884208e4b8b595";
+const WASM_PACK_INSTALL_ACTION = "taiki-e/install-action@43aecc8d72668fbcfe75c31400bc4f890f1c5853";
 const WASM_PACK_WORKFLOWS = new Map([
   ["bench.yml", "        if: matrix.kind == 'node'\n"],
   ["ci.yml", ""],
@@ -140,7 +140,7 @@ describe("Pinned wasm-pack installation policy", () => {
         const install = [
           "      - name: Install wasm-pack",
           condition.trimEnd(),
-          `        uses: ${WASM_PACK_INSTALL_ACTION} # v2.81.11`,
+          `        uses: ${WASM_PACK_INSTALL_ACTION} # v2.83.2`,
           "        with:",
           "          tool: wasm-pack@0.13.1",
         ]
