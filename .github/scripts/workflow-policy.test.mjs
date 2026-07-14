@@ -9,6 +9,7 @@ const CI_WORKFLOW_URL = new URL("ci.yml", WORKFLOWS_URL);
 const COVERAGE_WORKFLOW_URL = new URL("coverage.yml", WORKFLOWS_URL);
 const RELEASE_WORKFLOW_URL = new URL("release.yml", WORKFLOWS_URL);
 const FALLOW_CONFIG_URL = new URL(".fallowrc.json", ROOT_URL);
+const PACKAGE_JSON_URL = new URL("package.json", ROOT_URL);
 const WASM_PACK_INSTALL_ACTION = "taiki-e/install-action@43aecc8d72668fbcfe75c31400bc4f890f1c5853";
 const WASM_PACK_WORKFLOWS = new Map([
   ["bench.yml", "        if: matrix.kind == 'node'\n"],
@@ -94,6 +95,30 @@ describe("Generated artifact policy", () => {
     const config = JSON.parse(await readFile(FALLOW_CONFIG_URL, "utf8"));
 
     assert.ok(config.ignoreUnresolvedImports.includes("**/srcmap_*_wasm_bg.wasm"));
+  });
+
+  it("uses one safe bootstrap command for JavaScript test artifacts", async () => {
+    const packageJson = JSON.parse(await readFile(PACKAGE_JSON_URL, "utf8"));
+    assert.equal(
+      packageJson.scripts["build:test-artifacts"],
+      "pnpm run build:test-artifacts:napi && pnpm run build:test-artifacts:wasm",
+    );
+    assert.equal(
+      packageJson.scripts["build:test-artifacts:napi"],
+      "pnpm --filter @srcmap/codec exec napi build --release --platform --no-js --dts ../../target/napi-codec.d.ts && pnpm --filter @srcmap/sourcemap exec napi build --release --platform --no-js --dts ../../target/napi-sourcemap.d.ts",
+    );
+    assert.equal(
+      packageJson.scripts["build:test-artifacts:wasm"],
+      "pnpm --filter @srcmap/sourcemap-wasm build:all && pnpm --filter @srcmap/generator-wasm build:all && pnpm --filter @srcmap/remapping-wasm build:all && pnpm --filter @srcmap/symbolicate-wasm build:all",
+    );
+
+    const workflow = await readFile(CI_WORKFLOW_URL, "utf8");
+    const job = workflowJob(workflow, "js-runtime");
+    assert.match(
+      job,
+      /      - name: Build JavaScript test artifacts\n        run: corepack pnpm run build:test-artifacts/,
+    );
+    assert.doesNotMatch(job, /corepack pnpm --filter @srcmap\/.+ build/);
   });
 });
 
@@ -284,7 +309,7 @@ describe("NAPI declaration coverage", () => {
   it("checks generated declarations after the NAPI build and before JavaScript tests", async () => {
     const workflow = await readFile(CI_WORKFLOW_URL, "utf8");
     const job = workflowJob(workflow, "js-runtime");
-    const build = "corepack pnpm --filter @srcmap/sourcemap build";
+    const build = "corepack pnpm run build:test-artifacts";
     const declarationStep =
       "      - name: Check N-API declarations\n        run: node .github/scripts/check-napi-declarations.mjs";
     const check = "node .github/scripts/check-napi-declarations.mjs";
@@ -300,7 +325,7 @@ describe("WASM package coverage", () => {
   it("builds symbolicate WASM targets before JavaScript tests", async () => {
     const workflow = await readFile(CI_WORKFLOW_URL, "utf8");
     const job = workflowJob(workflow, "js-runtime");
-    const build = "corepack pnpm --filter @srcmap/symbolicate-wasm build:all";
+    const build = "corepack pnpm run build:test-artifacts";
     const test = "corepack pnpm run test:js";
 
     assert.ok(job.includes(build), "missing symbolicate WASM build");

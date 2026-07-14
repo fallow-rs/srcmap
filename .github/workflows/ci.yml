@@ -225,18 +225,10 @@ jobs:
         uses: taiki-e/install-action@43aecc8d72668fbcfe75c31400bc4f890f1c5853 # v2.83.2
         with:
           tool: wasm-pack@0.13.1
-      - name: Build N-API packages
-        run: |
-          corepack pnpm --filter @srcmap/codec build
-          corepack pnpm --filter @srcmap/sourcemap build
+      - name: Build JavaScript test artifacts
+        run: corepack pnpm run build:test-artifacts
       - name: Check N-API declarations
         run: node .github/scripts/check-napi-declarations.mjs
-      - name: Build WASM packages
-        run: |
-          corepack pnpm --filter @srcmap/sourcemap-wasm build:all
-          corepack pnpm --filter @srcmap/generator-wasm build:all
-          corepack pnpm --filter @srcmap/remapping-wasm build:all
-          corepack pnpm --filter @srcmap/symbolicate-wasm build:all
       - name: Run JS tests
         run: corepack pnpm run test:js
 

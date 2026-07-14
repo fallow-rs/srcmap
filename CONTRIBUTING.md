@@ -22,15 +22,8 @@ corepack pnpm install --frozen-lockfile
 # Build the Rust workspace
 cargo build --workspace
 
-# Build the NAPI packages used by the JavaScript tests
-corepack pnpm --filter @srcmap/codec build
-corepack pnpm --filter @srcmap/sourcemap build
-
-# Build the Node.js and browser WASM packages used by the JavaScript tests
-corepack pnpm --filter @srcmap/sourcemap-wasm build:all
-corepack pnpm --filter @srcmap/generator-wasm build:all
-corepack pnpm --filter @srcmap/remapping-wasm build:all
-corepack pnpm --filter @srcmap/symbolicate-wasm build:all
+# Build all generated NAPI and WASM artifacts used by the JavaScript tests
+corepack pnpm run build:test-artifacts
 
 # Run all repository checks
 corepack pnpm run check
@@ -90,7 +83,7 @@ corepack pnpm --filter @srcmap/sourcemap-wasm build:all
 ```bash
 cargo test                      # All Rust tests
 cargo test -p srcmap-sourcemap  # Single crate
-corepack pnpm run test:js       # JS/WASM tests (run the binding builds above first)
+corepack pnpm run test:js       # JS/WASM tests (run build:test-artifacts first)
 ```
 
 ### Benchmarks
