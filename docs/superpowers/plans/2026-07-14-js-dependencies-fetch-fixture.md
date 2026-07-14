@@ -214,7 +214,7 @@ git status --short --branch
 git log --show-signature --format=fuller origin/main..HEAD
 ```
 
-Expected: only the design, plan, fixture test helper, dependency manifest, and lockfile are changed; commits have valid signatures.
+Expected: only the design, plan, fixture test helper, dependency manifests, lockfiles, and the intentional `.worktrees/` ignore entry are changed; commits have valid signatures.
 
 - [ ] **Step 3: Push and create a ready pull request**
 
