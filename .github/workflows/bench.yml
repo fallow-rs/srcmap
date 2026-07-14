@@ -107,8 +107,7 @@ jobs:
       - name: Build JS benchmark packages
         if: matrix.kind == 'node'
         run: |
-          corepack pnpm --filter @srcmap/codec build
-          corepack pnpm --filter @srcmap/sourcemap build
+          corepack pnpm run build:test-artifacts:napi
           corepack pnpm --filter @srcmap/sourcemap-wasm build
 
       - name: Download real-world fixtures

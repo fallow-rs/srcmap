@@ -71,8 +71,8 @@ The experimental `generator`, `remapping` NAPI, and `scopes-wasm` binding crates
 cargo build                     # Debug build
 cargo build --release           # Optimized build
 
-# Build a specific NAPI package
-corepack pnpm --filter @srcmap/sourcemap build
+# Build NAPI test artifacts without rewriting tracked loaders
+corepack pnpm run build:test-artifacts:napi
 
 # Build a specific WASM package for Node.js and browsers
 corepack pnpm --filter @srcmap/sourcemap-wasm build:all
