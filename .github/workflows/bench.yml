@@ -82,10 +82,10 @@ jobs:
         if: matrix.kind == 'node'
         run: corepack enable
 
-      - uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7
+      - uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30
         if: matrix.kind == 'rust'
 
-      - uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7
+      - uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30
         if: matrix.kind == 'node'
         with:
           targets: wasm32-unknown-unknown

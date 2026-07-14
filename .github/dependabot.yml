@@ -46,3 +46,6 @@ updates:
       default-days: 7
     commit-message:
       prefix: chore
+    ignore:
+      # The stable branch has no current versioned release; synchronize its commit pin manually.
+      - dependency-name: dtolnay/rust-toolchain
