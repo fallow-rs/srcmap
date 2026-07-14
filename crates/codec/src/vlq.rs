@@ -41,7 +41,7 @@ const BASE64_DECODE: [u8; 128] = {
 /// Encode a single signed VLQ value directly into the buffer using unchecked writes.
 ///
 /// # Safety
-/// Caller must ensure `out` has exactly [`MAX_VLQ_BYTES`] bytes of spare capacity
+/// Caller must ensure `out` has at least [`MAX_VLQ_BYTES`] bytes of spare capacity
 /// available for this write (`out.capacity() - out.len() >= MAX_VLQ_BYTES`).
 #[inline(always)]
 pub unsafe fn vlq_encode_unchecked(out: &mut Vec<u8>, value: i64) {
@@ -162,7 +162,7 @@ pub fn vlq_decode(input: &[u8], pos: usize) -> Result<(i64, usize), DecodeError>
 /// Encode a single unsigned VLQ value directly into the buffer using unchecked writes.
 ///
 /// # Safety
-/// Caller must ensure `out` has exactly [`MAX_VLQ_BYTES`] bytes of spare capacity
+/// Caller must ensure `out` has at least [`MAX_VLQ_BYTES`] bytes of spare capacity
 /// available for this write (`out.capacity() - out.len() >= MAX_VLQ_BYTES`).
 #[inline(always)]
 pub unsafe fn vlq_encode_unsigned_unchecked(out: &mut Vec<u8>, value: u64) {

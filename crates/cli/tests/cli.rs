@@ -695,6 +695,65 @@ fn sources_extract_security_skips_existing_destination() {
 
 #[cfg(unix)]
 #[test]
+fn sources_extract_security_rejects_symlink_output_root() {
+    use std::os::unix::fs::symlink;
+
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().canonicalize().unwrap();
+    let outside_dir = root.join("outside");
+    let output_dir = root.join("output");
+    fs::create_dir(&outside_dir).unwrap();
+    symlink(&outside_dir, &output_dir).unwrap();
+    let map = write_sources_map(dir.path(), &["source.ts"]);
+
+    let out = srcmap()
+        .args([
+            "sources",
+            map.to_str().unwrap(),
+            "--extract",
+            "-o",
+            output_dir.to_str().unwrap(),
+            "--json",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(!out.status.success());
+    assert!(!outside_dir.join("source.ts").exists());
+}
+
+#[cfg(unix)]
+#[test]
+fn sources_extract_security_rejects_symlink_output_ancestor() {
+    use std::os::unix::fs::symlink;
+
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().canonicalize().unwrap();
+    let outside_dir = root.join("outside");
+    let linked_dir = root.join("linked");
+    let output_dir = linked_dir.join("nested");
+    fs::create_dir(&outside_dir).unwrap();
+    symlink(&outside_dir, &linked_dir).unwrap();
+    let map = write_sources_map(&root, &["source.ts"]);
+
+    let out = srcmap()
+        .args([
+            "sources",
+            map.to_str().unwrap(),
+            "--extract",
+            "-o",
+            output_dir.to_str().unwrap(),
+            "--json",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(!out.status.success());
+    assert!(!outside_dir.join("nested/source.ts").exists());
+}
+
+#[cfg(unix)]
+#[test]
 fn sources_extract_security_skips_parent_symlink() {
     use std::os::unix::fs::symlink;
 
@@ -1026,6 +1085,61 @@ fn fetch_security_rejects_symlink_bundle_destination() {
     received.recv_timeout(Duration::from_secs(2)).unwrap();
     assert!(!out.status.success());
     assert_eq!(fs::read_to_string(outside.path()).unwrap(), "sentinel");
+}
+
+#[cfg(unix)]
+#[test]
+fn fetch_security_rejects_symlink_output_root() {
+    use std::os::unix::fs::symlink;
+
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let inline = "console.log(1);\n//# sourceMappingURL=data:application/json;base64,eyJ2ZXJzaW9uIjozLCJzb3VyY2VzIjpbXSwibmFtZXMiOltdLCJtYXBwaW5ncyI6IiJ9";
+    let reply = response("200 OK", &[], inline);
+    let received = serve_once(listener.try_clone().unwrap(), reply, Duration::ZERO);
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().canonicalize().unwrap();
+    let outside_dir = root.join("outside");
+    let output_dir = root.join("output");
+    fs::create_dir(&outside_dir).unwrap();
+    symlink(&outside_dir, &output_dir).unwrap();
+
+    let out = srcmap()
+        .args(["fetch", &local_url(&listener, "/bundle.js"), "-o"])
+        .arg(&output_dir)
+        .output()
+        .unwrap();
+
+    assert!(received.recv_timeout(Duration::from_millis(100)).is_err());
+    assert!(!out.status.success());
+    assert!(!outside_dir.join("bundle.js").exists());
+}
+
+#[cfg(unix)]
+#[test]
+fn fetch_security_rejects_symlink_output_ancestor() {
+    use std::os::unix::fs::symlink;
+
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let inline = "console.log(1);\n//# sourceMappingURL=data:application/json;base64,eyJ2ZXJzaW9uIjozLCJzb3VyY2VzIjpbXSwibmFtZXMiOltdLCJtYXBwaW5ncyI6IiJ9";
+    let reply = response("200 OK", &[], inline);
+    let received = serve_once(listener.try_clone().unwrap(), reply, Duration::ZERO);
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().canonicalize().unwrap();
+    let outside_dir = root.join("outside");
+    let linked_dir = root.join("linked");
+    let output_dir = linked_dir.join("nested");
+    fs::create_dir(&outside_dir).unwrap();
+    symlink(&outside_dir, &linked_dir).unwrap();
+
+    let out = srcmap()
+        .args(["fetch", &local_url(&listener, "/bundle.js"), "-o"])
+        .arg(&output_dir)
+        .output()
+        .unwrap();
+
+    assert!(received.recv_timeout(Duration::from_millis(100)).is_err());
+    assert!(!out.status.success());
+    assert!(!outside_dir.join("nested/bundle.js").exists());
 }
 
 #[cfg(unix)]

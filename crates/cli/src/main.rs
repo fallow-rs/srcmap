@@ -648,6 +648,98 @@ fn extraction_io(action: &str, path: &Path, error: &io::Error) -> CliError {
     CliError::io(format!("{action} {}: {error}", path.display()))
 }
 
+fn is_known_immutable_root_alias(name: &OsStr) -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        name == OsStr::new("var") || name == OsStr::new("tmp")
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = name;
+        false
+    }
+}
+
+fn open_or_create_output_component(
+    parent: &Dir,
+    name: &OsStr,
+    output_dir: &Path,
+    allow_root_alias: bool,
+) -> Result<Dir, CliError> {
+    match parent.open_dir_nofollow(name) {
+        Ok(directory) => return Ok(directory),
+        Err(error) if error.kind() != io::ErrorKind::NotFound => {
+            if allow_root_alias
+                && is_known_immutable_root_alias(name)
+                && parent
+                    .symlink_metadata(name)
+                    .is_ok_and(|metadata| metadata.file_type().is_symlink())
+            {
+                // These macOS root aliases are not mutable by ordinary users.
+                return parent.open_dir(name).map_err(|open_error| {
+                    extraction_io("failed to open output directory", output_dir, &open_error)
+                });
+            }
+            return Err(extraction_io("failed to open output directory", output_dir, &error));
+        }
+        Err(_) => {}
+    }
+
+    match parent.create_dir(name) {
+        Ok(()) => {}
+        Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}
+        Err(error) => {
+            return Err(extraction_io("failed to create output directory", output_dir, &error));
+        }
+    }
+
+    parent
+        .open_dir_nofollow(name)
+        .map_err(|error| extraction_io("failed to open output directory", output_dir, &error))
+}
+
+fn open_or_create_output_dir(output_dir: &Path) -> Result<Dir, CliError> {
+    let absolute = std::path::absolute(output_dir)
+        .map_err(|error| extraction_io("failed to resolve output directory", output_dir, &error))?;
+    let root_path = absolute.ancestors().last().ok_or_else(|| {
+        CliError::io(format!("output directory has no root: {}", output_dir.display()))
+    })?;
+    let relative = absolute.strip_prefix(root_path).map_err(|error| {
+        CliError::io(format!(
+            "failed to resolve output directory {}: {error}",
+            output_dir.display()
+        ))
+    })?;
+    let mut components = Vec::new();
+    for component in relative.components() {
+        match component {
+            Component::Normal(name) => components.push(name.to_os_string()),
+            Component::CurDir => {}
+            Component::ParentDir => {
+                components.pop().ok_or_else(|| {
+                    CliError::path_traversal(format!(
+                        "output directory escapes its filesystem root: {}",
+                        output_dir.display()
+                    ))
+                })?;
+            }
+            Component::Prefix(_) | Component::RootDir => {
+                return Err(CliError::invalid_input(format!(
+                    "output directory contains an unexpected root component: {}",
+                    output_dir.display()
+                )));
+            }
+        }
+    }
+
+    let mut current = Dir::open_ambient_dir(root_path, ambient_authority())
+        .map_err(|error| extraction_io("failed to open output directory", output_dir, &error))?;
+    for (index, component) in components.iter().enumerate() {
+        current = open_or_create_output_component(&current, component, output_dir, index == 0)?;
+    }
+    Ok(current)
+}
+
 fn parent_entry_is_unsafe(parent: &Dir, name: &OsStr) -> Result<bool, CliError> {
     match parent.symlink_metadata(name) {
         Ok(metadata) => Ok(metadata.file_type().is_symlink() || !metadata.is_dir()),
@@ -1783,21 +1875,15 @@ fn parse_fetch_url(input: &str) -> Result<Url, CliError> {
     Ok(url)
 }
 
-fn fetch_output_dir(output: &Option<PathBuf>) -> Result<PathBuf, CliError> {
+fn fetch_output_dir(output: &Option<PathBuf>) -> Result<(PathBuf, Dir), CliError> {
     let output_dir = match output {
         Some(dir) => dir.clone(),
         None => {
             std::env::current_dir().map_err(|e| CliError::io(format!("cannot get cwd: {e}")))?
         }
     };
-
-    if !output_dir.exists() {
-        fs::create_dir_all(&output_dir).map_err(|e| {
-            CliError::io(format!("failed to create output directory {}: {e}", output_dir.display()))
-        })?;
-    }
-
-    Ok(output_dir)
+    let output_handle = open_or_create_output_dir(&output_dir)?;
+    Ok((output_dir, output_handle))
 }
 
 fn write_fetch_output(
@@ -1968,14 +2054,7 @@ fn cmd_fetch(
     let url = parse_fetch_url(url)?;
     let agent = http_agent();
 
-    let output_dir = fetch_output_dir(output)?;
-    let output_handle =
-        Dir::open_ambient_dir(&output_dir, ambient_authority()).map_err(|error| {
-            CliError::io(format!(
-                "failed to open output directory {}: {error}",
-                output_dir.display()
-            ))
-        })?;
+    let (output_dir, output_handle) = fetch_output_dir(output)?;
     let (bundle_filename, bundle_path, bundle_body, bundle_url) =
         fetch_bundle(&agent, &url, &output_handle, &output_dir, allow_cross_origin)?;
 
@@ -2020,10 +2099,7 @@ fn extract_source_contents(
     sm: &SourceMap,
     output_dir: &Path,
 ) -> Result<(Vec<serde_json::Value>, Vec<String>), CliError> {
-    Dir::create_ambient_dir_all(output_dir, ambient_authority())
-        .map_err(|error| extraction_io("failed to create output directory", output_dir, &error))?;
-    let root = Dir::open_ambient_dir(output_dir, ambient_authority())
-        .map_err(|error| extraction_io("failed to open output directory", output_dir, &error))?;
+    let root = open_or_create_output_dir(output_dir)?;
     let mut extracted = Vec::new();
     let mut skipped = Vec::new();
 
