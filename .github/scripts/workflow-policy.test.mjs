@@ -14,6 +14,8 @@ const DEPENDABOT_CONFIG_URL = new URL(".github/dependabot.yml", ROOT_URL);
 const FALLOW_CONFIG_URL = new URL(".fallowrc.json", ROOT_URL);
 const PACKAGE_JSON_URL = new URL("package.json", ROOT_URL);
 const README_URL = new URL("README.md", ROOT_URL);
+const RUST_TOOLCHAIN_ACTION =
+  "dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30";
 const WASM_PACK_INSTALL_ACTION = "taiki-e/install-action@43aecc8d72668fbcfe75c31400bc4f890f1c5853";
 const WASM_PACK_WORKFLOWS = new Map([
   ["bench.yml", "        if: matrix.kind == 'node'\n"],
@@ -179,6 +181,33 @@ describe("Dependabot policy", () => {
     assert.match(
       config,
       /# memchr 2\.8\.3 regressed the performance gate; retry with the next release\.\n\s+- dependency-name: memchr\n\s+versions: \["2\.8\.3"\]/,
+    );
+  });
+
+  it("pins the manually managed stable Rust toolchain consistently", async () => {
+    let consumers = 0;
+
+    for (const entry of await workflowFiles()) {
+      const workflow = await readFile(new URL(entry.name, WORKFLOWS_URL), "utf8");
+      const uses = workflow
+        .split("\n")
+        .filter((line) => line.includes("dtolnay/rust-toolchain@"));
+      consumers += uses.length;
+
+      for (const use of uses) {
+        assert.ok(use.includes(RUST_TOOLCHAIN_ACTION), `${entry.name}: ${use.trim()}`);
+      }
+    }
+
+    assert.ok(consumers > 0, "expected at least one Rust toolchain consumer");
+
+    const config = await readFile(DEPENDABOT_CONFIG_URL, "utf8");
+    const githubActionsStart = config.indexOf("  - package-ecosystem: github-actions\n");
+    assert.notEqual(githubActionsStart, -1, "missing GitHub Actions ecosystem");
+    const githubActions = config.slice(githubActionsStart);
+    assert.match(
+      githubActions,
+      /# The stable branch has no current versioned release; synchronize its commit pin manually\.\n\s+- dependency-name: dtolnay\/rust-toolchain/,
     );
   });
 });
