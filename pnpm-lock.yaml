@@ -22,7 +22,7 @@ importers:
     dependencies:
       '@codspeed/tinybench-plugin':
         specifier: ^5.7.1
-        version: 5.7.1(tinybench@6.1.6)
+        version: 5.7.1(tinybench@6.2.0)
       '@jridgewell/sourcemap-codec':
         specifier: ^1.6.0
         version: 1.6.0
@@ -33,8 +33,8 @@ importers:
         specifier: ^1.2.0
         version: 1.2.1
       tinybench:
-        specifier: ^6.1.6
-        version: 6.1.6
+        specifier: ^6.2.0
+        version: 6.2.0
 
   packages/codec:
     dependencies:
@@ -1484,8 +1484,8 @@ packages:
     resolution: {integrity: sha512-2ztBJRek8IVofG9DBJqdy2N5kulaacX30Nz7xmkYF6ale9WBVmIy6mFBchvGX7Vx/MyjBhx+Rcxqrj+dbOnQ6A==}
     engines: {node: '>=16'}
 
-  tinybench@6.1.6:
-    resolution: {integrity: sha512-qEHpSqUC/KkD4rypubEZ/gSENbH6x4E8d8UM5aBndJhRjTW3sPW4jmS5C1/wHhMFMj040jgJl2XvQOYdZDgKkA==}
+  tinybench@6.2.0:
+    resolution: {integrity: sha512-78U2TlB2CnVenajOFzf3BKSm0J6oz5L0NV7g32LCPccvYc0lbWvys4d3uUUCS2B1N8PAf2+aekR8i1KbC3HO7Q==}
     engines: {node: '>=20.0.0'}
 
   tinypool@2.1.0:
@@ -1528,10 +1528,10 @@ snapshots:
       - debug
       - supports-color
 
-  '@codspeed/tinybench-plugin@5.7.1(tinybench@6.1.6)':
+  '@codspeed/tinybench-plugin@5.7.1(tinybench@6.2.0)':
     dependencies:
       '@codspeed/core': 5.7.1
-      tinybench: 6.1.6
+      tinybench: 6.2.0
     transitivePeerDependencies:
       - debug
       - supports-color
@@ -2505,7 +2505,7 @@ snapshots:
 
   stack-trace@1.0.0-pre2: {}
 
-  tinybench@6.1.6: {}
+  tinybench@6.2.0: {}
 
   tinypool@2.1.0: {}
 
