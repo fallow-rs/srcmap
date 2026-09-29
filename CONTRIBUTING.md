@@ -10,6 +10,7 @@ Thanks for your interest in contributing to srcmap! Whether it's a bug fix, new 
 - [Node.js](https://nodejs.org/) 22 with Corepack available (for running JS tests and benchmarks)
 - [wasm-pack](https://rustwasm.github.io/wasm-pack/installer/) (for building WASM packages)
 - [cargo-deny](https://github.com/EmbarkStudios/cargo-deny) and [typos](https://github.com/crate-ci/typos) (for the root checks)
+- Optional: [mise](https://mise.jdx.dev) to install the pinned tools in `mise.toml`, and [hk](https://hk.jdx.dev) for the git hooks
 
 **Setup:**
 
@@ -18,6 +19,10 @@ git clone https://github.com/fallow-rs/srcmap.git
 cd srcmap
 corepack enable
 corepack pnpm install --frozen-lockfile
+
+# Optional: install the pinned tools and enable the git hooks
+mise install
+hk install --mise
 
 # Build the Rust workspace
 cargo build --workspace
@@ -104,6 +109,28 @@ corepack pnpm --dir benchmarks run bench:wasm
 corepack pnpm run coverage:rust # Rust coverage (requires cargo-llvm-cov)
 corepack pnpm run coverage:js   # JS coverage
 ```
+
+## Git hooks
+
+[hk](https://hk.jdx.dev) runs the git hooks. `hk.pkl` defines them, and each
+step runs a command that CI also runs:
+
+- `pre-commit`: `cargo fmt --check` and Clippy when a Rust file or Cargo file
+  is staged, `typos`, and oxfmt and oxlint when a JavaScript package file is
+  staged.
+- `pre-push`: `cargo fmt --check`, Clippy, `cargo doc`, `cargo shear`,
+  `cargo deny` (bans, licenses and sources; CI also checks advisories) and
+  `fallow dead-code`.
+
+Without mise, install `hk` and `pkl` at the versions in `mise.toml` and run
+`hk install`. The typos, cargo-shear and cargo-deny steps skip with a hint when
+the tool is missing. The JavaScript steps skip when `node_modules` is missing.
+The hooks check the working tree, not only the staged content. The
+pre-commit hook only checks. Run `hk fix` to apply `cargo fmt` and oxfmt.
+`HK=0 git commit` skips the hooks for one command.
+
+If you set `core.hooksPath` to `.githooks` in an earlier clone, remove it
+before `hk install`: `git config --unset core.hooksPath`.
 
 ## Code standards
 
