@@ -13,7 +13,15 @@ local rustInputs = List(
 )
 
 // A gate only. The pnpm scripts in package.json hold the real scope lists.
-local jsInputs = List("package.json", "benchmarks/**", "packages/**", ".oxlintrc.json", ".oxfmtrc.json")
+local jsInputs = List(
+  "package.json",
+  "pnpm-lock.yaml",
+  "pnpm-workspace.yaml",
+  "benchmarks/**",
+  "packages/**",
+  ".oxlintrc.json",
+  ".oxfmtrc.json"
+)
 
 local cargoFmt = new Step {
   check = "cargo fmt --all -- --check"
@@ -63,11 +71,14 @@ hooks {
       ["cargo-shear"] {
         check = "if command -v cargo-shear >/dev/null 2>&1; then cargo shear; else sh scripts/hook-tool-hint.sh cargo-shear; fi"
       }
+      // Same flags as the CI "Cargo Deny" job. The advisories check needs the
+      // network, so it stays in CI and a push also works offline.
       ["cargo-deny"] {
-        check = "if command -v cargo-deny >/dev/null 2>&1; then cargo deny check; else sh scripts/hook-tool-hint.sh cargo-deny; fi"
+        check = "if command -v cargo-deny >/dev/null 2>&1; then cargo deny --all-features check bans licenses sources; else sh scripts/hook-tool-hint.sh cargo-deny; fi"
       }
+      // Same analysis as `lint:js:fallow`, in the human format.
       ["fallow"] {
-        check = "\(needsNodeModules); corepack pnpm run --silent lint:js:fallow"
+        check = "\(needsNodeModules); corepack pnpm exec fallow dead-code --quiet"
       }
     }
   }
