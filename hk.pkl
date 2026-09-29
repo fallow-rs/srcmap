@@ -1,0 +1,74 @@
+// Git hooks for this repository. Run `hk install --mise` once per clone.
+// Each step runs a command that CI also runs, see .github/workflows/ci.yml.
+amends "package://github.com/jdx/hk/releases/download/v2.4.0/hk@2.4.0#/Config.pkl"
+
+// Files that can change the result of rustfmt or Clippy.
+local rustInputs = List(
+  "**/*.rs",
+  "**/Cargo.toml",
+  "Cargo.lock",
+  "rust-toolchain.toml",
+  ".rustfmt.toml",
+  ".clippy.toml"
+)
+
+// A gate only. The pnpm scripts in package.json hold the real scope lists.
+local jsInputs = List("package.json", "benchmarks/**", "packages/**", ".oxlintrc.json", ".oxfmtrc.json")
+
+local cargoFmt = new Step {
+  check = "cargo fmt --all -- --check"
+  fix = "cargo fmt --all"
+}
+
+local cargoClippy = new Step {
+  check = "cargo clippy --workspace --all-targets -- -D warnings"
+}
+
+local needsNodeModules = "if [ ! -d node_modules ]; then echo 'node_modules is missing; skipping (CI still enforces it). Run: corepack pnpm install' >&2; exit 0; fi"
+
+hooks {
+  ["pre-commit"] {
+    // Check only. `hk fix` applies the fix commands on request.
+    fix = false
+    // The git stash stack is shared by every worktree of this repository.
+    stash = "none"
+    steps {
+      ["cargo-fmt"] = (cargoFmt) { glob = rustInputs }
+      ["cargo-clippy"] = (cargoClippy) { glob = rustInputs }
+      ["typos"] {
+        check = "if command -v typos >/dev/null 2>&1; then typos; else sh scripts/hook-tool-hint.sh typos; fi"
+      }
+      ["oxfmt"] {
+        glob = jsInputs
+        check = "\(needsNodeModules); corepack pnpm run --silent fmt:js:check"
+        fix = "\(needsNodeModules); corepack pnpm run --silent fmt:js"
+      }
+      ["oxlint"] {
+        glob = jsInputs
+        check = "\(needsNodeModules); corepack pnpm run --silent lint:js:oxlint"
+      }
+    }
+  }
+  // Tests, MSRV and the JS runtime suite stay in CI. Run them locally with
+  // `corepack pnpm test` before a pull request.
+  ["pre-push"] {
+    steps {
+      ["cargo-fmt"] = cargoFmt
+      ["cargo-clippy"] = cargoClippy
+      // Same command as the required "Documentation" CI job.
+      ["cargo-doc"] {
+        check = "cargo doc --workspace --no-deps --document-private-items"
+        env { ["RUSTDOCFLAGS"] = "-D warnings" }
+      }
+      ["cargo-shear"] {
+        check = "if command -v cargo-shear >/dev/null 2>&1; then cargo shear; else sh scripts/hook-tool-hint.sh cargo-shear; fi"
+      }
+      ["cargo-deny"] {
+        check = "if command -v cargo-deny >/dev/null 2>&1; then cargo deny check; else sh scripts/hook-tool-hint.sh cargo-deny; fi"
+      }
+      ["fallow"] {
+        check = "\(needsNodeModules); corepack pnpm run --silent lint:js:fallow"
+      }
+    }
+  }
+}
