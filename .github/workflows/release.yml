@@ -18,7 +18,7 @@ permissions: {}
 jobs:
   publish-crates:
     name: Publish Rust crates
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     permissions:
       contents: read
     steps:
@@ -100,14 +100,15 @@ jobs:
             target: x86_64-apple-darwin
           - host: macos-latest
             target: aarch64-apple-darwin
-          - host: ubuntu-latest
+          # Preserve the existing libc baseline for host-linked GNU artifacts.
+          - host: ubuntu-24.04
             target: x86_64-unknown-linux-gnu
-          - host: ubuntu-latest
+          - host: ubuntu-26.04
             target: x86_64-unknown-linux-musl
-          - host: ubuntu-latest
+          - host: ubuntu-24.04
             target: aarch64-unknown-linux-gnu
             linker: aarch64-linux-gnu-gcc
-          - host: ubuntu-latest
+          - host: ubuntu-26.04
             target: aarch64-unknown-linux-musl
             linker: aarch64-linux-gnu-gcc
           - host: windows-latest
@@ -187,7 +188,7 @@ jobs:
 
   build-wasm:
     name: Build WASM
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     permissions:
       contents: read
     steps:
@@ -303,7 +304,7 @@ jobs:
 
   publish-npm:
     name: Publish npm packages
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     needs: [build-napi, build-wasm]
     permissions:
       contents: read

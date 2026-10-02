@@ -315,7 +315,7 @@ describe("Rust feature coverage", () => {
     const workflow = await readFile(CI_WORKFLOW_URL, "utf8");
     const job = workflowJob(workflow, "parallel-features");
 
-    assert.match(job, /^    runs-on: ubuntu-latest$/m);
+    assert.match(job, /^    runs-on: ubuntu-26.04$/m);
     assert.match(job, /^        run: cargo test -p srcmap-codec --features parallel$/m);
     assert.match(job, /^        run: cargo test -p srcmap-generator --features parallel$/m);
   });
