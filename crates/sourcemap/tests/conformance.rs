@@ -256,7 +256,7 @@ fn conformance_ignore_list_explicit_empty_overrides_legacy() {
     // Explicit empty ignoreList: [] should NOT fall through to x_google_ignoreList
     let json = r#"{"version":3,"sources":["a.js","b.js"],"names":[],"mappings":"AAAA","ignoreList":[],"x_google_ignoreList":[1]}"#;
     let sm = SourceMap::from_json(json).unwrap();
-    assert!(sm.ignore_list.is_empty());
+    assert_eq!(sm.ignore_list, [] as [u32; 0]);
 }
 
 #[test]

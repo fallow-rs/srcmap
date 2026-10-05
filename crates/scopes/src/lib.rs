@@ -271,8 +271,8 @@ mod tests {
     #[test]
     fn empty_scopes() {
         let info = decode_scopes("", &[], 0).unwrap();
-        assert!(info.scopes.is_empty());
-        assert!(info.ranges.is_empty());
+        assert_eq!(info.scopes, Vec::<Option<OriginalScope>>::new());
+        assert_eq!(info.ranges, Vec::<GeneratedRange>::new());
     }
 
     #[test]

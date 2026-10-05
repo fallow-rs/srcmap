@@ -759,7 +759,7 @@ mod tests {
         let sm = make_test_sourcemap();
         let opts = RewriteOptions { with_names: false, ..Default::default() };
         let rewritten = rewrite_sources(&sm, &opts);
-        assert!(rewritten.names.is_empty());
+        assert_eq!(rewritten.names, Vec::<String>::new());
         for m in rewritten.all_mappings() {
             assert_eq!(m.name, u32::MAX);
         }

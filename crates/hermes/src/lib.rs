@@ -605,8 +605,8 @@ mod tests {
 
         let sm = SourceMapHermes::from_json(json).unwrap();
         let fm = sm.get_function_map(0).unwrap();
-        assert!(fm.names.is_empty());
-        assert!(fm.mappings.is_empty());
+        assert_eq!(fm.names, Vec::<String>::new());
+        assert_eq!(fm.mappings, Vec::<HermesScopeOffset>::new());
     }
 
     #[test]

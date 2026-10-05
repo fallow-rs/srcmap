@@ -2603,7 +2603,7 @@ mod tests {
         assert_eq!(parts.names, vec!["x"]);
         assert_eq!(parts.sources_content, vec![Some("var x = 1;".to_string())]);
         assert_eq!(parts.debug_id, Some("test-id".to_string()));
-        assert!(!parts.mappings.is_empty());
+        assert_ne!(parts.mappings, "");
 
         // Verify the mappings string produces the same source map
         let sm_parts = srcmap_sourcemap::SourceMap::from_vlq(
@@ -2625,9 +2625,9 @@ mod tests {
         let builder = SourceMapGenerator::new(None);
         let parts = builder.into_parts();
         assert_eq!(parts.file, None);
-        assert!(parts.mappings.is_empty());
-        assert!(parts.sources.is_empty());
-        assert!(parts.names.is_empty());
+        assert_eq!(parts.mappings, "");
+        assert_eq!(parts.sources, [] as [std::string::String; 0]);
+        assert_eq!(parts.names, [] as [std::string::String; 0]);
     }
 
     #[test]
@@ -2665,7 +2665,7 @@ mod tests {
         assert_eq!(parts.file, Some("out.js".to_string()));
         assert_eq!(parts.sources, vec!["input.js"]);
         assert_eq!(parts.names, vec!["x"]);
-        assert!(!parts.mappings.is_empty());
+        assert_ne!(parts.mappings, "");
     }
 
     #[test]

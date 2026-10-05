@@ -301,6 +301,21 @@ describe("Pinned wasm-pack installation policy", () => {
   });
 });
 
+describe("Benchmark runner compatibility", () => {
+  it("keeps CodSpeed simulation on a supported host without downgrading matrix generation", async () => {
+    const workflow = await readFile(BENCH_WORKFLOW_URL, "utf8");
+    const benchmark = workflowJob(workflow, "benchmark");
+    const assertSupportedHost = (job) => {
+      assert.match(job, /^    runs-on: ubuntu-24\.04$/m, "CodSpeed simulation requires Ubuntu 24.04");
+    };
+
+    assert.match(benchmark, /^          mode: \$\{\{ matrix\.mode \}\}$/m);
+    assertSupportedHost(benchmark);
+    assert.throws(() => assertSupportedHost(benchmark.replace("ubuntu-24.04", "ubuntu-26.04")));
+    assert.match(workflowJob(workflow, "benchmark-matrix"), /^    runs-on: ubuntu-26\.04$/m);
+  });
+});
+
 describe("Rust feature coverage", () => {
   it("keeps platform tests bounded and compiles every target", async () => {
     const workflow = await readFile(CI_WORKFLOW_URL, "utf8");

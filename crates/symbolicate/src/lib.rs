@@ -555,7 +555,7 @@ mod tests {
     fn parse_empty_input() {
         let parsed = parse_stack_trace_full("");
         assert!(parsed.message.is_none());
-        assert!(parsed.frames.is_empty());
+        assert_eq!(parsed.frames, Vec::<StackFrame>::new());
     }
 
     #[test]
@@ -564,7 +564,7 @@ mod tests {
         let input = "Error: boom\n  this is not a frame\n  neither is this";
         let parsed = parse_stack_trace_full(input);
         assert_eq!(parsed.message.as_deref(), Some("Error: boom"));
-        assert!(parsed.frames.is_empty());
+        assert_eq!(parsed.frames, Vec::<StackFrame>::new());
     }
 
     #[test]
@@ -593,7 +593,7 @@ mod tests {
         // parse_location returns None when file component is empty
         let input = "Error\n    at (:10:5)";
         let frames = parse_stack_trace(input);
-        assert!(frames.is_empty());
+        assert_eq!(frames, Vec::<StackFrame>::new());
     }
 
     #[test]

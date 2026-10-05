@@ -371,7 +371,7 @@ fn symbolicate_json() {
     assert!(out.status.success());
     let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
     assert!(v["message"].as_str().unwrap().contains("something went wrong"));
-    assert!(!v["frames"].as_array().unwrap().is_empty());
+    assert_ne!(v["frames"].as_array().unwrap().as_slice(), [] as [serde_json::Value; 0]);
 }
 
 #[test]
@@ -412,8 +412,8 @@ fn scopes_json() {
         .unwrap();
     assert!(out.status.success());
     let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
-    assert!(!v["originalScopes"].as_array().unwrap().is_empty());
-    assert!(!v["generatedRanges"].as_array().unwrap().is_empty());
+    assert_ne!(v["originalScopes"].as_array().unwrap().as_slice(), [] as [serde_json::Value; 0]);
+    assert_ne!(v["generatedRanges"].as_array().unwrap().as_slice(), [] as [serde_json::Value; 0]);
     let scope = &v["originalScopes"][0]["scope"];
     assert_eq!(scope["kind"], "module");
     assert!(scope["variables"].as_array().unwrap().contains(&serde_json::json!("result")));
@@ -538,7 +538,7 @@ fn lookup_with_context_json() {
     assert_eq!(v["source"], "src/app.ts");
     assert!(v["context"].is_array());
     let ctx = v["context"].as_array().unwrap();
-    assert!(!ctx.is_empty());
+    assert_ne!(ctx.as_slice(), [] as [serde_json::Value; 0]);
     assert_eq!(ctx[0]["highlight"], true);
     assert!(ctx[0]["text"].as_str().unwrap().contains("const greet"));
 }

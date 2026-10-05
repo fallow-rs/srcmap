@@ -59,7 +59,8 @@ jobs:
   benchmark:
     name: CodSpeed (${{ matrix.label }})
     needs: benchmark-matrix
-    runs-on: ubuntu-26.04
+    # CodSpeed runner v5.2.1 simulation does not support Ubuntu 26.04.
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
     permissions:
       contents: read
