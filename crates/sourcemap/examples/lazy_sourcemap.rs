@@ -177,7 +177,7 @@ fn main() {
 
     // Serialize the full map
     let json_out = sm.to_json();
-    assert!(!json_out.is_empty());
+    assert_ne!(json_out, "");
     println!("Serialized to {} bytes.", json_out.len());
 
     println!();

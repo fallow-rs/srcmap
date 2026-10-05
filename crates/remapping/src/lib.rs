@@ -1587,7 +1587,7 @@ mod tests {
         assert_eq!(loc.column, 0);
         // Neither outer nor upstream has a name, so result has no name
         assert!(loc.name.is_none());
-        assert!(result.names.is_empty());
+        assert_eq!(result.names, [] as [std::string::String; 0]);
     }
 
     // ── Range mapping preservation tests ────────────────────────

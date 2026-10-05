@@ -218,7 +218,7 @@ mod tests {
     #[test]
     fn roundtrip_empty() {
         let decoded = decode("").unwrap();
-        assert!(decoded.is_empty());
+        assert_eq!(decoded, [] as [std::vec::Vec<Segment>; 0]);
         assert_eq!(encode(&decoded), "");
     }
 
@@ -272,8 +272,8 @@ mod tests {
     fn decode_empty_lines() {
         let decoded = decode("AAAA;;;AACA").unwrap();
         assert_eq!(decoded.len(), 4);
-        assert!(decoded[1].is_empty());
-        assert!(decoded[2].is_empty());
+        assert_eq!(decoded[1], [] as [Segment; 0]);
+        assert_eq!(decoded[2], [] as [Segment; 0]);
     }
 
     #[test]
@@ -282,7 +282,7 @@ mod tests {
         let decoded = decode("AAAA;").unwrap();
         assert_eq!(decoded.len(), 2);
         assert_eq!(decoded[0].len(), 1);
-        assert!(decoded[1].is_empty());
+        assert_eq!(decoded[1], [] as [Segment; 0]);
     }
 
     #[test]
@@ -290,7 +290,7 @@ mod tests {
         let decoded = decode(";;;").unwrap();
         assert_eq!(decoded.len(), 4);
         for line in &decoded {
-            assert!(line.is_empty());
+            assert_eq!(line.as_slice(), [] as [Segment; 0]);
         }
     }
 

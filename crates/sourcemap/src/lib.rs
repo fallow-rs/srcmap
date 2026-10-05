@@ -3817,8 +3817,8 @@ mod tests {
         let sm = SourceMap::from_json(json).unwrap();
         assert!(sm.file.is_none());
         assert!(sm.source_root.is_none());
-        assert!(sm.sources_content.is_empty());
-        assert!(sm.ignore_list.is_empty());
+        assert_eq!(sm.sources_content, Vec::<Option<String>>::new());
+        assert_eq!(sm.ignore_list, Vec::<u32>::new());
     }
 
     #[test]
@@ -4027,7 +4027,7 @@ mod tests {
         let json =
             r#"{"version":3,"sources":["app.js"],"names":[],"mappings":"AAAA","ignoreList":[]}"#;
         let sm = SourceMap::from_json(json).unwrap();
-        assert!(sm.ignore_list.is_empty());
+        assert_eq!(sm.ignore_list, Vec::<u32>::new());
     }
 
     #[test]
@@ -4159,7 +4159,7 @@ mod tests {
         let output = sm.to_json();
         let sm2 = SourceMap::from_json(&output).unwrap();
         assert_eq!(sm2.mapping_count(), 0);
-        assert!(sm2.sources.is_empty());
+        assert_eq!(sm2.sources, Vec::<String>::new());
     }
 
     #[test]
@@ -6445,14 +6445,14 @@ mod tests {
     fn set_ignore_list() {
         let json = r#"{"version":3,"sources":["a.js","b.js"],"names":[],"mappings":"AAAA"}"#;
         let mut sm = SourceMap::from_json(json).unwrap();
-        assert!(sm.ignore_list.is_empty());
+        assert_eq!(sm.ignore_list, Vec::<u32>::new());
 
         sm.set_ignore_list(vec![0, 1]);
         assert_eq!(sm.ignore_list, vec![0, 1]);
         assert!(sm.to_json().contains("\"ignoreList\":[0,1]"));
 
         sm.set_ignore_list(vec![]);
-        assert!(sm.ignore_list.is_empty());
+        assert_eq!(sm.ignore_list, Vec::<u32>::new());
         assert!(!sm.to_json().contains("ignoreList"));
     }
 
