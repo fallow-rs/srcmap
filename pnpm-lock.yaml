@@ -43,8 +43,8 @@ importers:
         version: 2.1.2
     devDependencies:
       '@napi-rs/cli':
-        specifier: ^3.9.1
-        version: 3.9.1(@emnapi/core@1.11.2)(@emnapi/runtime@1.11.2)
+        specifier: ^3.10.5
+        version: 3.10.5(@emnapi/core@1.11.2)(@emnapi/runtime@1.11.2)
     optionalDependencies:
       '@srcmap/codec-darwin-arm64':
         specifier: 0.3.9
@@ -107,8 +107,8 @@ importers:
         version: 2.1.2
     devDependencies:
       '@napi-rs/cli':
-        specifier: ^3.9.1
-        version: 3.9.1(@emnapi/core@1.11.2)(@emnapi/runtime@1.11.2)
+        specifier: ^3.10.5
+        version: 3.10.5(@emnapi/core@1.11.2)(@emnapi/runtime@1.11.2)
     optionalDependencies:
       '@srcmap/sourcemap-darwin-arm64':
         specifier: 0.3.9
@@ -367,8 +367,8 @@ packages:
   '@jridgewell/trace-mapping@0.3.31':
     resolution: {integrity: sha512-zzNR+SdQSDJzc8joaeP8QQoCQr8NuYx2dIIytl1QeBEZHJ9uW6hebsrYgbz8hJwUQao3TWCMtmfV8Nu1twOLAw==}
 
-  '@napi-rs/cli@3.9.1':
-    resolution: {integrity: sha512-2DYBrM2j4n00L+O7fKAS38q19rVQK2HXz5RxSuJgFyZrd9TrdVQFmHOfqvqqsRIRBTZmqiMqBd/yzn4X1a23DQ==}
+  '@napi-rs/cli@3.10.5':
+    resolution: {integrity: sha512-GF4WXmLLQk3uQvkPuLCOSH50DN4GUKZw1zHlMDh4rRF5TWpfOj3a8DkZ2PWCTwpPDMD4ex05sAjrCEwNdukEjg==}
     engines: {node: ^20.17.0 || ^22.13.0 || >= 23.5.0}
     hasBin: true
     peerDependencies:
@@ -1269,8 +1269,8 @@ packages:
     resolution: {integrity: sha512-FQN4MRfuJeHf7cBbBMJFXhKSDq+2kAArBlmRBvcvFE5BB1HZKXtSFASDhdlz9zOYwxh8lDdnvmMOe/+5cdoEdg==}
     engines: {node: '>= 0.8'}
 
-  content-type@3.1.0:
-    resolution: {integrity: sha512-z26wZR7iXahgpSK7XgnB4IbRVmUNSODvsX9qC9TAru7AcWGiqn5YKy+OH3PLRrwyAnewykKhCqnD+VV3a8uT8Q==}
+  content-type@3.1.1:
+    resolution: {integrity: sha512-GW4qUsfFo59d0HbUibDlWv5wPz+vAAcaTWbKIuKCf0JkC7wWkSyf8f13IpXn5JkeMlB2P8iTSSIjwXljorg2vA==}
     engines: {node: '>=22'}
 
   debug@4.4.3:
@@ -1418,8 +1418,8 @@ packages:
     resolution: {integrity: sha512-LA4ZjwlnUblHVgq0oBF3Jl/6h/Nvs5fzBLwdEF4nuxnFdsfajde4WfxtJr3CaiH+F6ewcIB/q4jQ4UzPyid+CQ==}
     hasBin: true
 
-  obug@2.2.1:
-    resolution: {integrity: sha512-XrsrhT5sybtKI6wakr2SPOlGZWWYbUXZ7a0jT8/QOeAPau+1X/bSegNe5YR75oJmEZQbKningirmGOEJCIk61Q==}
+  obug@3.0.0:
+    resolution: {integrity: sha512-5vvB5+W7ePv+p3uqxi+RcW1XAzLW0/hxt3/4X4Lc4qHudzOhmBiBwOY6DRob4WnanAEGvNcLjF+KNOufrUoEQw==}
     engines: {node: '>=12.20.0'}
 
   oxfmt@0.67.0:
@@ -1702,7 +1702,7 @@ snapshots:
       '@jridgewell/resolve-uri': 3.1.2
       '@jridgewell/sourcemap-codec': 1.6.0
 
-  '@napi-rs/cli@3.9.1(@emnapi/core@1.11.2)(@emnapi/runtime@1.11.2)':
+  '@napi-rs/cli@3.10.5(@emnapi/core@1.11.2)(@emnapi/runtime@1.11.2)':
     dependencies:
       '@inquirer/prompts': 8.7.2
       '@napi-rs/cross-toolchain': 1.0.3
@@ -1712,7 +1712,7 @@ snapshots:
       colorette: 2.0.20
       es-toolkit: 1.52.0
       js-yaml: 5.4.2
-      obug: 2.2.1
+      obug: 3.0.0
       semver: 7.8.5
       typanion: 3.14.0
       typescript: 6.0.3
@@ -2010,7 +2010,7 @@ snapshots:
       '@octokit/endpoint': 11.0.5
       '@octokit/request-error': 7.1.2
       '@octokit/types': 18.0.0
-      content-type: 3.1.0
+      content-type: 3.1.1
       json-with-bigint: 3.5.12
       universal-user-agent: 7.0.3
 
@@ -2291,7 +2291,7 @@ snapshots:
     dependencies:
       delayed-stream: 1.0.0
 
-  content-type@3.1.0: {}
+  content-type@3.1.1: {}
 
   debug@4.4.3:
     dependencies:
@@ -2435,7 +2435,7 @@ snapshots:
 
   node-gyp-build@4.8.4: {}
 
-  obug@2.2.1: {}
+  obug@3.0.0: {}
 
   oxfmt@0.67.0:
     dependencies:
