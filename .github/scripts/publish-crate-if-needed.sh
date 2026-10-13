@@ -43,4 +43,4 @@ case "$status" in
     ;;
 esac
 
-cargo publish -p "$crate_name"
+cargo publish -p "$crate_name" --no-verify

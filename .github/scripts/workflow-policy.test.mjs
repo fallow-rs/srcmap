@@ -349,6 +349,23 @@ describe("Rust feature coverage", () => {
 });
 
 describe("Release supply-chain policy", () => {
+  it("keeps dependency execution outside the approval-gated publisher", async () => {
+    const workflow = await readFile(RELEASE_WORKFLOW_URL, "utf8");
+    const assertPublisher = (job) => {
+      assert.match(job, /^    environment: release$/m);
+      assert.doesNotMatch(job, /actions\/checkout@|pnpm exec|pnpm install|npm ci/);
+      assert.match(job, /sha256sum --check --strict SHA256SUMS/);
+      for (const line of job.split("\n").filter((line) => /\bnpm publish\b/.test(line))) {
+        assert.match(line, /--ignore-scripts/);
+      }
+    };
+    const publisher = workflowJob(workflow, "publish-npm");
+    assertPublisher(publisher);
+    assert.throws(() => assertPublisher(publisher.replace("--ignore-scripts", "")));
+    assert.throws(() => assertPublisher(publisher + "\n        run: pnpm exec napi artifacts"));
+    assert.doesNotMatch(workflowJob(workflow, "prepare-npm"), /id-token: write|contents: write/);
+  });
+
   it("contains no ad hoc npm installs", async () => {
     const workflow = await readFile(RELEASE_WORKFLOW_URL, "utf8");
 
@@ -398,7 +415,7 @@ describe("Release supply-chain policy", () => {
 
   it("uses ordered frozen tooling for both NAPI artifact moves", async () => {
     const workflow = await readFile(RELEASE_WORKFLOW_URL, "utf8");
-    const publishJob = workflowJob(workflow, "publish-npm");
+    const publishJob = workflowJob(workflow, "prepare-npm");
     const enable = "      - name: Enable Corepack\n        run: corepack enable";
     const install = [
       "      - name: Install JS dependencies",
@@ -415,8 +432,8 @@ describe("Release supply-chain policy", () => {
       "        working-directory: packages/sourcemap",
     ].join("\n");
 
-    assert.ok(publishJob.includes(enable), "publish-npm must enable Corepack");
-    assert.ok(publishJob.includes(install), "publish-npm must install the frozen workspace");
+    assert.ok(publishJob.includes(enable), "prepare-npm must enable Corepack");
+    assert.ok(publishJob.includes(install), "prepare-npm must install the frozen workspace");
     assert.ok(publishJob.includes(codecArtifacts), "missing codec artifact move step");
     assert.ok(publishJob.includes(sourcemapArtifacts), "missing sourcemap artifact move step");
     assert.ok(publishJob.indexOf(enable) < publishJob.indexOf(install));
