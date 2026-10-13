@@ -55,6 +55,7 @@ jobs:
     runs-on: ubuntu-26.04
     permissions:
       contents: read
+      id-token: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -62,10 +63,14 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30
 
+      - name: Authenticate to crates.io
+        id: crates_io_auth
+        uses: rust-lang/crates-io-auth-action@c6f97d42243bad5fab37ca0427f495c86d5b1a18 # v1.0.5
+
       - name: Publish srcmap-codec
         run: .github/scripts/publish-crate-if-needed.sh srcmap-codec
         env:
-          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+          CARGO_REGISTRY_TOKEN: ${{ steps.crates_io_auth.outputs.token }}
 
       - name: Wait for crates.io index
         run: sleep 30
@@ -73,7 +78,7 @@ jobs:
       - name: Publish srcmap-scopes
         run: .github/scripts/publish-crate-if-needed.sh srcmap-scopes
         env:
-          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+          CARGO_REGISTRY_TOKEN: ${{ steps.crates_io_auth.outputs.token }}
 
       - name: Wait for crates.io index
         run: sleep 30
@@ -81,7 +86,7 @@ jobs:
       - name: Publish srcmap-sourcemap
         run: .github/scripts/publish-crate-if-needed.sh srcmap-sourcemap
         env:
-          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+          CARGO_REGISTRY_TOKEN: ${{ steps.crates_io_auth.outputs.token }}
 
       - name: Wait for crates.io index
         run: sleep 30
@@ -89,12 +94,12 @@ jobs:
       - name: Publish srcmap-symbolicate
         run: .github/scripts/publish-crate-if-needed.sh srcmap-symbolicate
         env:
-          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+          CARGO_REGISTRY_TOKEN: ${{ steps.crates_io_auth.outputs.token }}
 
       - name: Publish srcmap-generator
         run: .github/scripts/publish-crate-if-needed.sh srcmap-generator
         env:
-          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+          CARGO_REGISTRY_TOKEN: ${{ steps.crates_io_auth.outputs.token }}
 
       - name: Wait for crates.io index
         run: sleep 30
@@ -102,22 +107,22 @@ jobs:
       - name: Publish srcmap-hermes
         run: .github/scripts/publish-crate-if-needed.sh srcmap-hermes
         env:
-          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+          CARGO_REGISTRY_TOKEN: ${{ steps.crates_io_auth.outputs.token }}
 
       - name: Publish srcmap-ram-bundle
         run: .github/scripts/publish-crate-if-needed.sh srcmap-ram-bundle
         env:
-          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+          CARGO_REGISTRY_TOKEN: ${{ steps.crates_io_auth.outputs.token }}
 
       - name: Publish srcmap-remapping
         run: .github/scripts/publish-crate-if-needed.sh srcmap-remapping
         env:
-          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+          CARGO_REGISTRY_TOKEN: ${{ steps.crates_io_auth.outputs.token }}
 
       - name: Publish srcmap-cli
         run: .github/scripts/publish-crate-if-needed.sh srcmap-cli
         env:
-          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+          CARGO_REGISTRY_TOKEN: ${{ steps.crates_io_auth.outputs.token }}
 
   build-napi:
     needs: release-source
