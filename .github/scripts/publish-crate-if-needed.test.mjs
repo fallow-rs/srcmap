@@ -112,7 +112,7 @@ describe("publish-crate-if-needed", () => {
     const result = await runPublishHelper({ lookup: "missing" });
 
     assert.equal(result.exitCode, 0);
-    assert.match(result.commands, /cargo publish -p srcmap-codec/);
+    assert.match(result.commands, /cargo publish -p srcmap-codec --no-verify/);
   });
 
   it("stops when the crates.io lookup fails", async () => {

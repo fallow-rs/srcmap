@@ -16,8 +16,27 @@ env:
 permissions: {}
 
 jobs:
-  publish-crates:
-    name: Publish Rust crates
+  release-source:
+    name: Verify release source
+    runs-on: ubuntu-26.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Require a release from main history
+        shell: bash
+        env:
+          RELEASE_REF: ${{ github.ref }}
+        run: |
+          set -euo pipefail
+          [[ "$RELEASE_REF" == refs/heads/main || "$RELEASE_REF" == refs/tags/v* ]]
+          git merge-base --is-ancestor HEAD origin/main
+
+  validate-crates:
+    needs: release-source
     runs-on: ubuntu-26.04
     permissions:
       contents: read
@@ -25,15 +44,33 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30
+      - name: Test crates without publication credentials
+        run: cargo test --workspace --lib --bins --tests --examples
+
+  publish-crates:
+    environment: release
+    needs: validate-crates
+    name: Publish Rust crates
+    runs-on: ubuntu-26.04
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30
 
-      - uses: Swatinem/rust-cache@f0d9c3887740aee45f6153b24b3a6b815192ec16 # v2
+      - name: Authenticate to crates.io
+        id: crates_io_auth
+        uses: rust-lang/crates-io-auth-action@c6f97d42243bad5fab37ca0427f495c86d5b1a18 # v1.0.5
 
       - name: Publish srcmap-codec
         run: .github/scripts/publish-crate-if-needed.sh srcmap-codec
         env:
-          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+          CARGO_REGISTRY_TOKEN: ${{ steps.crates_io_auth.outputs.token }}
 
       - name: Wait for crates.io index
         run: sleep 30
@@ -41,7 +78,7 @@ jobs:
       - name: Publish srcmap-scopes
         run: .github/scripts/publish-crate-if-needed.sh srcmap-scopes
         env:
-          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+          CARGO_REGISTRY_TOKEN: ${{ steps.crates_io_auth.outputs.token }}
 
       - name: Wait for crates.io index
         run: sleep 30
@@ -49,7 +86,7 @@ jobs:
       - name: Publish srcmap-sourcemap
         run: .github/scripts/publish-crate-if-needed.sh srcmap-sourcemap
         env:
-          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+          CARGO_REGISTRY_TOKEN: ${{ steps.crates_io_auth.outputs.token }}
 
       - name: Wait for crates.io index
         run: sleep 30
@@ -57,12 +94,12 @@ jobs:
       - name: Publish srcmap-symbolicate
         run: .github/scripts/publish-crate-if-needed.sh srcmap-symbolicate
         env:
-          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+          CARGO_REGISTRY_TOKEN: ${{ steps.crates_io_auth.outputs.token }}
 
       - name: Publish srcmap-generator
         run: .github/scripts/publish-crate-if-needed.sh srcmap-generator
         env:
-          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+          CARGO_REGISTRY_TOKEN: ${{ steps.crates_io_auth.outputs.token }}
 
       - name: Wait for crates.io index
         run: sleep 30
@@ -70,24 +107,25 @@ jobs:
       - name: Publish srcmap-hermes
         run: .github/scripts/publish-crate-if-needed.sh srcmap-hermes
         env:
-          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+          CARGO_REGISTRY_TOKEN: ${{ steps.crates_io_auth.outputs.token }}
 
       - name: Publish srcmap-ram-bundle
         run: .github/scripts/publish-crate-if-needed.sh srcmap-ram-bundle
         env:
-          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+          CARGO_REGISTRY_TOKEN: ${{ steps.crates_io_auth.outputs.token }}
 
       - name: Publish srcmap-remapping
         run: .github/scripts/publish-crate-if-needed.sh srcmap-remapping
         env:
-          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+          CARGO_REGISTRY_TOKEN: ${{ steps.crates_io_auth.outputs.token }}
 
       - name: Publish srcmap-cli
         run: .github/scripts/publish-crate-if-needed.sh srcmap-cli
         env:
-          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+          CARGO_REGISTRY_TOKEN: ${{ steps.crates_io_auth.outputs.token }}
 
   build-napi:
+    needs: release-source
     name: Build NAPI - ${{ matrix.settings.target }}
     runs-on: ${{ matrix.settings.host }}
     permissions:
@@ -121,6 +159,7 @@ jobs:
 
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
+          package-manager-cache: false
           node-version: 24
           registry-url: https://registry.npmjs.org/
 
@@ -133,8 +172,6 @@ jobs:
       - uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30
         with:
           targets: ${{ matrix.settings.target }}
-
-      - uses: Swatinem/rust-cache@f0d9c3887740aee45f6153b24b3a6b815192ec16 # v2
 
       - name: Install musl tools
         if: contains(matrix.settings.target, 'musl')
@@ -187,6 +224,7 @@ jobs:
           if-no-files-found: error
 
   build-wasm:
+    needs: release-source
     name: Build WASM
     runs-on: ubuntu-26.04
     permissions:
@@ -199,8 +237,6 @@ jobs:
       - uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30
         with:
           targets: wasm32-unknown-unknown
-
-      - uses: Swatinem/rust-cache@f0d9c3887740aee45f6153b24b3a6b815192ec16 # v2
 
       - name: Install wasm-pack
         uses: taiki-e/install-action@e407f7bafb71fd004bc5c2da3032e5470cbb6ef0 # v2.87.24
@@ -302,13 +338,12 @@ jobs:
           path: packages/symbolicate-wasm/web/
           if-no-files-found: error
 
-  publish-npm:
-    name: Publish npm packages
+  prepare-npm:
+    name: Prepare npm packages
     runs-on: ubuntu-26.04
     needs: [build-napi, build-wasm]
     permissions:
       contents: read
-      id-token: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -316,6 +351,7 @@ jobs:
 
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
+          package-manager-cache: false
           node-version: 24
           registry-url: https://registry.npmjs.org/
 
@@ -327,28 +363,6 @@ jobs:
 
       - name: Configure npm registry
         run: npm config set registry https://registry.npmjs.org/
-
-      - name: Prepare publish helper
-        shell: bash
-        run: |
-          cat > /tmp/publish-if-needed.sh <<'EOF'
-          #!/usr/bin/env bash
-          set -euo pipefail
-
-          pkg_dir="$1"
-          cd "$pkg_dir"
-
-          name="$(node -p "require('./package.json').name")"
-          version="$(node -p "require('./package.json').version")"
-
-          if npm view "${name}@${version}" version >/dev/null 2>&1; then
-            echo "Skipping ${name}@${version}; already present on npm"
-            exit 0
-          fi
-
-          npm publish --access public --provenance --ignore-scripts
-          EOF
-          chmod +x /tmp/publish-if-needed.sh
 
       - name: Download all codec NAPI artifacts
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
@@ -420,90 +434,58 @@ jobs:
         run: corepack pnpm exec napi artifacts -d artifacts
         working-directory: packages/sourcemap
 
-      - name: Publish @srcmap/codec platform packages
+      - name: Pack prepared release artifacts without lifecycle scripts
         shell: bash
         run: |
-          failed=0
-          for dir in npm/*/; do
-            name="$(node -p "require('./${dir%/}/package.json').name")"
-            version="$(node -p "require('./${dir%/}/package.json').version")"
-
-            if npm view "${name}@${version}" version >/dev/null 2>&1; then
-              echo "Skipping ${name}@${version}; already present on npm"
-              continue
-            fi
-
-            if ! npm publish "$dir" --access public --provenance; then
-              echo "::error::Failed to publish ${name}@${version} with provenance"
-              failed=1
-            fi
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/npm-release"
+          for dir in ./packages/codec/npm/*/ ./packages/sourcemap/npm/*/ ./packages/codec ./packages/sourcemap ./packages/sourcemap-wasm ./packages/generator-wasm ./packages/source-map ./packages/gen-mapping ./packages/remapping-wasm ./packages/remapping ./packages/symbolicate-wasm ./packages/trace-mapping; do
+            npm pack "$dir" --ignore-scripts --json --pack-destination "$RUNNER_TEMP/npm-release" |
+              jq -er '.[0].filename' >> "$RUNNER_TEMP/npm-release/PUBLISH_ORDER"
           done
+          cd "$RUNNER_TEMP/npm-release"
+          sha256sum ./*.tgz PUBLISH_ORDER > SHA256SUMS
 
-          if [ "$failed" -eq 1 ]; then
-            exit 1
-          fi
-        working-directory: packages/codec
+      - name: Upload prepared npm tarballs
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: npm-release-ready
+          path: ${{ runner.temp }}/npm-release/
+          if-no-files-found: error
 
-      - name: Publish @srcmap/codec
-        run: /tmp/publish-if-needed.sh .
-        working-directory: packages/codec
-
-      - name: Publish @srcmap/sourcemap platform packages
+  publish-npm:
+    name: Publish prepared npm tarballs
+    needs: prepare-npm
+    environment: release
+    runs-on: ubuntu-26.04
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          package-manager-cache: false
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: npm-release-ready
+          path: tarballs
+      - name: Verify and publish prepared tarballs
         shell: bash
         run: |
-          failed=0
-          for dir in npm/*/; do
-            name="$(node -p "require('./${dir%/}/package.json').name")"
-            version="$(node -p "require('./${dir%/}/package.json').version")"
-
-            if npm view "${name}@${version}" version >/dev/null 2>&1; then
-              echo "Skipping ${name}@${version}; already present on npm"
+          set -euo pipefail
+          cd tarballs
+          sha256sum --check --strict SHA256SUMS
+          while IFS= read -r file; do
+            [[ "$file" == *.tgz && "$file" != */* ]]
+            file="./$file"
+            manifest=$(tar -xOf "$file" package/package.json)
+            name=$(jq -er .name <<< "$manifest")
+            version=$(jq -er .version <<< "$manifest")
+            if npm view "$name@$version" version >/dev/null 2>&1; then
+              echo "Skipping $name@$version; already present on npm"
               continue
             fi
-
-            if ! npm publish "$dir" --access public --provenance; then
-              echo "::error::Failed to publish ${name}@${version} with provenance"
-              failed=1
-            fi
-          done
-
-          if [ "$failed" -eq 1 ]; then
-            exit 1
-          fi
-        working-directory: packages/sourcemap
-
-      - name: Publish @srcmap/sourcemap
-        run: /tmp/publish-if-needed.sh .
-        working-directory: packages/sourcemap
-
-      - name: Publish @srcmap/sourcemap-wasm
-        run: /tmp/publish-if-needed.sh .
-        working-directory: packages/sourcemap-wasm
-
-      - name: Publish @srcmap/generator-wasm
-        run: /tmp/publish-if-needed.sh .
-        working-directory: packages/generator-wasm
-
-      - name: Publish @srcmap/source-map
-        run: /tmp/publish-if-needed.sh .
-        working-directory: packages/source-map
-
-      - name: Publish @srcmap/gen-mapping
-        run: /tmp/publish-if-needed.sh .
-        working-directory: packages/gen-mapping
-
-      - name: Publish @srcmap/remapping-wasm
-        run: /tmp/publish-if-needed.sh .
-        working-directory: packages/remapping-wasm
-
-      - name: Publish @srcmap/remapping
-        run: /tmp/publish-if-needed.sh .
-        working-directory: packages/remapping
-
-      - name: Publish @srcmap/symbolicate-wasm
-        run: /tmp/publish-if-needed.sh .
-        working-directory: packages/symbolicate-wasm
-
-      - name: Publish @srcmap/trace-mapping
-        run: /tmp/publish-if-needed.sh .
-        working-directory: packages/trace-mapping
+            npm publish "$file" --access public --provenance --ignore-scripts
+          done < PUBLISH_ORDER
