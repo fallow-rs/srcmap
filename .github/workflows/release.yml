@@ -365,63 +365,63 @@ jobs:
         run: npm config set registry https://registry.npmjs.org/
 
       - name: Download all codec NAPI artifacts
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           path: packages/codec/artifacts
           pattern: codec-bindings-*
           merge-multiple: false
 
       - name: Download all sourcemap NAPI artifacts
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           path: packages/sourcemap/artifacts
           pattern: sourcemap-bindings-*
           merge-multiple: false
 
       - name: Download sourcemap-wasm pkg artifact
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           name: wasm-sourcemap-package
           path: packages/sourcemap-wasm/pkg
 
       - name: Download sourcemap-wasm web artifact
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           name: wasm-sourcemap-web
           path: packages/sourcemap-wasm/web
 
       - name: Download generator-wasm pkg artifact
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           name: wasm-generator-package
           path: packages/generator-wasm/pkg
 
       - name: Download generator-wasm web artifact
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           name: wasm-generator-web
           path: packages/generator-wasm/web
 
       - name: Download remapping-wasm pkg artifact
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           name: wasm-remapping-package
           path: packages/remapping-wasm/pkg
 
       - name: Download remapping-wasm web artifact
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           name: wasm-remapping-web
           path: packages/remapping-wasm/web
 
       - name: Download symbolicate-wasm pkg artifact
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           name: wasm-symbolicate-package
           path: packages/symbolicate-wasm/pkg
 
       - name: Download symbolicate-wasm web artifact
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           name: wasm-symbolicate-web
           path: packages/symbolicate-wasm/web
@@ -467,7 +467,7 @@ jobs:
           package-manager-cache: false
           node-version: 24
           registry-url: https://registry.npmjs.org
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           name: npm-release-ready
           path: tarballs
