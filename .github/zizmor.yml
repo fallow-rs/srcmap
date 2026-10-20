@@ -17,7 +17,12 @@ rules:
   secrets-outside-env:
     ignore:
       - release.yml
-  # pull_request_target is intentional here because release drafter does not check out PR code
+  # pull_request_target is intentional in release-drafter.yml, which does not
+  # check out PR code.
   dangerous-triggers:
     ignore:
       - release-drafter.yml
+      # Calls the org-wide Dependabot workflow in fallow-rs/.github, pinned by
+      # SHA. That workflow acts only on same-repository dependabot/** branches
+      # and loads its scripts from its own commit.
+      - dependabot.yml
