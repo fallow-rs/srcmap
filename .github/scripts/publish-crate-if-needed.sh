@@ -19,6 +19,7 @@ trap 'rm -f "$response_file"' EXIT
 
 status="$(
   curl --silent --show-error \
+    --user-agent "srcmap-release (https://github.com/fallow-rs/srcmap)" \
     --output "$response_file" \
     --write-out '%{http_code}' \
     "https://crates.io/api/v1/crates/${crate_name}/${version}"

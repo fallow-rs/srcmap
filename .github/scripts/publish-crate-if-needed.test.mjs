@@ -115,6 +115,12 @@ describe("publish-crate-if-needed", () => {
     assert.match(result.commands, /cargo publish -p srcmap-codec --no-verify/);
   });
 
+  it("sends a user agent, because crates.io refuses a lookup without one", async () => {
+    const result = await runPublishHelper();
+
+    assert.match(result.commands, /curl [^\n]*--user-agent /);
+  });
+
   it("stops when the crates.io lookup fails", async () => {
     const result = await runPublishHelper({ lookup: "failure" });
 
