@@ -40,7 +40,7 @@
     "version": "napi version"
   },
   "dependencies": {
-    "detect-libc": "^2.0.0"
+    "detect-libc": "^2.1.2"
   },
   "devDependencies": {
     "@napi-rs/cli": "^3.10.9"

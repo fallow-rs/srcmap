@@ -45,6 +45,6 @@
   },
   "devDependencies": {
     "@jridgewell/sourcemap-codec": "^1.6.0",
-    "@jridgewell/trace-mapping": "^0.3.25"
+    "@jridgewell/trace-mapping": "^0.3.31"
   }
 }

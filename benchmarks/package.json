@@ -17,7 +17,7 @@
   "dependencies": {
     "@codspeed/tinybench-plugin": "^6.1.0",
     "@jridgewell/sourcemap-codec": "^1.6.0",
-    "@jridgewell/trace-mapping": "^0.3.25",
+    "@jridgewell/trace-mapping": "^0.3.31",
     "source-map-js": "^1.2.2",
     "tinybench": "^6.2.2"
   }
