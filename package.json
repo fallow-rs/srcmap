@@ -42,8 +42,8 @@
   },
   "devDependencies": {
     "fallow": "3.36.0",
-    "oxfmt": "0.74.0",
-    "oxlint": "1.89.0"
+    "oxfmt": "0.75.0",
+    "oxlint": "1.90.0"
   },
   "packageManager": "pnpm@10.33.0"
 }
