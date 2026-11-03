@@ -10,7 +10,7 @@ hk = "2.4.0"
 pkl = "0.32.1"
 
 # Same major version as each `actions/setup-node` step in `ci.yml`.
-node = "22"
+node = "26"
 
 # Same version as the typos action that the CI `typos` job pins.
 "aqua:crate-ci/typos" = "1.50.1"

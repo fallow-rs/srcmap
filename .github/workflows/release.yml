@@ -160,7 +160,7 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           package-manager-cache: false
-          node-version: 24
+          node-version: 26
           registry-url: https://registry.npmjs.org/
 
       - name: Enable Corepack
@@ -352,7 +352,7 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           package-manager-cache: false
-          node-version: 24
+          node-version: 26
           registry-url: https://registry.npmjs.org/
 
       - name: Enable Corepack
@@ -465,8 +465,14 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           package-manager-cache: false
-          node-version: 24
+          node-version: "26.13.0"
           registry-url: https://registry.npmjs.org
+      # Node 26.13.0 ships npm 11.20.0, which supports trusted publishing.
+      # The step installs nothing: this job holds `id-token: write`, so it
+      # only checks the bundled npm version.
+      - name: Check bundled npm (for trusted publishing)
+        shell: bash
+        run: test "$(npm --version)" = 11.20.0
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           name: npm-release-ready
