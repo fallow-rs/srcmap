@@ -43,6 +43,9 @@ hooks {
     steps {
       ["cargo-fmt"] = (cargoFmt) { glob = rustInputs }
       ["cargo-clippy"] = (cargoClippy) { glob = rustInputs }
+      ["comment-quality"] {
+        check = "node scripts/check-comment-quality.mjs --staged"
+      }
       ["typos"] {
         check = "if command -v typos >/dev/null 2>&1; then typos; else sh scripts/hook-tool-hint.sh typos; fi"
       }

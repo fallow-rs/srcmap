@@ -116,8 +116,8 @@ corepack pnpm run coverage:js   # JS coverage
 step runs a command that CI also runs:
 
 - `pre-commit`: `cargo fmt --check` and Clippy when a Rust file or Cargo file
-  is staged, `typos`, and oxfmt and oxlint when a JavaScript package file is
-  staged.
+  is staged, the comment quality check (`scripts/check-comment-quality.mjs`),
+  `typos`, and oxfmt and oxlint when a JavaScript package file is staged.
 - `pre-push`: `cargo fmt --check`, Clippy, `cargo doc`, `cargo shear`,
   `cargo deny` (bans, licenses and sources; CI also checks advisories) and
   `fallow dead-code`.

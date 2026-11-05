@@ -123,9 +123,9 @@ fn main() {
     // next mapping preserves a 1:1 column correspondence with the original.
     // Useful for sections of code that are copied verbatim (no minification).
     //
-    // Here we mark the template literal in a hypothetical second output line
-    // as a range mapping — every column in the generated range maps directly
-    // to the corresponding column in the original.
+    // This range mapping covers a template literal on a hypothetical second
+    // output line. Each column in the generated range maps to the matching
+    // column in the original.
     sg.add_range_mapping(1, 0, src_math, 0, 7);
 
     let streaming_count = sg.mapping_count();
