@@ -199,6 +199,10 @@ jobs:
         run: corepack pnpm run lint:js
       - name: Run JS formatter check
         run: corepack pnpm run fmt:js:check
+      - name: Test the comment quality check
+        run: node --test scripts/check-comment-quality.test.mjs
+      - name: Check comments for narration and edit history
+        run: node scripts/check-comment-quality.mjs --all
 
   js-runtime:
     name: JS Runtime

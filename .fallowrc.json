@@ -27,6 +27,9 @@
     "**/srcmap_*_wasm.js",
     "**/srcmap_*_wasm_bg.wasm"
   ],
+  "health": {
+    "ignore": ["scripts/check-comment-quality.mjs"]
+  },
   "ignorePatterns": [
     ".fallow/**",
     "coverage/**",
