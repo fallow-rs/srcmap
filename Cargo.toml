@@ -20,7 +20,7 @@ srcmap-symbolicate = { version = "0.4.0", path = "crates/symbolicate" }
 criterion2 = { version = "3.0.2", default-features = false }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["raw_value"] }
-simd-json = "0.18"
+simd-json = "0.19"
 sonic-rs = "0.5"
 rayon = "1"
 napi = { version = "3", default-features = false, features = ["napi6"] }
