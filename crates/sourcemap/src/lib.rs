@@ -501,6 +501,44 @@ fn filter_section_source_root(source_root: Option<String>, sources: &[String]) -
     })
 }
 
+/// Build the original location for a lookup hit on `mapping` at `column`.
+///
+/// A range mapping shifts the original column by the distance from its generated column.
+fn hit_location(mapping: &Mapping, column: u32) -> Option<OriginalLocation> {
+    let column_delta = if mapping.is_range_mapping && column >= mapping.generated_column {
+        column - mapping.generated_column
+    } else {
+        0
+    };
+
+    Some(OriginalLocation {
+        source: mapping.source,
+        line: mapping.original_line,
+        column: mapping.original_column.checked_add(column_delta)?,
+        name: name_index(mapping),
+    })
+}
+
+/// Resolve `(line, column)` through `last`, the last mapping before that position.
+///
+/// Returns `None` unless `last` is a range mapping with a source. Uses
+/// `saturating_sub` for the column delta, so a query column before the range
+/// start maps to the range start.
+fn range_fallback_location(last: &Mapping, line: u32, column: u32) -> Option<OriginalLocation> {
+    if !last.is_range_mapping || last.source == NO_SOURCE {
+        return None;
+    }
+    let line_delta = line - last.generated_line;
+    let column_delta =
+        if line_delta == 0 { column.saturating_sub(last.generated_column) } else { 0 };
+    Some(OriginalLocation {
+        source: last.source,
+        line: last.original_line.checked_add(line_delta)?,
+        column: last.original_column.checked_add(column_delta)?,
+        name: name_index(last),
+    })
+}
+
 fn original_position_glb_index(line_mappings: &[Mapping], column: u32) -> Option<usize> {
     match line_mappings.binary_search_by_key(&column, |m| m.generated_column) {
         // Exact match: walk back to the earliest segment sharing this column.
@@ -533,6 +571,10 @@ fn original_position_lub_index(line_mappings: &[Mapping], column: u32) -> Option
         Err(i) if i >= line_mappings.len() => None,
         Err(i) => Some(i),
     }
+}
+
+fn owned_range_mappings(range_mappings: Option<&str>) -> Option<String> {
+    range_mappings.filter(|s| !s.is_empty()).map(str::to_string)
 }
 
 const fn generated_only_mapping(line: u32, generated_column: u32) -> Mapping {
@@ -1144,18 +1186,7 @@ impl SourceMap {
             return None;
         }
 
-        let column_delta = if mapping.is_range_mapping && column >= mapping.generated_column {
-            column - mapping.generated_column
-        } else {
-            0
-        };
-
-        Some(OriginalLocation {
-            source: mapping.source,
-            line: mapping.original_line,
-            column: mapping.original_column.checked_add(column_delta)?,
-            name: name_index(mapping),
-        })
+        hit_location(mapping, column)
     }
 
     /// Fall back to range mappings when no exact mapping is found for the position.
@@ -1172,19 +1203,7 @@ impl SourceMap {
         if search_end == 0 {
             return None;
         }
-        let last_mapping = &self.mappings[search_end - 1];
-        if !last_mapping.is_range_mapping || last_mapping.source == NO_SOURCE {
-            return None;
-        }
-        let line_delta = line - last_mapping.generated_line;
-        let column_delta =
-            if line_delta == 0 { column.saturating_sub(last_mapping.generated_column) } else { 0 };
-        Some(OriginalLocation {
-            source: last_mapping.source,
-            line: last_mapping.original_line.checked_add(line_delta)?,
-            column: last_mapping.original_column.checked_add(column_delta)?,
-            name: name_index(last_mapping),
-        })
+        range_fallback_location(&self.mappings[search_end - 1], line, column)
     }
 
     /// Look up the generated position for an original source position.
@@ -1783,6 +1802,8 @@ impl SourceMap {
 
         let (mut mappings, line_offsets) =
             decode_mappings_range(raw.mappings, start_line, end_line)?;
+        let has_range_mappings =
+            decode_range_mappings_field(raw.range_mappings, &mut mappings, &line_offsets)?;
         sort_unsorted_lines(&mut mappings, &line_offsets);
         let scopes = decode_scopes_field(raw.scopes, &raw.names, sources.len())?;
         let ignore_list = resolve_ignore_list(raw.ignore_list, raw.x_google_ignore_list);
@@ -1803,7 +1824,7 @@ impl SourceMap {
             line_offsets,
             reverse_index: OnceCell::new(),
             source_map,
-            has_range_mappings: false,
+            has_range_mappings,
         })
     }
 
@@ -2056,6 +2077,13 @@ pub struct LazySourceMap {
     /// Raw VLQ mappings string (owned).
     raw_mappings: String,
 
+    /// Raw `rangeMappings` string (owned), decoded per line on demand.
+    raw_range_mappings: Option<String>,
+
+    /// Byte offset of each line's group in `raw_range_mappings`. Empty when
+    /// the map has no range mappings.
+    range_line_starts: Vec<usize>,
+
     /// Pre-scanned line info for O(1) line access.
     /// In fast-scan mode, VlqState is zeroed and decoded progressively.
     line_info: Vec<LineInfo>,
@@ -2092,10 +2120,16 @@ impl LazySourceMap {
         debug_id: Option<String>,
         scopes: Option<ScopeInfo>,
         raw_mappings: String,
+        raw_range_mappings: Option<String>,
         line_info: Vec<LineInfo>,
         source_map: HashMap<String, u32>,
         fast_scan: bool,
     ) -> Self {
+        let range_line_starts = raw_range_mappings.as_deref().map_or_else(Vec::new, |s| {
+            std::iter::once(0)
+                .chain(memchr::memchr_iter(b';', s.as_bytes()).map(|i| i + 1))
+                .collect()
+        });
         Self {
             file,
             source_root,
@@ -2107,6 +2141,8 @@ impl LazySourceMap {
             debug_id,
             scopes,
             raw_mappings,
+            raw_range_mappings,
+            range_line_starts,
             line_info,
             decoded_lines: RefCell::new(HashMap::new()),
             source_map,
@@ -2152,6 +2188,7 @@ impl LazySourceMap {
             raw.debug_id,
             scopes,
             raw_mappings,
+            owned_range_mappings(raw.range_mappings),
             line_info,
             source_map,
             false,
@@ -2194,6 +2231,7 @@ impl LazySourceMap {
             raw.debug_id,
             scopes,
             raw_mappings,
+            owned_range_mappings(raw.range_mappings),
             line_info,
             source_map,
             false,
@@ -2228,6 +2266,7 @@ impl LazySourceMap {
             debug_id,
             None,
             raw_mappings,
+            None,
             line_info,
             source_map,
             false,
@@ -2239,7 +2278,7 @@ impl LazySourceMap {
     /// Only scans for semicolons at construction (no VLQ decode at all).
     /// VLQ state is computed progressively on demand. This gives the fastest
     /// possible parse time at the cost of first-lookup needing sequential decode.
-    /// sourcesContent is skipped.
+    /// sourcesContent is skipped. Scopes and range mappings are kept.
     ///
     /// Returns `ParseError::NestedIndexMap` if the JSON contains `sections`
     /// (indexed source maps are not supported by `LazySourceMap`).
@@ -2258,6 +2297,7 @@ impl LazySourceMap {
         let raw_mappings = raw.mappings.to_string();
 
         let line_info = fast_scan_lines(&raw_mappings);
+        let scopes = decode_scopes_field(raw.scopes, &raw.names, sources.len())?;
         let ignore_list = resolve_ignore_list(raw.ignore_list, raw.x_google_ignore_list);
 
         Ok(Self::new_inner(
@@ -2269,8 +2309,9 @@ impl LazySourceMap {
             ignore_list,
             HashMap::new(),
             raw.debug_id,
-            None,
+            scopes,
             raw_mappings,
+            owned_range_mappings(raw.range_mappings),
             line_info,
             source_map,
             true,
@@ -2309,6 +2350,12 @@ impl LazySourceMap {
                 &mut generated_column,
                 &mut state,
             )?);
+        }
+        if let (Some(range_mappings), Some(&start)) =
+            (self.raw_range_mappings.as_deref(), self.range_line_starts.get(line_idx))
+        {
+            let mut pos = start;
+            mark_range_line(range_mappings.as_bytes(), &mut pos, &mut mappings)?;
         }
         sort_line_by_column(&mut mappings);
 
@@ -2374,31 +2421,35 @@ impl LazySourceMap {
     pub fn original_position_for(&self, line: u32, column: u32) -> Option<OriginalLocation> {
         self.ensure_line_decoded(line).ok()?;
         let decoded_lines = self.decoded_lines.borrow();
-        let line_mappings = decoded_lines.get(&line)?;
+        let line_mappings = decoded_lines.get(&line).map_or(&[][..], Vec::as_slice);
 
-        if line_mappings.is_empty() {
-            return None;
-        }
-
-        // Binary search for greatest lower bound
-        let idx = match line_mappings.binary_search_by_key(&column, |m| m.generated_column) {
-            Ok(i) => i,
-            Err(0) => return None,
-            Err(i) => i - 1,
+        let Some(idx) = original_position_glb_index(line_mappings, column) else {
+            drop(decoded_lines);
+            return self.range_mapping_fallback(line, column);
         };
 
         let mapping = &line_mappings[idx];
-
         if mapping.source == NO_SOURCE {
             return None;
         }
+        hit_location(mapping, column)
+    }
 
-        Some(OriginalLocation {
-            source: mapping.source,
-            line: mapping.original_line,
-            column: mapping.original_column,
-            name: name_index(mapping),
-        })
+    /// Resolve a position with no mapping at or before it on its line through
+    /// the last mapping on an earlier line, as [`SourceMap`] does.
+    ///
+    /// Maps without range mappings return `None` at once and decode nothing.
+    fn range_mapping_fallback(&self, line: u32, column: u32) -> Option<OriginalLocation> {
+        self.raw_range_mappings.as_ref()?;
+        let end = line.min(u32::try_from(self.line_info.len()).unwrap_or(u32::MAX));
+        for previous in (0..end).rev() {
+            self.ensure_line_decoded(previous).ok()?;
+            let decoded_lines = self.decoded_lines.borrow();
+            if let Some(last) = decoded_lines.get(&previous).and_then(|m| m.last()) {
+                return range_fallback_location(last, line, column);
+            }
+        }
+        None
     }
 
     /// Number of generated lines in the source map.
@@ -2457,8 +2508,12 @@ impl LazySourceMap {
     /// Useful when you need the full map after lazy exploration.
     pub fn into_sourcemap(self) -> Result<SourceMap, ParseError> {
         let (mut mappings, line_offsets) = decode_mappings(&self.raw_mappings)?;
+        let has_range_mappings = decode_range_mappings_field(
+            self.raw_range_mappings.as_deref(),
+            &mut mappings,
+            &line_offsets,
+        )?;
         sort_unsorted_lines(&mut mappings, &line_offsets);
-        let has_range_mappings = mappings.iter().any(|m| m.is_range_mapping);
 
         Ok(SourceMap {
             file: self.file,
@@ -2959,6 +3014,33 @@ const fn at_segment_delimiter(bytes: &[u8], pos: usize) -> bool {
     pos >= bytes.len() || bytes[pos] == b',' || bytes[pos] == b';'
 }
 
+/// Mark the range mappings of one line, from one `;`-separated `rangeMappings` group.
+///
+/// Reads from `pos` up to and including the next `;`. Each value adds to an
+/// index into `line`, in input segment order. Indices past the end of the line
+/// mark nothing.
+fn mark_range_line(bytes: &[u8], pos: &mut usize, line: &mut [Mapping]) -> Result<(), DecodeError> {
+    let line_len = line.len() as u64;
+    let mut mapping_index: u64 = 0;
+    while *pos < bytes.len() {
+        match bytes[*pos] {
+            b';' => {
+                *pos += 1;
+                break;
+            }
+            b',' => *pos += 1,
+            _ => {
+                let offset = vlq_unsigned_fast(bytes, pos)?;
+                mapping_index = mapping_index.saturating_add(offset);
+                if mapping_index < line_len {
+                    line[mapping_index as usize].is_range_mapping = true;
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
 fn decode_range_mappings(
     input: &str,
     mappings: &mut [Mapping],
@@ -2980,24 +3062,8 @@ fn decode_range_mappings(
         } else {
             mappings.len()
         };
-        let line_len = line_end.saturating_sub(line_start) as u64;
-        let mut mapping_index: u64 = 0;
-        while pos < len {
-            let byte = bytes[pos];
-            if byte == b';' {
-                pos += 1;
-                break;
-            }
-            if byte == b',' {
-                pos += 1;
-                continue;
-            }
-            let offset = vlq_unsigned_fast(bytes, &mut pos)?;
-            mapping_index = mapping_index.saturating_add(offset);
-            if mapping_index < line_len {
-                mappings[line_start + mapping_index as usize].is_range_mapping = true;
-            }
-        }
+        let line = mappings.get_mut(line_start..line_end).unwrap_or_default();
+        mark_range_line(bytes, &mut pos, line)?;
         generated_line += 1;
     }
     Ok(())
@@ -4195,6 +4261,123 @@ mod tests {
         let line: Vec<(u32, u32)> =
             sm.mappings_for_line(0).iter().map(|m| (m.generated_column, m.original_line)).collect();
         assert_eq!(line, [(1, 2), (2, 0), (2, 1)]);
+    }
+
+    type Loc = Option<(u32, u32, u32, Option<u32>)>;
+
+    fn loc_tuple(loc: Option<OriginalLocation>) -> Loc {
+        let l = loc?;
+        Some((l.source, l.line, l.column, l.name))
+    }
+
+    /// Compare every lookup path against `SourceMap::from_json` on a grid of positions.
+    fn assert_lookup_parity(json: &str, max_line: u32, max_col: u32) {
+        let eager = SourceMap::from_json(json).unwrap();
+        let lines = SourceMap::from_json_lines(json, 0, max_line + 1).unwrap();
+        let lazy = LazySourceMap::from_json(json).unwrap();
+        let lazy_no_content = LazySourceMap::from_json_no_content(json).unwrap();
+        let lazy_fast = LazySourceMap::from_json_fast(json).unwrap();
+        let roundtrip = LazySourceMap::from_json(json).unwrap().into_sourcemap().unwrap();
+        for line in 0..=max_line {
+            for col in 0..=max_col {
+                let want = loc_tuple(eager.original_position_for(line, col));
+                let paths = [
+                    ("from_json_lines", loc_tuple(lines.original_position_for(line, col))),
+                    ("lazy", loc_tuple(lazy.original_position_for(line, col))),
+                    (
+                        "lazy_no_content",
+                        loc_tuple(lazy_no_content.original_position_for(line, col)),
+                    ),
+                    ("lazy_fast", loc_tuple(lazy_fast.original_position_for(line, col))),
+                    ("into_sourcemap", loc_tuple(roundtrip.original_position_for(line, col))),
+                ];
+                for (path, got) in paths {
+                    assert_eq!(got, want, "{path} {line}:{col}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn lookup_parity_simple() {
+        assert_lookup_parity(simple_map(), 3, 6);
+    }
+
+    #[test]
+    fn lookup_parity_generated() {
+        assert_lookup_parity(&generate_test_sourcemap(20, 5, 3), 21, 60);
+    }
+
+    #[test]
+    fn lookup_parity_duplicate_columns() {
+        assert_lookup_parity(
+            r#"{"version":3,"sources":["src/original.ts"],"names":["originalFn","helperFn"],"mappings":"AASA,A,A;AAIA,C;AAIA"}"#,
+            3,
+            3,
+        );
+    }
+
+    #[test]
+    fn lookup_parity_range_mappings_across_lines() {
+        assert_lookup_parity(
+            r#"{"version":3,"sources":["input.js"],"names":[],"mappings":"AAAA;KACK","rangeMappings":"A"}"#,
+            3,
+            8,
+        );
+    }
+
+    #[test]
+    fn lookup_parity_range_mappings_same_line() {
+        assert_lookup_parity(
+            r#"{"version":3,"sources":["input.js"],"names":[],"mappings":"AAAA,KACK","rangeMappings":"A"}"#,
+            1,
+            8,
+        );
+    }
+
+    #[test]
+    fn lookup_parity_range_mappings_after_empty_lines() {
+        assert_lookup_parity(
+            r#"{"version":3,"sources":["input.js"],"names":[],"mappings":"AAAA,KACK;;;EAAE","rangeMappings":"C;;;A"}"#,
+            5,
+            8,
+        );
+    }
+
+    #[test]
+    fn lookup_parity_unsorted_line() {
+        assert_lookup_parity(
+            r#"{"version":3,"sources":["a.js"],"names":[],"mappings":"UAAA,DACA,DACA,DACA"}"#,
+            1,
+            12,
+        );
+    }
+
+    #[test]
+    fn lookup_parity_unsorted_line_with_range_mapping() {
+        assert_lookup_parity(
+            r#"{"version":3,"sources":["a.js"],"names":[],"mappings":"KAAA,DACA;","rangeMappings":"A"}"#,
+            2,
+            8,
+        );
+    }
+
+    #[test]
+    fn lazy_fast_keeps_scopes() {
+        let scopes_str = single_scope_str();
+        let json = format!(
+            r#"{{"version":3,"sources":["a.js"],"names":[],"mappings":"AAAA;AACA","scopes":"{scopes_str}"}}"#
+        );
+        assert!(LazySourceMap::from_json_fast(&json).unwrap().scopes.is_some());
+    }
+
+    #[test]
+    fn range_mappings_survive_from_json_lines_and_into_sourcemap() {
+        let json = r#"{"version":3,"sources":["input.js"],"names":[],"mappings":"AAAA;KACK","rangeMappings":"A"}"#;
+        let lines = SourceMap::from_json_lines(json, 0, 2).unwrap();
+        assert!(lines.to_json().contains("\"rangeMappings\""));
+        let roundtrip = LazySourceMap::from_json(json).unwrap().into_sourcemap().unwrap();
+        assert!(roundtrip.to_json().contains("\"rangeMappings\""));
     }
 
     #[test]
