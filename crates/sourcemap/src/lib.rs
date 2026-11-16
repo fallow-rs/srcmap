@@ -282,16 +282,47 @@ const fn index_error(kind: IndexKind, index: u32, len: usize) -> ParseError {
     ParseError::IndexOutOfRange { kind, index, len }
 }
 
-/// Check that every index in decoded map data points inside its array.
-///
-/// The scopes walk uses an explicit stack, so deep range nesting from untrusted
-/// input cannot overflow the call stack.
-fn check_indices(
+/// Limits and findings of one mappings decode, so that later checks need no extra pass.
+#[derive(Debug, Clone, Copy)]
+struct DecodeChecks {
+    /// Source indices from this value up set `index_out_of_range`.
+    source_limit: u64,
+    /// Name indices from this value up set `index_out_of_range`.
+    name_limit: u64,
+    /// True when a mapping holds a source or name index at or above its limit.
+    index_out_of_range: bool,
+    /// True when a line has a segment with a lower column than the segment before it.
+    unsorted: bool,
+}
+
+impl DecodeChecks {
+    /// Checks for a map with `sources_len` sources and `names_len` names.
+    fn new(sources_len: usize, names_len: usize) -> Self {
+        Self {
+            source_limit: (sources_len as u64).min(POSITION_END),
+            name_limit: (names_len as u64).min(POSITION_END),
+            index_out_of_range: false,
+            unsorted: false,
+        }
+    }
+
+    /// Checks that only find unsorted lines, for a decode that does not check indices.
+    const fn without_index_limits() -> Self {
+        Self {
+            source_limit: POSITION_END,
+            name_limit: POSITION_END,
+            index_out_of_range: false,
+            unsorted: false,
+        }
+    }
+}
+
+/// Return the error for the first mapping with an out-of-range source or name index.
+#[cold]
+fn check_mapping_indices(
     mappings: &[Mapping],
     sources_len: usize,
     names_len: usize,
-    ignore_list: &[u32],
-    scopes: Option<&ScopeInfo>,
 ) -> Result<(), ParseError> {
     for m in mappings {
         if m.source != NO_SOURCE && m.source as usize >= sources_len {
@@ -300,6 +331,27 @@ fn check_indices(
         if m.name != NO_NAME && m.name as usize >= names_len {
             return Err(index_error(IndexKind::Name, m.name, names_len));
         }
+    }
+    Ok(())
+}
+
+/// Check that every index in decoded map data points inside its array.
+///
+/// The scopes walk uses an explicit stack, so deep range nesting from untrusted
+/// input cannot overflow the call stack.
+///
+/// `checks` comes from the decode of `mappings`. The mappings are scanned only
+/// when the decode found an out-of-range index, to report the first one.
+fn check_indices(
+    mappings: &[Mapping],
+    checks: &DecodeChecks,
+    sources_len: usize,
+    names_len: usize,
+    ignore_list: &[u32],
+    scopes: Option<&ScopeInfo>,
+) -> Result<(), ParseError> {
+    if checks.index_out_of_range {
+        check_mapping_indices(mappings, sources_len, names_len)?;
     }
 
     if let Some(&idx) = ignore_list.iter().find(|&&idx| idx as usize >= sources_len) {
@@ -1010,13 +1062,21 @@ impl SourceMap {
         let source_root = raw.source_root.as_deref().unwrap_or("");
         let sources = resolve_sources(&raw.sources, source_root);
         let source_map = build_source_map(&sources);
-        let (mut mappings, line_offsets) = decode_mappings(raw.mappings)?;
+        let (mut mappings, line_offsets, checks) =
+            decode_mappings(raw.mappings, sources.len(), raw.names.len())?;
         let has_range_mappings =
             decode_range_mappings_field(raw.range_mappings, &mut mappings, &line_offsets)?;
-        sort_unsorted_lines(&mut mappings, &line_offsets);
+        sort_unsorted_lines(&mut mappings, &line_offsets, &checks);
         let scopes = decode_scopes_field(raw.scopes, &raw.names, sources.len())?;
         let ignore_list = resolve_ignore_list(raw.ignore_list, raw.x_google_ignore_list);
-        check_indices(&mappings, sources.len(), raw.names.len(), &ignore_list, scopes.as_ref())?;
+        check_indices(
+            &mappings,
+            &checks,
+            sources.len(),
+            raw.names.len(),
+            &ignore_list,
+            scopes.as_ref(),
+        )?;
 
         Ok(Self {
             file: raw.file,
@@ -1066,13 +1126,21 @@ impl SourceMap {
         let sources_content = raw.sources_content.unwrap_or_default();
         let source_map = build_source_map(&sources);
 
-        let (mut mappings, line_offsets) = decode_mappings(raw.mappings)?;
+        let (mut mappings, line_offsets, checks) =
+            decode_mappings(raw.mappings, sources.len(), raw.names.len())?;
         let has_range_mappings =
             decode_range_mappings_field(raw.range_mappings, &mut mappings, &line_offsets)?;
-        sort_unsorted_lines(&mut mappings, &line_offsets);
+        sort_unsorted_lines(&mut mappings, &line_offsets, &checks);
         let scopes = decode_scopes_field(raw.scopes, &raw.names, sources.len())?;
         let ignore_list = resolve_ignore_list(raw.ignore_list, raw.x_google_ignore_list);
-        check_indices(&mappings, sources.len(), raw.names.len(), &ignore_list, scopes.as_ref())?;
+        check_indices(
+            &mappings,
+            &checks,
+            sources.len(),
+            raw.names.len(),
+            &ignore_list,
+            scopes.as_ref(),
+        )?;
         let extensions = filter_extensions(raw.extensions);
 
         Ok(Self {
@@ -1726,11 +1794,12 @@ impl SourceMap {
         debug_id: Option<String>,
         range_mappings_str: Option<&str>,
     ) -> Result<Self, ParseError> {
-        let (mut mappings, line_offsets) = decode_mappings(mappings_str)?;
+        let (mut mappings, line_offsets, checks) =
+            decode_mappings(mappings_str, sources.len(), names.len())?;
         let has_range_mappings =
             decode_range_mappings_field(range_mappings_str, &mut mappings, &line_offsets)?;
-        sort_unsorted_lines(&mut mappings, &line_offsets);
-        check_indices(&mappings, sources.len(), names.len(), &ignore_list, None)?;
+        sort_unsorted_lines(&mut mappings, &line_offsets, &checks);
+        check_indices(&mappings, &checks, sources.len(), names.len(), &ignore_list, None)?;
         let source_map = build_source_map(&sources);
         Ok(Self {
             file,
@@ -1800,14 +1869,25 @@ impl SourceMap {
         let sources_content = raw.sources_content.unwrap_or_default();
         let source_map = build_source_map(&sources);
 
-        let (mut mappings, line_offsets) =
-            decode_mappings_range(raw.mappings, start_line, end_line)?;
+        let (mut mappings, line_offsets, checks) = decode_mappings_range(
+            raw.mappings,
+            start_line,
+            end_line,
+            DecodeChecks::new(sources.len(), raw.names.len()),
+        )?;
         let has_range_mappings =
             decode_range_mappings_field(raw.range_mappings, &mut mappings, &line_offsets)?;
-        sort_unsorted_lines(&mut mappings, &line_offsets);
+        sort_unsorted_lines(&mut mappings, &line_offsets, &checks);
         let scopes = decode_scopes_field(raw.scopes, &raw.names, sources.len())?;
         let ignore_list = resolve_ignore_list(raw.ignore_list, raw.x_google_ignore_list);
-        check_indices(&mappings, sources.len(), raw.names.len(), &ignore_list, scopes.as_ref())?;
+        check_indices(
+            &mappings,
+            &checks,
+            sources.len(),
+            raw.names.len(),
+            &ignore_list,
+            scopes.as_ref(),
+        )?;
         let extensions = filter_extensions(raw.extensions);
 
         Ok(Self {
@@ -2337,6 +2417,7 @@ impl LazySourceMap {
         let mut mappings = Vec::new();
         let mut generated_column: i64 = 0;
         let mut pos = info.byte_offset;
+        let mut checks = DecodeChecks::without_index_limits();
 
         while pos < end {
             if bytes[pos] == b',' {
@@ -2349,6 +2430,7 @@ impl LazySourceMap {
                 line,
                 &mut generated_column,
                 &mut state,
+                &mut checks,
             )?);
         }
         if let (Some(range_mappings), Some(&start)) =
@@ -2357,7 +2439,9 @@ impl LazySourceMap {
             let mut pos = start;
             mark_range_line(range_mappings.as_bytes(), &mut pos, &mut mappings)?;
         }
-        sort_line_by_column(&mut mappings);
+        if checks.unsorted {
+            sort_line_by_column(&mut mappings);
+        }
 
         Ok((mappings, state))
     }
@@ -2419,20 +2503,28 @@ impl LazySourceMap {
     /// Both `line` and `column` are 0-based.
     /// Returns `None` if no mapping exists or the mapping has no source.
     pub fn original_position_for(&self, line: u32, column: u32) -> Option<OriginalLocation> {
-        self.ensure_line_decoded(line).ok()?;
-        let decoded_lines = self.decoded_lines.borrow();
-        let line_mappings = decoded_lines.get(&line).map_or(&[][..], Vec::as_slice);
-
-        let Some(idx) = original_position_glb_index(line_mappings, column) else {
-            drop(decoded_lines);
-            return self.range_mapping_fallback(line, column);
+        let glb = |m: &[Mapping]| original_position_glb_index(m, column).map(|idx| m[idx]);
+        // A decoded line needs one map lookup. Only a line that is not decoded yet needs more.
+        let found = match self.with_decoded_line(line, glb) {
+            Some(found) => found,
+            None => {
+                self.ensure_line_decoded(line).ok()?;
+                self.with_decoded_line(line, glb).flatten()
+            }
         };
 
-        let mapping = &line_mappings[idx];
+        let Some(mapping) = found else {
+            return self.range_mapping_fallback(line, column);
+        };
         if mapping.source == NO_SOURCE {
             return None;
         }
-        hit_location(mapping, column)
+        hit_location(&mapping, column)
+    }
+
+    /// Call `f` with the decoded mappings of `line`, or return `None` when `line` is not decoded.
+    fn with_decoded_line<R>(&self, line: u32, f: impl FnOnce(&[Mapping]) -> R) -> Option<R> {
+        self.decoded_lines.borrow().get(&line).map(|mappings| f(mappings))
     }
 
     /// Resolve a position with no mapping at or before it on its line through
@@ -2507,15 +2599,17 @@ impl LazySourceMap {
     ///
     /// Useful when you need the full map after lazy exploration.
     pub fn into_sourcemap(self) -> Result<SourceMap, ParseError> {
-        let (mut mappings, line_offsets) = decode_mappings(&self.raw_mappings)?;
+        let (mut mappings, line_offsets, checks) =
+            decode_mappings(&self.raw_mappings, self.sources.len(), self.names.len())?;
         let has_range_mappings = decode_range_mappings_field(
             self.raw_range_mappings.as_deref(),
             &mut mappings,
             &line_offsets,
         )?;
-        sort_unsorted_lines(&mut mappings, &line_offsets);
+        sort_unsorted_lines(&mut mappings, &line_offsets, &checks);
         check_indices(
             &mappings,
+            &checks,
             self.sources.len(),
             self.names.len(),
             &self.ignore_list,
@@ -2592,7 +2686,14 @@ fn walk_vlq_state(
             pos += 1;
             continue;
         }
-        decode_mapping_segment(bytes, &mut pos, 0, &mut generated_column, &mut state)?;
+        decode_mapping_segment(
+            bytes,
+            &mut pos,
+            0,
+            &mut generated_column,
+            &mut state,
+            &mut DecodeChecks::without_index_limits(),
+        )?;
     }
     Ok(state)
 }
@@ -2872,8 +2973,11 @@ fn json_quote_into(out: &mut String, s: &str) {
 // ── Internal: decode VLQ mappings directly into flat Mapping vec ───
 
 /// Base64 decode lookup table (byte → 6-bit value, 0xFF = invalid).
-const B64: [u8; 128] = {
-    let mut table = [0xFFu8; 128];
+///
+/// The table covers every byte value, so a lookup needs no separate check for
+/// bytes from 128 up.
+const B64: [u8; 256] = {
+    let mut table = [0xFFu8; 256];
     let chars = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let mut i = 0u8;
     while i < 64 {
@@ -2893,9 +2997,6 @@ fn vlq_fast(bytes: &[u8], pos: &mut usize) -> Result<i64, DecodeError> {
     }
 
     let b0 = bytes[p];
-    if b0 >= 128 {
-        return Err(DecodeError::InvalidBase64 { byte: b0, offset: p });
-    }
     let d0 = B64[b0 as usize];
     if d0 == 0xFF {
         return Err(DecodeError::InvalidBase64 { byte: b0, offset: p });
@@ -2918,9 +3019,6 @@ fn vlq_fast(bytes: &[u8], pos: &mut usize) -> Result<i64, DecodeError> {
             return Err(DecodeError::UnexpectedEof { offset: i });
         }
         let b = bytes[i];
-        if b >= 128 {
-            return Err(DecodeError::InvalidBase64 { byte: b, offset: i });
-        }
         let d = B64[b as usize];
         if d == 0xFF {
             return Err(DecodeError::InvalidBase64 { byte: b, offset: i });
@@ -2951,9 +3049,6 @@ fn vlq_unsigned_fast(bytes: &[u8], pos: &mut usize) -> Result<u64, DecodeError> 
         return Err(DecodeError::UnexpectedEof { offset: p });
     }
     let b0 = bytes[p];
-    if b0 >= 128 {
-        return Err(DecodeError::InvalidBase64 { byte: b0, offset: p });
-    }
     let d0 = B64[b0 as usize];
     if d0 == 0xFF {
         return Err(DecodeError::InvalidBase64 { byte: b0, offset: p });
@@ -2970,9 +3065,6 @@ fn vlq_unsigned_fast(bytes: &[u8], pos: &mut usize) -> Result<u64, DecodeError> 
             return Err(DecodeError::UnexpectedEof { offset: i });
         }
         let b = bytes[i];
-        if b >= 128 {
-            return Err(DecodeError::InvalidBase64 { byte: b, offset: i });
-        }
         let d = B64[b as usize];
         if d == 0xFF {
             return Err(DecodeError::InvalidBase64 { byte: b, offset: i });
@@ -2991,29 +3083,108 @@ fn vlq_unsigned_fast(bytes: &[u8], pos: &mut usize) -> Result<u64, DecodeError> 
     Ok(result)
 }
 
-/// Convert an accumulated VLQ value to a mapping position or index.
+/// End of the valid range of a decoded position or index.
 ///
 /// Valid values are `0..u32::MAX`. `u32::MAX` itself is excluded, because
 /// `NO_SOURCE` and `NO_NAME` use it as a sentinel.
-#[inline(always)]
-fn to_position(value: i64, offset: usize) -> Result<u32, DecodeError> {
-    match u32::try_from(value) {
-        Ok(v) if v != u32::MAX => Ok(v),
-        _ => Err(DecodeError::ValueOutOfRange { offset }),
-    }
+const POSITION_END: u64 = u32::MAX as u64;
+
+#[cold]
+const fn value_out_of_range(offset: usize) -> DecodeError {
+    DecodeError::ValueOutOfRange { offset }
 }
 
 /// Read one VLQ value at `pos`, add it to `acc`, and return the new value as a position.
 ///
-/// Returns [`DecodeError::VlqOverflow`] when the sum overflows `i64`, and
-/// [`DecodeError::ValueOutOfRange`] when the sum is outside `0..u32::MAX`. Both
-/// errors carry the offset of the value.
+/// Returns [`DecodeError::ValueOutOfRange`] with the offset of the value when
+/// the sum is outside `0..POSITION_END`.
+///
+/// The decoders stop at the first error, so `acc` is in `0..POSITION_END` on
+/// entry. [`vlq_fast`] returns values below 2^60 in magnitude, so the sum
+/// cannot overflow `i64`.
 #[inline(always)]
 fn add_vlq(acc: &mut i64, bytes: &[u8], pos: &mut usize) -> Result<u32, DecodeError> {
     let start = *pos;
     let delta = vlq_fast(bytes, pos)?;
-    *acc = acc.checked_add(delta).ok_or(DecodeError::VlqOverflow { offset: start })?;
-    to_position(*acc, start)
+    *acc = acc.wrapping_add(delta);
+    // One unsigned compare rejects both negative values and values from `u32::MAX` up.
+    if (*acc as u64) < POSITION_END { Ok(*acc as u32) } else { Err(value_out_of_range(start)) }
+}
+
+/// Read one generated column like [`add_vlq`], and set `checks.unsorted` when
+/// the column is lower than the previous column in `acc`.
+#[inline(always)]
+fn add_vlq_column(
+    acc: &mut i64,
+    bytes: &[u8],
+    pos: &mut usize,
+    checks: &mut DecodeChecks,
+) -> Result<u32, DecodeError> {
+    let start = *pos;
+    let prev = *acc;
+    let delta = vlq_fast(bytes, pos)?;
+    *acc = prev.wrapping_add(delta);
+    // `prev` is in `0..POSITION_END`, so one unsigned compare checks both
+    // `delta >= 0` and `prev + delta < POSITION_END`.
+    if (delta as u64) < POSITION_END - prev as u64 {
+        Ok(*acc as u32)
+    } else {
+        column_outside_order(*acc, start, checks)
+    }
+}
+
+/// Handle a column that [`add_vlq_column`] found below the previous column or out of range.
+#[cold]
+fn column_outside_order(
+    value: i64,
+    offset: usize,
+    checks: &mut DecodeChecks,
+) -> Result<u32, DecodeError> {
+    if (value as u64) < POSITION_END {
+        checks.unsorted = true;
+        Ok(value as u32)
+    } else {
+        Err(value_out_of_range(offset))
+    }
+}
+
+/// Read one source or name index like [`add_vlq`], and compare it with `limit`.
+///
+/// `limit` is at most `POSITION_END`. An index from `limit` up that is still a
+/// valid position sets `checks.index_out_of_range` and decodes as usual, so a
+/// later decode error still takes precedence.
+#[inline(always)]
+fn add_vlq_index(
+    acc: &mut i64,
+    bytes: &[u8],
+    pos: &mut usize,
+    limit: u64,
+    checks: &mut DecodeChecks,
+) -> Result<u32, DecodeError> {
+    let start = *pos;
+    let delta = vlq_fast(bytes, pos)?;
+    *acc = acc.wrapping_add(delta);
+    // The common case needs one unsigned compare for both checks.
+    if (*acc as u64) < limit {
+        Ok(*acc as u32)
+    } else {
+        index_at_or_above_limit(*acc, start, checks)
+    }
+}
+
+/// Handle an index that [`add_vlq_index`] found at or above its limit.
+#[cold]
+fn index_at_or_above_limit(
+    value: i64,
+    offset: usize,
+    checks: &mut DecodeChecks,
+) -> Result<u32, DecodeError> {
+    if (value as u64) < POSITION_END {
+        checks.index_out_of_range = true;
+        Ok(value as u32)
+    } else {
+        Err(value_out_of_range(offset))
+    }
 }
 
 #[inline(always)]
@@ -3076,20 +3247,23 @@ fn decode_range_mappings(
     Ok(())
 }
 
+/// Decode one segment at `pos`, and record unsorted columns and out-of-range
+/// indices in `checks`.
 fn decode_mapping_segment(
     bytes: &[u8],
     pos: &mut usize,
     generated_line: u32,
     generated_column: &mut i64,
     state: &mut VlqState,
+    checks: &mut DecodeChecks,
 ) -> Result<Mapping, DecodeError> {
-    let column = add_vlq(generated_column, bytes, pos)?;
+    let column = add_vlq_column(generated_column, bytes, pos, checks)?;
 
     if at_segment_delimiter(bytes, *pos) {
         return Ok(generated_only_mapping(generated_line, column));
     }
 
-    let source = add_vlq(&mut state.source_index, bytes, pos)?;
+    let source = add_vlq_index(&mut state.source_index, bytes, pos, checks.source_limit, checks)?;
 
     // Reject 2-field segments (only 1, 4, or 5 are valid per ECMA-426)
     if at_segment_delimiter(bytes, *pos) {
@@ -3108,13 +3282,13 @@ fn decode_mapping_segment(
     let name = if at_segment_delimiter(bytes, *pos) {
         NO_NAME
     } else {
-        add_vlq(&mut state.name_index, bytes, pos)?
+        let name = add_vlq_index(&mut state.name_index, bytes, pos, checks.name_limit, checks)?;
+        // Reject 6-field segments (only 1, 4, or 5 are valid per ECMA-426)
+        if !at_segment_delimiter(bytes, *pos) {
+            return Err(DecodeError::InvalidSegmentLength { fields: 6, offset: *pos });
+        }
+        name
     };
-
-    // Reject 6-field segments (only 1, 4, or 5 are valid per ECMA-426)
-    if !at_segment_delimiter(bytes, *pos) {
-        return Err(DecodeError::InvalidSegmentLength { fields: 6, offset: *pos });
-    }
 
     Ok(Mapping {
         generated_line,
@@ -3168,8 +3342,12 @@ fn sort_line_by_column(line: &mut [Mapping]) {
 /// Sort each line of decoded mappings with [`sort_line_by_column`].
 ///
 /// Call this after range marking, because `rangeMappings` refers to segments
-/// by their input position in a line.
-fn sort_unsorted_lines(mappings: &mut [Mapping], line_offsets: &[u32]) {
+/// by their input position in a line. Does nothing when `checks` shows that
+/// every line is in order.
+fn sort_unsorted_lines(mappings: &mut [Mapping], line_offsets: &[u32], checks: &DecodeChecks) {
+    if !checks.unsorted {
+        return;
+    }
     for window in line_offsets.windows(2) {
         let (start, end) = (window[0] as usize, window[1] as usize);
         if let Some(line) = mappings.get_mut(start..end) {
@@ -3178,9 +3356,16 @@ fn sort_unsorted_lines(mappings: &mut [Mapping], line_offsets: &[u32]) {
     }
 }
 
-fn decode_mappings(input: &str) -> Result<(Vec<Mapping>, Vec<u32>), DecodeError> {
+/// Decode all mappings, and check source and name indices against
+/// `sources_len` and `names_len` (see [`DecodeChecks`]).
+fn decode_mappings(
+    input: &str,
+    sources_len: usize,
+    names_len: usize,
+) -> Result<(Vec<Mapping>, Vec<u32>, DecodeChecks), DecodeError> {
+    let mut checks = DecodeChecks::new(sources_len, names_len);
     if input.is_empty() {
-        return Ok((Vec::new(), vec![0]));
+        return Ok((Vec::new(), vec![0], checks));
     }
 
     let bytes = input.as_bytes();
@@ -3227,6 +3412,7 @@ fn decode_mappings(input: &str) -> Result<(Vec<Mapping>, Vec<u32>), DecodeError>
                 generated_line,
                 &mut generated_column,
                 &mut state,
+                &mut checks,
             )?);
         }
 
@@ -3239,7 +3425,7 @@ fn decode_mappings(input: &str) -> Result<(Vec<Mapping>, Vec<u32>), DecodeError>
     // Sentinel for line range computation
     line_offsets.push(mappings.len() as u32);
 
-    Ok((mappings, line_offsets))
+    Ok((mappings, line_offsets, checks))
 }
 
 fn actual_mapping_line_count(input: &str) -> u32 {
@@ -3260,13 +3446,14 @@ fn decode_mappings_range(
     input: &str,
     start_line: u32,
     end_line: u32,
-) -> Result<(Vec<Mapping>, Vec<u32>), DecodeError> {
+    mut checks: DecodeChecks,
+) -> Result<(Vec<Mapping>, Vec<u32>, DecodeChecks), DecodeError> {
     // Cap end_line against actual line count to prevent OOM on pathological input.
     let actual_lines = actual_mapping_line_count(input);
     let end_line = end_line.min(actual_lines);
 
     if input.is_empty() || start_line >= end_line {
-        return Ok((Vec::new(), vec![0; end_line as usize + 1]));
+        return Ok((Vec::new(), vec![0; end_line as usize + 1], checks));
     }
 
     let bytes = input.as_bytes();
@@ -3304,12 +3491,15 @@ fn decode_mappings_range(
                 continue;
             }
 
+            // Lines before `start_line` also update `checks`. That can only cause
+            // an extra index scan or sort pass, never a missed error.
             let mapping = decode_mapping_segment(
                 bytes,
                 &mut pos,
                 generated_line,
                 &mut generated_column,
                 &mut state,
+                &mut checks,
             )?;
             if in_range {
                 mappings.push(mapping);
@@ -3328,7 +3518,7 @@ fn decode_mappings_range(
     }
 
     let total = mappings.len() as u32;
-    Ok((mappings, build_range_line_offsets(start_line, end_line, &line_starts, total)))
+    Ok((mappings, build_range_line_offsets(start_line, end_line, &line_starts, total), checks))
 }
 
 /// Build reverse index: mapping indices sorted by (source, original_line, original_column).
@@ -4281,6 +4471,71 @@ mod tests {
         let line: Vec<(u32, u32)> =
             sm.mappings_for_line(0).iter().map(|m| (m.generated_column, m.original_line)).collect();
         assert_eq!(line, [(1, 2), (2, 0), (2, 1)]);
+    }
+
+    #[test]
+    fn unsorted_second_line_is_sorted() {
+        // Line 0 is in order. Line 1 starts at column 3 and drops to column 2.
+        let json =
+            r#"{"version":3,"sources":["a.js"],"names":[],"mappings":"AAAA,CACA;GACA,DACA"}"#;
+        let sm = SourceMap::from_json(json).unwrap();
+        let columns: Vec<u32> =
+            sm.mappings_for_line(1).iter().map(|m| m.generated_column).collect();
+        assert_eq!(columns, [2, 3]);
+        assert_eq!(sm.original_position_for(1, 2).unwrap().line, 3);
+    }
+
+    #[test]
+    fn decode_error_after_out_of_range_index_takes_precedence() {
+        // Segment 1 has source index 1 of 1 source. Segment 2 has 2 fields.
+        let json = r#"{"version":3,"sources":["a.js"],"names":[],"mappings":"ACAA,AA"}"#;
+        let err = SourceMap::from_json(json).unwrap_err();
+        assert!(
+            matches!(err, ParseError::Vlq(DecodeError::InvalidSegmentLength { fields: 2, .. })),
+            "{err:?}"
+        );
+    }
+
+    #[test]
+    fn reports_first_out_of_range_index_in_mapping_order() {
+        // Name index 1 comes before source index 2 in mapping order.
+        let json = r#"{"version":3,"sources":["a.js"],"names":["n"],"mappings":"AAAAC;AEAA"}"#;
+        assert_index_error(json, IndexKind::Name, 1, 1);
+    }
+
+    #[test]
+    fn from_json_lines_ignores_out_of_range_index_before_start_line() {
+        // Line 0 has source index 1 of 1 source. Line 1 points back to source 0.
+        let json = r#"{"version":3,"sources":["a.js"],"names":[],"mappings":"ACAA;ADAA"}"#;
+        let sm = SourceMap::from_json_lines(json, 1, 2).unwrap();
+        assert_eq!(sm.original_position_for(1, 0).unwrap().source, 0);
+        let err = SourceMap::from_json_lines(json, 0, 2).unwrap_err();
+        assert!(matches!(err, ParseError::IndexOutOfRange { kind: IndexKind::Source, .. }));
+    }
+
+    #[test]
+    fn accepts_last_valid_source_and_name_index() {
+        let json =
+            r#"{"version":3,"sources":["a.js","b.js"],"names":["x","y"],"mappings":"ACAAC"}"#;
+        let sm = SourceMap::from_json(json).unwrap();
+        let loc = sm.original_position_for(0, 0).unwrap();
+        assert_eq!((loc.source, loc.name), (1, Some(1)));
+    }
+
+    #[test]
+    fn rejects_column_at_u32_max() {
+        // u32::MAX is the first column past the valid range.
+        let mut encoded = Vec::new();
+        srcmap_codec::vlq_encode(&mut encoded, i64::from(u32::MAX));
+        let mappings = String::from_utf8(encoded).unwrap();
+        assert!(matches!(vlq_error(&mappings, ""), DecodeError::ValueOutOfRange { offset: 0 }));
+        let mut below = Vec::new();
+        srcmap_codec::vlq_encode(&mut below, i64::from(u32::MAX) - 1);
+        let json = format!(
+            r#"{{"version":3,"sources":[],"names":[],"mappings":"{}"}}"#,
+            String::from_utf8(below).unwrap()
+        );
+        assert!(SourceMap::from_json(&json).is_ok());
     }
 
     type Loc = Option<(u32, u32, u32, Option<u32>)>;
@@ -6501,7 +6756,7 @@ mod tests {
     fn mappings_iter_matches_decode() {
         let vlq = "AAAA;AACA,EAAA;AACA";
         let iter_mappings: Vec<Mapping> = MappingsIter::new(vlq).collect::<Result<_, _>>().unwrap();
-        let (decoded, _) = decode_mappings(vlq).unwrap();
+        let (decoded, _, _) = decode_mappings(vlq, usize::MAX, usize::MAX).unwrap();
         assert_eq!(iter_mappings.len(), decoded.len());
         for (a, b) in iter_mappings.iter().zip(decoded.iter()) {
             assert_eq!(a.generated_line, b.generated_line);
@@ -7173,7 +7428,9 @@ mod tests {
     fn decode_mappings_range_caps_end_line() {
         // Pathological end_line should not OOM — capped against actual line count
         let mappings = "AAAA;AACA";
-        let (result, offsets) = decode_mappings_range(mappings, 0, 1_000_000).unwrap();
+        let (result, offsets, _) =
+            decode_mappings_range(mappings, 0, 1_000_000, DecodeChecks::without_index_limits())
+                .unwrap();
         // Should produce mappings for the 2 actual lines, not allocate 1M entries
         assert_eq!(result.len(), 2);
         assert!(offsets.len() <= 3); // 2 lines + sentinel
