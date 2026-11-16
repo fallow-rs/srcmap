@@ -14,6 +14,8 @@ const DEPENDABOT_CONFIG_URL = new URL(".github/dependabot.yml", ROOT_URL);
 const FALLOW_CONFIG_URL = new URL(".fallowrc.json", ROOT_URL);
 const PACKAGE_JSON_URL = new URL("package.json", ROOT_URL);
 const README_URL = new URL("README.md", ROOT_URL);
+const SETUP_RUST_ACTION_URL = new URL(".github/actions/setup-rust/action.yml", ROOT_URL);
+const RUST_TOOLCHAIN_URL = new URL("rust-toolchain.toml", ROOT_URL);
 const RUST_TOOLCHAIN_ACTION = "dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30";
 /** The pinned installer is read from the workflows rather than duplicated here:
  * a version bump re-pins every `uses:` at once, and asserting one literal SHA
@@ -188,6 +190,23 @@ describe("Dependabot policy", () => {
     );
   });
 
+  it("takes the build toolchain from rust-toolchain.toml", async () => {
+    const toolchain = await readFile(RUST_TOOLCHAIN_URL, "utf8");
+    assert.match(toolchain, /^channel = "\d+\.\d+\.\d+"$/m);
+
+    for (const entry of await workflowFiles()) {
+      const workflow = await readFile(new URL(entry.name, WORKFLOWS_URL), "utf8");
+      const direct = workflow
+        .split("\n")
+        .filter((line) => line.includes("dtolnay/rust-toolchain@"));
+      for (const use of direct) {
+        const start = workflow.indexOf(use);
+        const step = workflow.slice(start, start + 200);
+        assert.match(step, /steps\.msrv\.outputs\.version/, `${entry.name}: use $/.github/actions/setup-rust`);
+      }
+    }
+  });
+
   it("pins the manually managed stable Rust toolchain consistently", async () => {
     let consumers = 0;
 
@@ -199,6 +218,13 @@ describe("Dependabot policy", () => {
       for (const use of uses) {
         assert.ok(use.includes(RUST_TOOLCHAIN_ACTION), `${entry.name}: ${use.trim()}`);
       }
+    }
+
+    const action = await readFile(SETUP_RUST_ACTION_URL, "utf8");
+    const actionUses = action.split("\n").filter((line) => line.includes("dtolnay/rust-toolchain@"));
+    consumers += actionUses.length;
+    for (const use of actionUses) {
+      assert.ok(use.includes(RUST_TOOLCHAIN_ACTION), `setup-rust: ${use.trim()}`);
     }
 
     assert.ok(consumers > 0, "expected at least one Rust toolchain consumer");
