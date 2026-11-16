@@ -296,6 +296,13 @@ fn conformance_ignore_list_out_of_range_rejected() {
 }
 
 #[test]
+fn conformance_section_offset_out_of_range_rejected() {
+    // A section column offset that pushes a mapping past u32::MAX
+    let json = r#"{"version":3,"sections":[{"offset":{"line":0,"column":4294967295},"map":{"version":3,"sources":["a"],"names":[],"mappings":"CAAA"}}]}"#;
+    assert!(SourceMap::from_json(json).is_err());
+}
+
+#[test]
 fn conformance_source_root_roundtrip() {
     // sourceRoot must not be double-applied on parse-serialize-parse
     let json =

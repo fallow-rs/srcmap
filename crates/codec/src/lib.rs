@@ -323,6 +323,24 @@ mod tests {
     }
 
     #[test]
+    fn decode_generated_column_sum_overflow() {
+        let err = decode(&["gggggggggggQ"; 40].join(",")).unwrap_err();
+        assert!(matches!(err, DecodeError::VlqOverflow { .. }));
+    }
+
+    #[test]
+    fn decode_source_index_sum_overflow() {
+        let err = decode(&["AgggggggggggQAA"; 40].join(",")).unwrap_err();
+        assert!(matches!(err, DecodeError::VlqOverflow { .. }));
+    }
+
+    #[test]
+    fn decode_many_commas_has_no_segments() {
+        let decoded = decode(&",".repeat(1_000_000)).unwrap();
+        assert_eq!(decoded, vec![Line::new()]);
+    }
+
+    #[test]
     fn decode_truncated_segment_two_fields() {
         // "AC" = two VLQ values (0, 1) — 2-field segment is invalid per ECMA-426
         let err = decode("AC").unwrap_err();
