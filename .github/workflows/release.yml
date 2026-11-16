@@ -44,7 +44,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30
+      - uses: ./.github/actions/setup-rust
       - name: Test crates without publication credentials
         run: cargo test --workspace --lib --bins --tests --examples
 
@@ -61,7 +61,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30
+      - uses: ./.github/actions/setup-rust
 
       - name: Authenticate to crates.io
         id: crates_io_auth
@@ -169,7 +169,7 @@ jobs:
       - name: Install JS dependencies
         run: corepack pnpm install --ignore-scripts --frozen-lockfile
 
-      - uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30
+      - uses: ./.github/actions/setup-rust
         with:
           targets: ${{ matrix.settings.target }}
 
@@ -234,7 +234,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30
+      - uses: ./.github/actions/setup-rust
         with:
           targets: wasm32-unknown-unknown
 

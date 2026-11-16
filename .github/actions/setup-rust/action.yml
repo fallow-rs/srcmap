@@ -1,0 +1,39 @@
+name: Setup Rust
+description: Install the Rust toolchain from rust-toolchain.toml
+
+inputs:
+  toolchain:
+    description: 'Rust toolchain to install. When empty, reads the channel from rust-toolchain.toml in the repository root.'
+    default: ''
+  components:
+    description: 'Comma-separated components (e.g., clippy, rustfmt)'
+    default: ''
+  targets:
+    description: 'Comma-separated compilation targets'
+    default: ''
+
+runs:
+  using: composite
+  steps:
+    - name: Resolve toolchain
+      id: resolve
+      shell: bash
+      env:
+        INPUT_TOOLCHAIN: ${{ inputs.toolchain }}
+      run: |
+        if [ -n "$INPUT_TOOLCHAIN" ]; then
+          echo "toolchain=$INPUT_TOOLCHAIN" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+        channel=$(awk -F '"' '/^[[:space:]]*channel[[:space:]]*=/ {print $2; exit}' rust-toolchain.toml)
+        if [ -z "$channel" ]; then
+          echo "::error::rust-toolchain.toml has no channel" >&2
+          exit 1
+        fi
+        echo "toolchain=$channel" >> "$GITHUB_OUTPUT"
+
+    - uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30
+      with:
+        toolchain: ${{ steps.resolve.outputs.toolchain }}
+        components: ${{ inputs.components }}
+        targets: ${{ inputs.targets }}

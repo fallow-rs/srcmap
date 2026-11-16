@@ -1,0 +1,6 @@
+[toolchain]
+# Pinned so local builds and CI lint, test and release with the same toolchain.
+# The MSRV is declared in `rust-version` in Cargo.toml and enforced by the
+# `msrv` CI job; bump it there, not here.
+channel = "1.100.0"
+components = ["clippy", "rustfmt"]
