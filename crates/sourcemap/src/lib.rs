@@ -337,8 +337,8 @@ fn check_mapping_indices(
 
 /// Check that every index in decoded map data points inside its array.
 ///
-/// The scopes walk uses an explicit stack, so deep range nesting from untrusted
-/// input cannot overflow the call stack.
+/// The walks over original scopes and generated ranges use explicit stacks, so
+/// deep nesting from untrusted input cannot overflow the call stack.
 ///
 /// `checks` comes from the decode of `mappings`. The mappings are scanned only
 /// when the decode found an out-of-range index, to report the first one.
@@ -815,8 +815,18 @@ fn filter_extensions(
     extensions.into_iter().filter(|(k, _)| k.starts_with("x_") || k.starts_with("x-")).collect()
 }
 
+/// Count `scope` and all scopes nested in it.
+///
+/// The walk uses an explicit stack, so deep nesting from untrusted input
+/// cannot overflow the call stack.
 fn count_scope_tree(scope: &OriginalScope) -> u32 {
-    1 + scope.children.iter().map(count_scope_tree).sum::<u32>()
+    let mut count: u32 = 0;
+    let mut stack = vec![scope];
+    while let Some(node) = stack.pop() {
+        count += 1;
+        stack.extend(&node.children);
+    }
+    count
 }
 
 fn definition_bases(scopes: &[Option<OriginalScope>]) -> Vec<u32> {
@@ -4162,6 +4172,30 @@ mod tests {
         outer.children = vec![inner];
         let sm = SourceMap::from_json(&scopes_json(&one_scope_info(outer))).unwrap();
         assert_eq!(sm.scopes.unwrap().ranges[0].children.len(), 1);
+    }
+
+    #[test]
+    fn deeply_nested_original_scopes_do_not_overflow_the_stack() {
+        const DEPTH: usize = 100_000;
+        // One original scope per level: `B` opens a scope at (0, 0), `C` closes it.
+        let scopes = [vec!["BAAA"; DEPTH], vec!["CAA"; DEPTH]].concat().join(",");
+        let json = format!(
+            r#"{{"version":3,"sources":["a.js"],"names":[],"mappings":"AAAA","scopes":"{scopes}"}}"#
+        );
+        // A small stack makes a recursive walk overflow at this depth.
+        let mapping_count = std::thread::Builder::new()
+            .stack_size(256 * 1024)
+            .spawn(move || {
+                let result = SourceMap::from_json(&json);
+                let count = result.as_ref().map(|sm| sm.mappings.len()).map_err(|e| e.to_string());
+                // The drop of the scope tree recurses once per level. This test does not cover it.
+                std::mem::forget(result);
+                count
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+        assert_eq!(mapping_count, Ok(1));
     }
 
     #[test]
