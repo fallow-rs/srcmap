@@ -81,15 +81,6 @@ pub struct ParsedStack {
     pub frames: Vec<StackFrame>,
 }
 
-// ── Stack trace engine detection ─────────────────────────────────
-
-#[derive(Debug, Clone, Copy)]
-enum Engine {
-    V8,
-    /// SpiderMonkey and JavaScriptCore share the `name@file:line:column` format.
-    SpiderMonkey,
-}
-
 // ── Parser ──────────────────────────────────────────────────────
 
 /// Parse a stack trace string into individual frames.
@@ -101,6 +92,9 @@ pub fn parse_stack_trace(input: &str) -> Vec<StackFrame> {
 }
 
 /// Parse a stack trace string into message + frames.
+///
+/// Each line selects its own frame format. The first line is the message
+/// when it does not parse as a frame.
 pub fn parse_stack_trace_full(input: &str) -> ParsedStack {
     let mut lines = input.lines();
     let mut message = None;
@@ -110,51 +104,26 @@ pub fn parse_stack_trace_full(input: &str) -> ParsedStack {
         return ParsedStack { message: None, frames: Vec::new() };
     };
 
-    let engine = detect_engine(first_line);
-
-    // If the first line looks like a message (not a frame), save it
-    if !is_frame_line(first_line, engine) {
-        message = Some(first_line.to_string());
-    } else if let Some(frame) = parse_frame(first_line, engine) {
-        frames.push(frame);
+    match parse_frame(first_line) {
+        Some(frame) => frames.push(frame),
+        None => message = Some(first_line.to_string()),
     }
 
-    for line in lines {
-        if let Some(frame) = parse_frame(line, engine) {
-            frames.push(frame);
-        }
-    }
+    frames.extend(lines.filter_map(parse_frame));
 
     ParsedStack { message, frames }
 }
 
-/// Detect the stack trace format from its first line. Error message lines
-/// default to V8.
-fn detect_engine(first_line: &str) -> Engine {
-    let trimmed = first_line.trim();
-    if trimmed.contains('@') && !trimmed.contains("    at ") {
-        Engine::SpiderMonkey
+/// Parse a single stack frame line. A line that starts with `at ` is a V8
+/// frame. Any other line with `@` is a SpiderMonkey or JavaScriptCore frame.
+fn parse_frame(line: &str) -> Option<StackFrame> {
+    let trimmed = line.trim();
+    if trimmed.starts_with("at ") {
+        parse_v8_frame(trimmed)
+    } else if trimmed.contains('@') {
+        parse_spidermonkey_frame(trimmed)
     } else {
-        Engine::V8
-    }
-}
-
-/// Check if a line looks like a stack frame (vs an error message).
-fn is_frame_line(line: &str, engine: Engine) -> bool {
-    let trimmed = line.trim();
-    match engine {
-        Engine::V8 => trimmed.starts_with("at "),
-        Engine::SpiderMonkey => trimmed.contains('@'),
-    }
-}
-
-/// Parse a single stack frame line.
-fn parse_frame(line: &str, engine: Engine) -> Option<StackFrame> {
-    let trimmed = line.trim();
-
-    match engine {
-        Engine::V8 => parse_v8_frame(trimmed),
-        Engine::SpiderMonkey => parse_spidermonkey_frame(trimmed),
+        None
     }
 }
 
@@ -162,23 +131,47 @@ fn parse_frame(line: &str, engine: Engine) -> Option<StackFrame> {
 fn parse_v8_frame(line: &str) -> Option<StackFrame> {
     let rest = line.strip_prefix("at ")?;
 
-    // Check for `functionName (file:line:column)` format
-    if let Some(paren_start) = rest.rfind('(') {
-        let func = rest[..paren_start].trim();
-        let location = rest[paren_start + 1..].trim_end_matches(')').trim();
-        let (file, line_num, col) = parse_location(location)?;
+    // `functionName (file:line:column)`: the location starts at the first
+    // ` (`, so parentheses inside the path stay part of the file.
+    if let Some(inner) = rest.strip_suffix(')') {
+        let open = if inner.starts_with('(') { Some(0) } else { inner.find(" (").map(|i| i + 1) };
+        if let Some(open) = open {
+            let func = inner[..open].trim();
+            let location = v8_eval_location(&inner[open + 1..]);
+            let (file, line_num, col) = parse_location(location.trim())?;
 
-        return Some(StackFrame {
-            function_name: if func.is_empty() { None } else { Some(func.to_string()) },
-            file,
-            line: line_num,
-            column: col,
-        });
+            return Some(StackFrame {
+                function_name: if func.is_empty() { None } else { Some(func.to_string()) },
+                file,
+                line: line_num,
+                column: col,
+            });
+        }
     }
 
     // Bare `file:line:column` format
     let (file, line_num, col) = parse_location(rest)?;
     Some(StackFrame { function_name: None, file, line: line_num, column: col })
+}
+
+/// Select the script location of a V8 eval frame.
+///
+/// For `eval at f (a.js:1:2), <anonymous>:1:5` this returns `a.js:1:2`, the
+/// innermost parenthesized location. Each `eval at name (` prefix is
+/// removed, and the location ends at the first `), `, so parentheses inside
+/// the path stay part of the file. Other locations return unchanged.
+fn v8_eval_location(location: &str) -> &str {
+    let mut inner = location;
+    while let Some(after) = inner.strip_prefix("eval at ") {
+        let Some(open) = after.find(" (") else {
+            return location;
+        };
+        inner = &after[open + 2..];
+    }
+    if inner.len() == location.len() {
+        return location;
+    }
+    inner.split_once("), ").map_or(inner, |(script, _)| script)
 }
 
 /// Parse a SpiderMonkey or JavaScriptCore stack frame: `functionName@file:line:column`
@@ -669,6 +662,97 @@ mod tests {
         assert_eq!(frames[0].file, "http://localhost:3000/bundle.js");
         assert_eq!(frames[0].line, 42);
         assert_eq!(frames[0].column, 13);
+    }
+
+    #[test]
+    fn parse_v8_message_with_at_sign() {
+        let input = "Error: user@example.com not found\n    at foo (bundle.js:1:1)";
+        let parsed = parse_stack_trace_full(input);
+        assert_eq!(parsed.message.as_deref(), Some("Error: user@example.com not found"));
+        assert_eq!(parsed.frames.len(), 1);
+        assert_eq!(parsed.frames[0].function_name.as_deref(), Some("foo"));
+        assert_eq!(parsed.frames[0].file, "bundle.js");
+        assert_eq!(parsed.frames[0].line, 1);
+        assert_eq!(parsed.frames[0].column, 1);
+    }
+
+    #[test]
+    fn parse_spidermonkey_after_message() {
+        let input = "TypeError: x is undefined\nfoo@bundle.js:1:2";
+        let parsed = parse_stack_trace_full(input);
+        assert_eq!(parsed.message.as_deref(), Some("TypeError: x is undefined"));
+        assert_eq!(parsed.frames.len(), 1);
+        assert_eq!(parsed.frames[0].function_name.as_deref(), Some("foo"));
+        assert_eq!(parsed.frames[0].file, "bundle.js");
+        assert_eq!(parsed.frames[0].line, 1);
+        assert_eq!(parsed.frames[0].column, 2);
+    }
+
+    #[test]
+    fn parse_v8_path_with_parentheses() {
+        let input = "Error\n    at foo (/app/(shop)/bundle.js:1:1)";
+        let parsed = parse_stack_trace_full(input);
+        assert_eq!(parsed.message.as_deref(), Some("Error"));
+        assert_eq!(parsed.frames.len(), 1);
+        assert_eq!(parsed.frames[0].function_name.as_deref(), Some("foo"));
+        assert_eq!(parsed.frames[0].file, "/app/(shop)/bundle.js");
+        assert_eq!(parsed.frames[0].line, 1);
+        assert_eq!(parsed.frames[0].column, 1);
+    }
+
+    #[test]
+    fn parse_v8_bare_path_with_parentheses() {
+        let input = "Error\n    at /app/(shop)/bundle.js:1:1";
+        let parsed = parse_stack_trace_full(input);
+        assert_eq!(parsed.message.as_deref(), Some("Error"));
+        assert_eq!(parsed.frames.len(), 1);
+        assert_eq!(parsed.frames[0].function_name, None);
+        assert_eq!(parsed.frames[0].file, "/app/(shop)/bundle.js");
+        assert_eq!(parsed.frames[0].line, 1);
+        assert_eq!(parsed.frames[0].column, 1);
+    }
+
+    #[test]
+    fn parse_v8_eval_frame_uses_inner_location() {
+        let input = "Error\n    at eval (eval at f (a.js:1:2), <anonymous>:1:5)";
+        let parsed = parse_stack_trace_full(input);
+        assert_eq!(parsed.message.as_deref(), Some("Error"));
+        assert_eq!(parsed.frames.len(), 1);
+        assert_eq!(parsed.frames[0].function_name.as_deref(), Some("eval"));
+        assert_eq!(parsed.frames[0].file, "a.js");
+        assert_eq!(parsed.frames[0].line, 1);
+        assert_eq!(parsed.frames[0].column, 2);
+    }
+
+    #[test]
+    fn parse_v8_eval_frame_with_parentheses_in_path() {
+        let input =
+            "Error\n    at eval (eval at runEval (/app/(shop)/bundle.js:20:9), <anonymous>:1:1)";
+        let parsed = parse_stack_trace_full(input);
+        assert_eq!(parsed.frames.len(), 1);
+        assert_eq!(parsed.frames[0].function_name.as_deref(), Some("eval"));
+        assert_eq!(parsed.frames[0].file, "/app/(shop)/bundle.js");
+        assert_eq!(parsed.frames[0].line, 20);
+        assert_eq!(parsed.frames[0].column, 9);
+    }
+
+    #[test]
+    fn parse_v8_nested_eval_frame_uses_innermost_location() {
+        let input = "Error\n    at eval (eval at f (eval at g (a.js:3:4), <anonymous>:2:2), <anonymous>:1:5)";
+        let parsed = parse_stack_trace_full(input);
+        assert_eq!(parsed.frames.len(), 1);
+        assert_eq!(parsed.frames[0].function_name.as_deref(), Some("eval"));
+        assert_eq!(parsed.frames[0].file, "a.js");
+        assert_eq!(parsed.frames[0].line, 3);
+        assert_eq!(parsed.frames[0].column, 4);
+    }
+
+    #[test]
+    fn parse_v8_frame_without_location_is_skipped() {
+        let input = "Error\n    at async Promise.all (index 0)";
+        let parsed = parse_stack_trace_full(input);
+        assert_eq!(parsed.message.as_deref(), Some("Error"));
+        assert_eq!(parsed.frames.len(), 0);
     }
 
     #[test]
