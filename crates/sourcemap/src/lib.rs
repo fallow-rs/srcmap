@@ -971,6 +971,7 @@ impl SourceMap {
         let (mut mappings, line_offsets) = decode_mappings(raw.mappings)?;
         let has_range_mappings =
             decode_range_mappings_field(raw.range_mappings, &mut mappings, &line_offsets)?;
+        sort_unsorted_lines(&mut mappings, &line_offsets);
         let scopes = decode_scopes_field(raw.scopes, &raw.names, sources.len())?;
         let ignore_list = resolve_ignore_list(raw.ignore_list, raw.x_google_ignore_list);
         check_indices(&mappings, sources.len(), raw.names.len(), &ignore_list, scopes.as_ref())?;
@@ -1026,6 +1027,7 @@ impl SourceMap {
         let (mut mappings, line_offsets) = decode_mappings(raw.mappings)?;
         let has_range_mappings =
             decode_range_mappings_field(raw.range_mappings, &mut mappings, &line_offsets)?;
+        sort_unsorted_lines(&mut mappings, &line_offsets);
         let scopes = decode_scopes_field(raw.scopes, &raw.names, sources.len())?;
         let ignore_list = resolve_ignore_list(raw.ignore_list, raw.x_google_ignore_list);
         check_indices(&mappings, sources.len(), raw.names.len(), &ignore_list, scopes.as_ref())?;
@@ -1708,6 +1710,7 @@ impl SourceMap {
         let (mut mappings, line_offsets) = decode_mappings(mappings_str)?;
         let has_range_mappings =
             decode_range_mappings_field(range_mappings_str, &mut mappings, &line_offsets)?;
+        sort_unsorted_lines(&mut mappings, &line_offsets);
         check_indices(&mappings, sources.len(), names.len(), &ignore_list, None)?;
         let source_map = build_source_map(&sources);
         Ok(Self {
@@ -1778,7 +1781,9 @@ impl SourceMap {
         let sources_content = raw.sources_content.unwrap_or_default();
         let source_map = build_source_map(&sources);
 
-        let (mappings, line_offsets) = decode_mappings_range(raw.mappings, start_line, end_line)?;
+        let (mut mappings, line_offsets) =
+            decode_mappings_range(raw.mappings, start_line, end_line)?;
+        sort_unsorted_lines(&mut mappings, &line_offsets);
         let scopes = decode_scopes_field(raw.scopes, &raw.names, sources.len())?;
         let ignore_list = resolve_ignore_list(raw.ignore_list, raw.x_google_ignore_list);
         check_indices(&mappings, sources.len(), raw.names.len(), &ignore_list, scopes.as_ref())?;
@@ -2305,6 +2310,7 @@ impl LazySourceMap {
                 &mut state,
             )?);
         }
+        sort_line_by_column(&mut mappings);
 
         Ok((mappings, state))
     }
@@ -2450,7 +2456,8 @@ impl LazySourceMap {
     ///
     /// Useful when you need the full map after lazy exploration.
     pub fn into_sourcemap(self) -> Result<SourceMap, ParseError> {
-        let (mappings, line_offsets) = decode_mappings(&self.raw_mappings)?;
+        let (mut mappings, line_offsets) = decode_mappings(&self.raw_mappings)?;
+        sort_unsorted_lines(&mut mappings, &line_offsets);
         let has_range_mappings = mappings.iter().any(|m| m.is_range_mapping);
 
         Ok(SourceMap {
@@ -3073,6 +3080,29 @@ fn build_range_line_offsets(
     }
 
     line_offsets
+}
+
+/// Sort one line's segments by generated column when they are out of order.
+///
+/// Lookups binary-search each line by column. The sort is stable, so segments
+/// that share a column keep their input order.
+fn sort_line_by_column(line: &mut [Mapping]) {
+    if !line.is_sorted_by_key(|m| m.generated_column) {
+        line.sort_by_key(|m| m.generated_column);
+    }
+}
+
+/// Sort each line of decoded mappings with [`sort_line_by_column`].
+///
+/// Call this after range marking, because `rangeMappings` refers to segments
+/// by their input position in a line.
+fn sort_unsorted_lines(mappings: &mut [Mapping], line_offsets: &[u32]) {
+    for window in line_offsets.windows(2) {
+        let (start, end) = (window[0] as usize, window[1] as usize);
+        if let Some(line) = mappings.get_mut(start..end) {
+            sort_line_by_column(line);
+        }
+    }
 }
 
 fn decode_mappings(input: &str) -> Result<(Vec<Mapping>, Vec<u32>), DecodeError> {
@@ -4094,6 +4124,77 @@ mod tests {
         let json =
             format!(r#"{{"version":3,"sources":["a.js"],"names":[],"mappings":"{mappings}"}}"#);
         assert!(SourceMap::from_json(&json).is_err());
+    }
+
+    const UNSORTED_LINE_JSON: &str =
+        r#"{"version":3,"sources":["a.js"],"names":[],"mappings":"UAAA,DACA,DACA,DACA"}"#;
+    const UNSORTED_LINE_EXPECTED: [(u32, u32); 4] = [(7, 3), (8, 2), (9, 1), (10, 0)];
+
+    #[test]
+    fn unsorted_line_lookups_match_sorted_order() {
+        let sm = SourceMap::from_json(UNSORTED_LINE_JSON).unwrap();
+        for (column, expected_line) in UNSORTED_LINE_EXPECTED {
+            assert_eq!(
+                sm.original_position_for(0, column).unwrap().line,
+                expected_line,
+                "{column}"
+            );
+        }
+    }
+
+    #[test]
+    fn unsorted_line_mappings_for_line_is_sorted() {
+        let sm = SourceMap::from_json(UNSORTED_LINE_JSON).unwrap();
+        let columns: Vec<u32> =
+            sm.mappings_for_line(0).iter().map(|m| m.generated_column).collect();
+        assert_eq!(columns, [7, 8, 9, 10]);
+    }
+
+    #[test]
+    fn unsorted_line_from_json_lines() {
+        let sm = SourceMap::from_json_lines(UNSORTED_LINE_JSON, 0, 1).unwrap();
+        for (column, expected_line) in UNSORTED_LINE_EXPECTED {
+            assert_eq!(
+                sm.original_position_for(0, column).unwrap().line,
+                expected_line,
+                "{column}"
+            );
+        }
+    }
+
+    #[test]
+    fn unsorted_line_lazy() {
+        let sm = LazySourceMap::from_json(UNSORTED_LINE_JSON).unwrap();
+        for (column, expected_line) in UNSORTED_LINE_EXPECTED {
+            assert_eq!(
+                sm.original_position_for(0, column).unwrap().line,
+                expected_line,
+                "{column}"
+            );
+        }
+        let eager = LazySourceMap::from_json(UNSORTED_LINE_JSON).unwrap().into_sourcemap().unwrap();
+        for (column, expected_line) in UNSORTED_LINE_EXPECTED {
+            assert_eq!(eager.original_position_for(0, column).unwrap().line, expected_line);
+        }
+    }
+
+    #[test]
+    fn unsorted_line_keeps_range_mapping_on_its_segment() {
+        let json = r#"{"version":3,"sources":["a.js"],"names":[],"mappings":"KAAA,DACA","rangeMappings":"A"}"#;
+        let sm = SourceMap::from_json(json).unwrap();
+        let line = sm.mappings_for_line(0);
+        let at = |column: u32| line.iter().find(|m| m.generated_column == column).unwrap();
+        assert!(at(5).is_range_mapping);
+        assert!(!at(4).is_range_mapping);
+    }
+
+    #[test]
+    fn unsorted_line_stable_for_equal_columns() {
+        let json = r#"{"version":3,"sources":["a.js"],"names":[],"mappings":"EAAA,AACA,DACA"}"#;
+        let sm = SourceMap::from_json(json).unwrap();
+        let line: Vec<(u32, u32)> =
+            sm.mappings_for_line(0).iter().map(|m| (m.generated_column, m.original_line)).collect();
+        assert_eq!(line, [(1, 2), (2, 0), (2, 1)]);
     }
 
     #[test]
