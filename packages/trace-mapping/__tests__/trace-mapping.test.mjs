@@ -409,6 +409,23 @@ describe("presortedDecodedMap", () => {
     assert.equal(pos.name, "x");
     map.free();
   });
+
+  it("encodes source, line and name deltas across lines", () => {
+    const decoded = {
+      version: 3,
+      sources: ["a.js", "b.js"],
+      names: ["x", "y"],
+      mappings: [[[0, 0, 5, 0, 0]], [[0, 1, 6, 2, 1]], [[3, 1, 6, 4]]],
+    };
+    const map = presortedDecodedMap(decoded);
+    assert.equal(encodedMappings(map), "AAKAA;ACCEC;GAAE");
+    const pos = originalPositionFor(map, { line: 2, column: 0 });
+    assert.equal(pos.source, "b.js");
+    assert.equal(pos.line, 7);
+    assert.equal(pos.column, 2);
+    assert.equal(pos.name, "y");
+    map.free();
+  });
 });
 
 describe("decodedMap", () => {
