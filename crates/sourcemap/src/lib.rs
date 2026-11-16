@@ -556,6 +556,7 @@ fn filter_section_source_root(source_root: Option<String>, sources: &[String]) -
 /// Build the original location for a lookup hit on `mapping` at `column`.
 ///
 /// A range mapping shifts the original column by the distance from its generated column.
+#[inline]
 fn hit_location(mapping: &Mapping, column: u32) -> Option<OriginalLocation> {
     let column_delta = if mapping.is_range_mapping && column >= mapping.generated_column {
         column - mapping.generated_column
@@ -576,6 +577,7 @@ fn hit_location(mapping: &Mapping, column: u32) -> Option<OriginalLocation> {
 /// Returns `None` unless `last` is a range mapping with a source. Uses
 /// `saturating_sub` for the column delta, so a query column before the range
 /// start maps to the range start.
+#[inline]
 fn range_fallback_location(last: &Mapping, line: u32, column: u32) -> Option<OriginalLocation> {
     if !last.is_range_mapping || last.source == NO_SOURCE {
         return None;
