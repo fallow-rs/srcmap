@@ -90,44 +90,43 @@ impl ConcatBuilder {
 
         // Copy ignore_list entries
         for &ignored in &sm.ignore_list {
-            let global_idx = source_indices[ignored as usize];
-            self.builder.add_to_ignore_list(global_idx);
+            if let Some(&global_idx) = source_indices.get(ignored as usize) {
+                self.builder.add_to_ignore_list(global_idx);
+            }
         }
 
-        // Add all mappings with line offset, using pre-built index tables
+        // Add all mappings with line offset, using pre-built index tables.
+        // Out-of-range source and name indices are dropped, not followed.
         for m in sm.all_mappings() {
             let gen_line = m.generated_line + line_offset;
 
-            if m.source == NO_SOURCE {
-                self.builder.add_generated_mapping(gen_line, m.generated_column);
-            } else {
-                let src = source_indices[m.source as usize];
-                let has_name = m.name != NO_NAME;
-                match (has_name, m.is_range_mapping) {
-                    (true, true) => self.builder.add_named_range_mapping(
+            if let Some(&src) = source_indices.get(m.source as usize) {
+                let name = name_indices.get(m.name as usize).copied();
+                match (name, m.is_range_mapping) {
+                    (Some(name), true) => self.builder.add_named_range_mapping(
                         gen_line,
                         m.generated_column,
                         src,
                         m.original_line,
                         m.original_column,
-                        name_indices[m.name as usize],
+                        name,
                     ),
-                    (true, false) => self.builder.add_named_mapping(
+                    (Some(name), false) => self.builder.add_named_mapping(
                         gen_line,
                         m.generated_column,
                         src,
                         m.original_line,
                         m.original_column,
-                        name_indices[m.name as usize],
+                        name,
                     ),
-                    (false, true) => self.builder.add_range_mapping(
+                    (None, true) => self.builder.add_range_mapping(
                         gen_line,
                         m.generated_column,
                         src,
                         m.original_line,
                         m.original_column,
                     ),
-                    (false, false) => self.builder.add_mapping(
+                    (None, false) => self.builder.add_mapping(
                         gen_line,
                         m.generated_column,
                         src,
@@ -135,6 +134,8 @@ impl ConcatBuilder {
                         m.original_column,
                     ),
                 }
+            } else {
+                self.builder.add_generated_mapping(gen_line, m.generated_column);
             }
         }
     }
@@ -682,6 +683,9 @@ where
         }
 
         let si = m.source as usize;
+        if si >= outer.sources.len() {
+            continue;
+        }
 
         load_source_entry(
             &mut source_entries,
@@ -1012,10 +1016,13 @@ fn trace_and_emit_upstream<B: RemapBuilder>(
         ignored_sources,
         is_range,
     } = ctx;
+    if upstream_m.source as usize >= upstream_map.sources.len() {
+        return;
+    }
     let builder_src =
         resolve_upstream_source(cache, upstream_map, upstream_m.source, builder, ignored_sources);
 
-    let builder_name = if upstream_m.name != NO_NAME {
+    let builder_name = if (upstream_m.name as usize) < upstream_map.names.len() {
         Some(resolve_upstream_name(cache, upstream_map, upstream_m.name, builder))
     } else {
         resolve_outer_name_cached(outer_name_remap, outer_name_idx, names, builder)
@@ -1469,6 +1476,95 @@ mod tests {
 
         let result = builder.build();
         assert_eq!(result.ignore_list, vec![0]);
+    }
+
+    fn raw_mapping(column: u32, source: u32, name: u32) -> srcmap_sourcemap::Mapping {
+        srcmap_sourcemap::Mapping {
+            generated_line: 0,
+            generated_column: column,
+            source,
+            original_line: 0,
+            original_column: column,
+            name,
+            is_range_mapping: false,
+        }
+    }
+
+    fn map_from_parts(
+        sources: &[&str],
+        names: &[&str],
+        mappings: Vec<srcmap_sourcemap::Mapping>,
+        ignore_list: Vec<u32>,
+    ) -> SourceMap {
+        SourceMap::from_parts(
+            None,
+            None,
+            sources.iter().map(|s| (*s).to_string()).collect(),
+            vec![],
+            names.iter().map(|s| (*s).to_string()).collect(),
+            mappings,
+            ignore_list,
+            None,
+            None,
+        )
+    }
+
+    #[test]
+    fn concat_skips_out_of_range_indices() {
+        let sm = map_from_parts(
+            &["a.js"],
+            &[],
+            vec![raw_mapping(0, 5, NO_NAME), raw_mapping(4, 0, 5)],
+            vec![7],
+        );
+
+        let mut builder = ConcatBuilder::new(None);
+        builder.add_map(&sm, 0);
+        let result = builder.build();
+
+        assert_eq!(result.ignore_list, Vec::<u32>::new());
+        assert_eq!(result.mapping_count(), 2);
+        assert!(result.original_position_for(0, 0).is_none());
+        let loc = result.original_position_for(0, 4).unwrap();
+        assert_eq!((result.source(loc.source), loc.name), ("a.js", None));
+    }
+
+    #[test]
+    fn remap_skips_out_of_range_outer_source() {
+        let outer = map_from_parts(
+            &["a.js"],
+            &[],
+            vec![raw_mapping(0, 5, NO_NAME), raw_mapping(4, 0, NO_NAME)],
+            vec![],
+        );
+
+        let result = remap(&outer, |_| None);
+
+        assert!(result.original_position_for(0, 0).is_none());
+        let loc = result.original_position_for(0, 4).unwrap();
+        assert_eq!(result.source(loc.source), "a.js");
+    }
+
+    #[test]
+    fn remap_skips_out_of_range_upstream_indices() {
+        let outer = map_from_parts(
+            &["mid.js"],
+            &[],
+            vec![raw_mapping(0, 0, NO_NAME), raw_mapping(4, 0, NO_NAME)],
+            vec![],
+        );
+        let upstream = map_from_parts(
+            &["orig.ts"],
+            &[],
+            vec![raw_mapping(0, 5, NO_NAME), raw_mapping(4, 0, 5)],
+            vec![],
+        );
+
+        let result = remap(&outer, |_| Some(upstream.clone()));
+
+        assert!(result.original_position_for(0, 0).is_none());
+        let loc = result.original_position_for(0, 4).unwrap();
+        assert_eq!((result.source(loc.source), loc.name), ("orig.ts", None));
     }
 
     #[test]

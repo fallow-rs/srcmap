@@ -282,6 +282,20 @@ fn conformance_three_field_segment_rejected() {
 }
 
 #[test]
+fn conformance_source_index_out_of_range_rejected() {
+    // Source index 1 with a single entry in `sources`
+    let json = r#"{"version":3,"sources":["a.js"],"names":[],"mappings":"ACAA"}"#;
+    assert!(SourceMap::from_json(json).is_err());
+}
+
+#[test]
+fn conformance_ignore_list_out_of_range_rejected() {
+    // `ignoreList` entries must index into `sources`
+    let json = r#"{"version":3,"sources":["a.js"],"names":[],"mappings":"AAAA","ignoreList":[5]}"#;
+    assert!(SourceMap::from_json(json).is_err());
+}
+
+#[test]
 fn conformance_source_root_roundtrip() {
     // sourceRoot must not be double-applied on parse-serialize-parse
     let json =

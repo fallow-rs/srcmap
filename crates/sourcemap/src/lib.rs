@@ -146,6 +146,42 @@ pub enum ParseError {
     SectionsNotOrdered,
     /// The data URL is malformed (not a valid `data:application/json` URL).
     InvalidDataUrl,
+    /// A mapping, `ignoreList` entry, or scopes reference points past the end of its array.
+    IndexOutOfRange {
+        /// The array that the index refers to.
+        kind: IndexKind,
+        /// The out-of-range index.
+        index: u32,
+        /// The length of the array.
+        len: usize,
+    },
+}
+
+/// The array that an out-of-range index refers to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum IndexKind {
+    /// A mapping source index, checked against `sources`.
+    Source,
+    /// A mapping name index, checked against `names`.
+    Name,
+    /// An `ignoreList` or `x_google_ignoreList` entry, checked against `sources`.
+    IgnoreList,
+    /// A generated range definition, checked against the original scope count.
+    ScopeDefinition,
+    /// A generated range call-site source index, checked against `sources`.
+    CallSiteSource,
+}
+
+impl IndexKind {
+    const fn label(self) -> &'static str {
+        match self {
+            Self::Source => "source",
+            Self::Name => "name",
+            Self::IgnoreList => "ignoreList",
+            Self::ScopeDefinition => "scopes definition",
+            Self::CallSiteSource => "call-site source",
+        }
+    }
 }
 
 impl fmt::Display for ParseError {
@@ -160,6 +196,9 @@ impl fmt::Display for ParseError {
                 write!(f, "sections must be in ascending (line, column) order")
             }
             Self::InvalidDataUrl => write!(f, "malformed data URL"),
+            Self::IndexOutOfRange { kind, index, len } => {
+                write!(f, "{} index {index} out of range (length {len})", kind.label())
+            }
         }
     }
 }
@@ -173,7 +212,8 @@ impl std::error::Error for ParseError {
             Self::InvalidVersion(_)
             | Self::NestedIndexMap
             | Self::SectionsNotOrdered
-            | Self::InvalidDataUrl => None,
+            | Self::InvalidDataUrl
+            | Self::IndexOutOfRange { .. } => None,
         }
     }
 }
@@ -230,6 +270,60 @@ fn check_version(version: u32) -> Result<(), ParseError> {
 /// explicit empty `ignoreList` wins.
 fn resolve_ignore_list(ignore_list: Option<Vec<u32>>, legacy: Option<Vec<u32>>) -> Vec<u32> {
     ignore_list.or(legacy).unwrap_or_default()
+}
+
+const fn index_error(kind: IndexKind, index: u32, len: usize) -> ParseError {
+    ParseError::IndexOutOfRange { kind, index, len }
+}
+
+/// Check that every index in decoded map data points inside its array.
+///
+/// The scopes walk uses an explicit stack, so deep range nesting from untrusted
+/// input cannot overflow the call stack.
+fn check_indices(
+    mappings: &[Mapping],
+    sources_len: usize,
+    names_len: usize,
+    ignore_list: &[u32],
+    scopes: Option<&ScopeInfo>,
+) -> Result<(), ParseError> {
+    for m in mappings {
+        if m.source != NO_SOURCE && m.source as usize >= sources_len {
+            return Err(index_error(IndexKind::Source, m.source, sources_len));
+        }
+        if m.name != NO_NAME && m.name as usize >= names_len {
+            return Err(index_error(IndexKind::Name, m.name, names_len));
+        }
+    }
+
+    if let Some(&idx) = ignore_list.iter().find(|&&idx| idx as usize >= sources_len) {
+        return Err(index_error(IndexKind::IgnoreList, idx, sources_len));
+    }
+
+    let Some(scopes) = scopes else {
+        return Ok(());
+    };
+    let total = scopes.scopes.iter().flatten().map(count_scope_tree).sum::<u32>() as usize;
+    let mut stack: Vec<&GeneratedRange> = scopes.ranges.iter().collect();
+    while let Some(range) = stack.pop() {
+        if let Some(def) = range.definition
+            && def as usize >= total
+        {
+            return Err(index_error(IndexKind::ScopeDefinition, def, total));
+        }
+        if let Some(call_site) = &range.call_site
+            && call_site.source_index as usize >= sources_len
+        {
+            return Err(index_error(
+                IndexKind::CallSiteSource,
+                call_site.source_index,
+                sources_len,
+            ));
+        }
+        stack.extend(range.children.iter());
+    }
+
+    Ok(())
 }
 
 fn decode_scopes_field(
@@ -499,7 +593,9 @@ fn merge_section_ignore_list(
     all_ignore_list: &mut Vec<u32>,
 ) {
     for &idx in ignore_list {
-        let global_idx = source_remap[idx as usize];
+        let Some(&global_idx) = source_remap.get(idx as usize) else {
+            continue;
+        };
         if !all_ignore_list.contains(&global_idx) {
             all_ignore_list.push(global_idx);
         }
@@ -526,10 +622,10 @@ fn append_section_mappings(
         all_mappings.push(Mapping {
             generated_line: gen_line,
             generated_column: gen_col,
-            source: if m.source == NO_SOURCE { NO_SOURCE } else { source_remap[m.source as usize] },
+            source: source_remap.get(m.source as usize).copied().unwrap_or(NO_SOURCE),
             original_line: m.original_line,
             original_column: m.original_column,
-            name: if m.name == NO_NAME { NO_NAME } else { name_remap[m.name as usize] },
+            name: name_remap.get(m.name as usize).copied().unwrap_or(NO_NAME),
             is_range_mapping: m.is_range_mapping,
         });
 
@@ -652,11 +748,13 @@ fn remap_generated_range(
         end: offset_generated_position(range.end, line_offset, col_offset),
         is_stack_frame: range.is_stack_frame,
         is_hidden: range.is_hidden,
-        definition: range.definition.map(|idx| definition_remap[idx as usize]),
-        call_site: range.call_site.map(|call_site| CallSite {
-            source_index: source_remap[call_site.source_index as usize],
-            line: call_site.line,
-            column: call_site.column,
+        definition: range.definition.and_then(|idx| definition_remap.get(idx as usize).copied()),
+        call_site: range.call_site.and_then(|call_site| {
+            source_remap.get(call_site.source_index as usize).map(|&source_index| CallSite {
+                source_index,
+                line: call_site.line,
+                column: call_site.column,
+            })
         }),
         bindings: range
             .bindings
@@ -851,6 +949,7 @@ impl SourceMap {
             decode_range_mappings_field(raw.range_mappings, &mut mappings, &line_offsets)?;
         let scopes = decode_scopes_field(raw.scopes, &raw.names, sources.len())?;
         let ignore_list = resolve_ignore_list(raw.ignore_list, raw.x_google_ignore_list);
+        check_indices(&mappings, sources.len(), raw.names.len(), &ignore_list, scopes.as_ref())?;
 
         Ok(Self {
             file: raw.file,
@@ -905,6 +1004,7 @@ impl SourceMap {
             decode_range_mappings_field(raw.range_mappings, &mut mappings, &line_offsets)?;
         let scopes = decode_scopes_field(raw.scopes, &raw.names, sources.len())?;
         let ignore_list = resolve_ignore_list(raw.ignore_list, raw.x_google_ignore_list);
+        check_indices(&mappings, sources.len(), raw.names.len(), &ignore_list, scopes.as_ref())?;
         let extensions = filter_extensions(raw.extensions);
 
         Ok(Self {
@@ -1584,6 +1684,7 @@ impl SourceMap {
         let (mut mappings, line_offsets) = decode_mappings(mappings_str)?;
         let has_range_mappings =
             decode_range_mappings_field(range_mappings_str, &mut mappings, &line_offsets)?;
+        check_indices(&mappings, sources.len(), names.len(), &ignore_list, None)?;
         let source_map = build_source_map(&sources);
         Ok(Self {
             file,
@@ -1656,6 +1757,7 @@ impl SourceMap {
         let (mappings, line_offsets) = decode_mappings_range(raw.mappings, start_line, end_line)?;
         let scopes = decode_scopes_field(raw.scopes, &raw.names, sources.len())?;
         let ignore_list = resolve_ignore_list(raw.ignore_list, raw.x_google_ignore_list);
+        check_indices(&mappings, sources.len(), raw.names.len(), &ignore_list, scopes.as_ref())?;
         let extensions = filter_extensions(raw.extensions);
 
         Ok(Self {
@@ -3546,6 +3648,187 @@ mod tests {
         assert!(matches!(err, ParseError::InvalidVersion(2)));
     }
 
+    fn assert_index_error(json: &str, want_kind: IndexKind, want_index: u32, want_len: usize) {
+        let err = SourceMap::from_json(json).unwrap_err();
+        match err {
+            ParseError::IndexOutOfRange { kind, index, len } => {
+                assert_eq!((kind, index, len), (want_kind, want_index, want_len), "{json}");
+            }
+            other => panic!("expected IndexOutOfRange for {json}, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn rejects_source_index_out_of_range() {
+        assert_index_error(
+            r#"{"version":3,"sources":["a.js"],"names":[],"mappings":"ACAA"}"#,
+            IndexKind::Source,
+            1,
+            1,
+        );
+    }
+
+    #[test]
+    fn rejects_name_index_out_of_range() {
+        assert_index_error(
+            r#"{"version":3,"sources":["a.js"],"names":[],"mappings":"AAAAA"}"#,
+            IndexKind::Name,
+            0,
+            0,
+        );
+    }
+
+    #[test]
+    fn rejects_ignore_list_index_out_of_range() {
+        assert_index_error(
+            r#"{"version":3,"sources":["a.js"],"names":[],"mappings":"AAAA","ignoreList":[5]}"#,
+            IndexKind::IgnoreList,
+            5,
+            1,
+        );
+    }
+
+    #[test]
+    fn rejects_legacy_ignore_list_index_out_of_range() {
+        assert_index_error(
+            r#"{"version":3,"sources":["a.js"],"names":[],"mappings":"AAAA","x_google_ignoreList":[1]}"#,
+            IndexKind::IgnoreList,
+            1,
+            1,
+        );
+    }
+
+    #[test]
+    fn rejects_section_source_index_out_of_range() {
+        assert_index_error(
+            r#"{"version":3,"sections":[{"offset":{"line":0,"column":0},"map":{"version":3,"sources":["a"],"names":[],"mappings":"ACAA"}}]}"#,
+            IndexKind::Source,
+            1,
+            1,
+        );
+    }
+
+    #[test]
+    fn rejects_section_ignore_list_index_out_of_range() {
+        assert_index_error(
+            r#"{"version":3,"sections":[{"offset":{"line":0,"column":0},"map":{"version":3,"sources":["a"],"names":[],"mappings":"AAAA","ignoreList":[5]}}]}"#,
+            IndexKind::IgnoreList,
+            5,
+            1,
+        );
+    }
+
+    #[test]
+    fn accepts_indices_at_last_position() {
+        let json = r#"{"version":3,"sources":["a.js","b.js"],"names":["x","y"],"mappings":"AAAAA,CCAAC","ignoreList":[1]}"#;
+        let sm = SourceMap::from_json(json).unwrap();
+        assert_eq!(sm.mapping_count(), 2);
+        let loc = sm.original_position_for(0, 1).unwrap();
+        assert_eq!((loc.source, loc.name), (1, Some(1)));
+    }
+
+    #[test]
+    fn rejects_out_of_range_indices_in_every_entry_point() {
+        let json = r#"{"version":3,"sources":["a.js"],"names":[],"mappings":"ACAA"}"#;
+        let is_source_error = |r: Result<SourceMap, ParseError>| {
+            matches!(
+                r,
+                Err(ParseError::IndexOutOfRange { kind: IndexKind::Source, index: 1, len: 1 })
+            )
+        };
+        assert!(is_source_error(SourceMap::from_json_no_content(json)));
+        assert!(is_source_error(SourceMap::from_json_lines(json, 0, 1)));
+        assert!(is_source_error(SourceMap::from_data_url(&format!(
+            "data:application/json,{json}"
+        ))));
+        assert!(is_source_error(SourceMap::from_vlq(
+            "ACAA",
+            vec!["a.js".into()],
+            vec![],
+            None,
+            None,
+            vec![],
+            vec![],
+            None,
+        )));
+        assert!(matches!(
+            SourceMap::from_vlq(
+                "AAAA",
+                vec!["a.js".into()],
+                vec![],
+                None,
+                None,
+                vec![],
+                vec![3],
+                None,
+            ),
+            Err(ParseError::IndexOutOfRange { kind: IndexKind::IgnoreList, index: 3, len: 1 })
+        ));
+    }
+
+    fn one_scope_info(range: GeneratedRange) -> ScopeInfo {
+        ScopeInfo {
+            scopes: vec![Some(OriginalScope {
+                start: Position { line: 0, column: 0 },
+                end: Position { line: 5, column: 0 },
+                name: None,
+                kind: None,
+                is_stack_frame: false,
+                variables: vec![],
+                children: vec![],
+            })],
+            ranges: vec![range],
+        }
+    }
+
+    fn base_range() -> GeneratedRange {
+        GeneratedRange {
+            start: Position { line: 0, column: 0 },
+            end: Position { line: 5, column: 0 },
+            is_stack_frame: false,
+            is_hidden: false,
+            definition: Some(0),
+            call_site: None,
+            bindings: vec![],
+            children: vec![],
+        }
+    }
+
+    fn scopes_json(info: &ScopeInfo) -> String {
+        let scopes_str = srcmap_scopes::encode_scopes(info, &mut vec![]);
+        format!(
+            r#"{{"version":3,"sources":["a.js"],"names":[],"mappings":"AAAA","scopes":"{scopes_str}"}}"#
+        )
+    }
+
+    #[test]
+    fn accepts_scopes_definition_and_call_site_in_range() {
+        let mut inner = base_range();
+        inner.call_site = Some(CallSite { source_index: 0, line: 0, column: 0 });
+        let mut outer = base_range();
+        outer.children = vec![inner];
+        let sm = SourceMap::from_json(&scopes_json(&one_scope_info(outer))).unwrap();
+        assert_eq!(sm.scopes.unwrap().ranges[0].children.len(), 1);
+    }
+
+    #[test]
+    fn rejects_scopes_definition_out_of_range() {
+        let mut inner = base_range();
+        inner.definition = Some(1);
+        let mut outer = base_range();
+        outer.children = vec![inner];
+        assert_index_error(&scopes_json(&one_scope_info(outer)), IndexKind::ScopeDefinition, 1, 1);
+    }
+
+    #[test]
+    fn rejects_scopes_call_site_source_out_of_range() {
+        let mut inner = base_range();
+        inner.call_site = Some(CallSite { source_index: 1, line: 0, column: 0 });
+        let mut outer = base_range();
+        outer.children = vec![inner];
+        assert_index_error(&scopes_json(&one_scope_info(outer)), IndexKind::CallSiteSource, 1, 1);
+    }
+
     #[test]
     fn parse_empty_mappings() {
         let json = r#"{"version":3,"sources":[],"names":[],"mappings":""}"#;
@@ -3996,7 +4279,7 @@ mod tests {
 
     #[test]
     fn reverse_lookup_skips_single_field_segments() {
-        let json = r#"{"version":3,"sources":["a.js"],"names":[],"mappings":"A,KAAAA"}"#;
+        let json = r#"{"version":3,"sources":["a.js"],"names":["n"],"mappings":"A,KAAAA"}"#;
         let sm = SourceMap::from_json(json).unwrap();
 
         let loc = sm.generated_position_for("a.js", 0, 0).unwrap();

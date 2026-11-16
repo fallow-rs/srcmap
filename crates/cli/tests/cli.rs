@@ -127,6 +127,34 @@ fn validate_invalid_json() {
     assert!(v["error"].as_str().unwrap().contains("VLQ"));
 }
 
+const OUT_OF_RANGE_SOURCE_MAP: &str =
+    r#"{"version":3,"sources":["a.js"],"names":[],"mappings":"ACAA"}"#;
+
+#[test]
+fn validate_out_of_range_source_index_is_invalid() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("bad.js.map");
+    fs::write(&path, OUT_OF_RANGE_SOURCE_MAP).unwrap();
+    let out = srcmap().args(["validate", path.to_str().unwrap(), "--json"]).output().unwrap();
+    assert!(!out.status.success());
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(v["valid"], false);
+    assert!(v["error"].as_str().unwrap().contains("out of range"));
+}
+
+#[test]
+fn lookup_out_of_range_source_index_exits_cleanly() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("bad.js.map");
+    fs::write(&path, OUT_OF_RANGE_SOURCE_MAP).unwrap();
+    let out = srcmap().args(["lookup", path.to_str().unwrap(), "0", "0"]).output().unwrap();
+    assert!(!out.status.success());
+    assert_ne!(out.status.code(), Some(101));
+    let stderr = String::from_utf8(out.stderr).unwrap();
+    assert!(!stderr.contains("panicked"), "{stderr}");
+    assert!(stderr.contains("source index 1 out of range"), "{stderr}");
+}
+
 #[test]
 fn lookup_found() {
     let out = srcmap()
