@@ -211,8 +211,15 @@ pub fn resolve_sources(raw_sources: &[Option<String>], source_root: &str) -> Vec
 }
 
 /// Build a source filename -> index lookup map.
+///
+/// A duplicate filename resolves to its first index, as `sources.indexOf` does
+/// in JavaScript source map consumers.
 fn build_source_map(sources: &[String]) -> HashMap<String, u32> {
-    sources.iter().enumerate().map(|(i, s)| (s.clone(), i as u32)).collect()
+    let mut map = HashMap::with_capacity(sources.len());
+    for (i, s) in sources.iter().enumerate() {
+        map.entry(s.clone()).or_insert(i as u32);
+    }
+    map
 }
 
 fn check_version(version: u32) -> Result<(), ParseError> {
@@ -4038,6 +4045,36 @@ mod tests {
         assert_eq!(sm.source_index("b.js"), Some(1));
         assert_eq!(sm.source_index("c.js"), Some(2));
         assert_eq!(sm.source_index("d.js"), None);
+    }
+
+    const DUPLICATE_SOURCES_JSON: &str =
+        r#"{"version":3,"sources":["a.js","a.js"],"names":[],"mappings":"AAAA"}"#;
+
+    #[test]
+    fn source_index_duplicate_sources_returns_first() {
+        let sm = SourceMap::from_json(DUPLICATE_SOURCES_JSON).unwrap();
+        assert_eq!(sm.source_index("a.js"), Some(0));
+    }
+
+    #[test]
+    fn generated_position_for_duplicate_sources() {
+        let sm = SourceMap::from_json(DUPLICATE_SOURCES_JSON).unwrap();
+        let loc = sm.generated_position_for("a.js", 0, 0).unwrap();
+        assert_eq!((loc.line, loc.column), (0, 0));
+    }
+
+    #[test]
+    fn all_generated_positions_for_duplicate_sources() {
+        let sm = SourceMap::from_json(DUPLICATE_SOURCES_JSON).unwrap();
+        let locs = sm.all_generated_positions_for("a.js", 0, 0);
+        assert_eq!(locs.len(), 1);
+        assert_eq!((locs[0].line, locs[0].column), (0, 0));
+    }
+
+    #[test]
+    fn lazy_source_index_duplicate_sources_returns_first() {
+        let sm = LazySourceMap::from_json(DUPLICATE_SOURCES_JSON).unwrap();
+        assert_eq!(sm.source_index("a.js"), Some(0));
     }
 
     #[test]
