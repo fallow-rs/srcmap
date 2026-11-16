@@ -2514,6 +2514,13 @@ impl LazySourceMap {
             &line_offsets,
         )?;
         sort_unsorted_lines(&mut mappings, &line_offsets);
+        check_indices(
+            &mappings,
+            self.sources.len(),
+            self.names.len(),
+            &self.ignore_list,
+            self.scopes.as_ref(),
+        )?;
 
         Ok(SourceMap {
             file: self.file,
@@ -3906,6 +3913,19 @@ mod tests {
                 None,
             ),
             Err(ParseError::IndexOutOfRange { kind: IndexKind::IgnoreList, index: 3, len: 1 })
+        ));
+    }
+
+    #[test]
+    fn lazy_into_sourcemap_rejects_out_of_range_indices() {
+        let into = |json: &str| LazySourceMap::from_json(json).unwrap().into_sourcemap();
+        assert!(matches!(
+            into(r#"{"version":3,"sources":["a.js"],"names":[],"mappings":"ACAA"}"#),
+            Err(ParseError::IndexOutOfRange { kind: IndexKind::Source, index: 1, len: 1 })
+        ));
+        assert!(matches!(
+            into(r#"{"version":3,"sources":["a.js"],"names":["n"],"mappings":"AAAAC"}"#),
+            Err(ParseError::IndexOutOfRange { kind: IndexKind::Name, index: 1, len: 1 })
         ));
     }
 
