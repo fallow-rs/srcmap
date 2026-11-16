@@ -162,6 +162,19 @@ describe("remapping(singleMap, loader)", () => {
   });
 });
 
+describe("remapping(decodedMap, loader)", () => {
+  it("encodes source, line and name deltas across lines", () => {
+    const decoded = {
+      version: 3,
+      sources: ["a.js", "b.js"],
+      names: ["x", "y"],
+      mappings: [[[0, 0, 5, 0, 0]], [[0, 1, 6, 2, 1]], [[3, 1, 6, 4]]],
+    };
+    const result = remapping(decoded, () => null);
+    assert.equal(result.mappings, "AAKAA;ACCEC;GAAE");
+  });
+});
+
 describe("remapping([maps], loader)", () => {
   it("composes two source maps", () => {
     const outer = {

@@ -443,6 +443,10 @@ const vlqEncode = (value) => {
 
 const encodeDecodedMappings = (decoded) => {
   const parts = [];
+  let prevSource = 0;
+  let prevOrigLine = 0;
+  let prevOrigCol = 0;
+  let prevName = 0;
 
   for (let i = 0; i < decoded.length; i++) {
     const line = decoded[i];
@@ -453,10 +457,6 @@ const encodeDecodedMappings = (decoded) => {
 
     const segments = [];
     let prevCol = 0;
-    let prevSource = 0;
-    let prevOrigLine = 0;
-    let prevOrigCol = 0;
-    let prevName = 0;
 
     for (const seg of line) {
       let encoded = vlqEncode(seg[COLUMN] - prevCol);

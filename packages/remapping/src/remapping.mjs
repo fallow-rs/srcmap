@@ -55,13 +55,13 @@ const encodeVlq = (value) => {
 
 const encodeMappings = (decoded) => {
   const lines = [];
+  let prevSource = 0,
+    prevOrigLine = 0,
+    prevOrigCol = 0,
+    prevName = 0;
   for (const line of decoded) {
     const segments = [];
-    let prevCol = 0,
-      prevSource = 0,
-      prevOrigLine = 0,
-      prevOrigCol = 0,
-      prevName = 0;
+    let prevCol = 0;
     for (const seg of line) {
       let str = encodeVlq(seg[0] - prevCol);
       prevCol = seg[0];
