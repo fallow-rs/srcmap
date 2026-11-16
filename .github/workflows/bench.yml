@@ -83,10 +83,10 @@ jobs:
         if: matrix.kind == 'node'
         run: corepack enable
 
-      - uses: ./.github/actions/setup-rust
+      - uses: $/.github/actions/setup-rust
         if: matrix.kind == 'rust'
 
-      - uses: ./.github/actions/setup-rust
+      - uses: $/.github/actions/setup-rust
         if: matrix.kind == 'node'
         with:
           targets: wasm32-unknown-unknown

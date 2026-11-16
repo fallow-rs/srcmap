@@ -202,7 +202,7 @@ describe("Dependabot policy", () => {
       for (const use of direct) {
         const start = workflow.indexOf(use);
         const step = workflow.slice(start, start + 200);
-        assert.match(step, /steps\.msrv\.outputs\.version/, `${entry.name}: use ./.github/actions/setup-rust`);
+        assert.match(step, /steps\.msrv\.outputs\.version/, `${entry.name}: use $/.github/actions/setup-rust`);
       }
     }
   });
