@@ -337,6 +337,57 @@ fn remap_dry_run() {
 }
 
 #[test]
+fn remap_missing_upstream_file_fails() {
+    let dir = tempfile::tempdir().unwrap();
+    let missing = dir.path().join("missing.map");
+    let out = srcmap()
+        .args([
+            "remap",
+            fixture("simple.js.map").to_str().unwrap(),
+            "--upstream",
+            &format!("src/app.ts={}", missing.display()),
+        ])
+        .output()
+        .unwrap();
+    assert!(!out.status.success());
+    let stderr = String::from_utf8(out.stderr).unwrap();
+    assert!(stderr.contains("failed to read"), "{stderr}");
+}
+
+#[test]
+fn remap_invalid_upstream_map_fails() {
+    let out = srcmap()
+        .args([
+            "remap",
+            fixture("simple.js.map").to_str().unwrap(),
+            "--upstream",
+            &format!("src/app.ts={}", fixture("invalid.js.map").display()),
+        ])
+        .output()
+        .unwrap();
+    assert!(!out.status.success());
+    let stderr = String::from_utf8(out.stderr).unwrap();
+    assert!(stderr.contains("invalid source map"), "{stderr}");
+}
+
+#[test]
+fn remap_valid_upstream_is_used() {
+    let out = srcmap()
+        .args([
+            "remap",
+            fixture("simple.js.map").to_str().unwrap(),
+            "--upstream",
+            &format!("src/app.ts={}", fixture("second.js.map").display()),
+            "--json",
+        ])
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(v["upstreamMapsFound"], serde_json::json!(["src/app.ts"]));
+}
+
+#[test]
 fn scopes_no_data() {
     let out =
         srcmap().args(["scopes", fixture("simple.js.map").to_str().unwrap()]).output().unwrap();
@@ -581,6 +632,25 @@ fn lookup_context_no_sources_content() {
     assert!(out.status.success());
     let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
     assert_eq!(v["source"], "src/other.ts");
+    assert!(v["context"].is_null());
+}
+
+#[test]
+fn lookup_context_line_past_sources_content() {
+    let dir = tempfile::tempdir().unwrap();
+    let map = dir.path().join("ctx.js.map");
+    fs::write(
+        &map,
+        r#"{"version":3,"sources":["a.js"],"sourcesContent":["x\ny\nz"],"names":[],"mappings":"AAyGA"}"#,
+    )
+    .unwrap();
+    let out = srcmap()
+        .args(["lookup", map.to_str().unwrap(), "0", "0", "--context", "2", "--json"])
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(v["source"], "a.js");
     assert!(v["context"].is_null());
 }
 

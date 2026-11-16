@@ -1017,12 +1017,15 @@ fn lookup_context_lines<'a>(
         return None;
     }
 
-    sm.sources_content.get(loc.source as usize).and_then(|c| c.as_ref()).map(|content| {
+    sm.sources_content.get(loc.source as usize).and_then(|c| c.as_ref()).and_then(|content| {
         let lines: Vec<&str> = content.lines().collect();
         let target = loc.line as usize;
+        if target >= lines.len() {
+            return None;
+        }
         let start = target.saturating_sub(context as usize);
-        let end = (target + context as usize + 1).min(lines.len());
-        (start, target, lines[start..end].to_vec())
+        let end = target.saturating_add(context as usize).saturating_add(1).min(lines.len());
+        Some((start, target, lines[start..end].to_vec()))
     })
 }
 
@@ -1435,14 +1438,27 @@ fn parse_upstream_paths(
     Ok(upstream_paths)
 }
 
+/// Read and parse every `--upstream` map, so that a bad path fails the command.
+fn load_explicit_upstreams(
+    upstream_paths: &std::collections::HashMap<String, PathBuf>,
+) -> Result<std::collections::HashMap<String, SourceMap>, CliError> {
+    let mut explicit_maps = std::collections::HashMap::with_capacity(upstream_paths.len());
+    for (source, path) in upstream_paths {
+        let content = fs::read_to_string(path)
+            .map_err(|e| CliError::io(format!("failed to read {}: {e}", path.display())))?;
+        let sm = SourceMap::from_json(&content)
+            .map_err(|e| CliError::parse(format!("invalid source map {}: {e}", path.display())))?;
+        explicit_maps.insert(source.clone(), sm);
+    }
+    Ok(explicit_maps)
+}
+
 fn load_explicit_upstream(
     source: &str,
-    upstream_paths: &std::collections::HashMap<String, PathBuf>,
+    explicit_maps: &std::collections::HashMap<String, SourceMap>,
     found_upstreams: &std::cell::RefCell<Vec<String>>,
 ) -> Option<SourceMap> {
-    let path = upstream_paths.get(source)?;
-    let content = fs::read_to_string(path).ok()?;
-    let sm = SourceMap::from_json(&content).ok()?;
+    let sm = explicit_maps.get(source)?.clone();
     found_upstreams.borrow_mut().push(source.to_string());
     Some(sm)
 }
@@ -1527,12 +1543,13 @@ fn cmd_remap(
     let safe_dir = if let Some(d) = dir { Some(validate_safe_path(d, &cwd)?) } else { None };
 
     let upstream_paths = parse_upstream_paths(upstreams)?;
+    let explicit_maps = load_explicit_upstreams(&upstream_paths)?;
 
     let found_upstreams: std::cell::RefCell<Vec<String>> = std::cell::RefCell::new(Vec::new());
     let skipped_sources: std::cell::RefCell<Vec<String>> = std::cell::RefCell::new(Vec::new());
 
     let result = remap(&outer, |source| {
-        if let Some(sm) = load_explicit_upstream(source, &upstream_paths, &found_upstreams) {
+        if let Some(sm) = load_explicit_upstream(source, &explicit_maps, &found_upstreams) {
             return Some(sm);
         }
 
