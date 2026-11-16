@@ -282,6 +282,20 @@ fn conformance_three_field_segment_rejected() {
 }
 
 #[test]
+fn conformance_six_field_segment_rejected() {
+    // Only 1, 4, or 5 fields are valid per ECMA-426
+    let json = r#"{"version":3,"sources":["a.js"],"names":["n"],"mappings":"AAAAAA"}"#;
+    assert!(SourceMap::from_json(json).is_err());
+}
+
+#[test]
+fn conformance_negative_source_index_rejected() {
+    // A source delta of -1 from 0 gives a negative source index
+    let json = r#"{"version":3,"sources":["a.js"],"names":[],"mappings":"ADAA"}"#;
+    assert!(SourceMap::from_json(json).is_err());
+}
+
+#[test]
 fn conformance_source_index_out_of_range_rejected() {
     // Source index 1 with a single entry in `sources`
     let json = r#"{"version":3,"sources":["a.js"],"names":[],"mappings":"ACAA"}"#;

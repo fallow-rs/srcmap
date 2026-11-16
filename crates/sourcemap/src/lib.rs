@@ -535,10 +535,10 @@ fn original_position_lub_index(line_mappings: &[Mapping], column: u32) -> Option
     }
 }
 
-fn generated_only_mapping(line: u32, generated_column: i64) -> Mapping {
+const fn generated_only_mapping(line: u32, generated_column: u32) -> Mapping {
     Mapping {
         generated_line: line,
-        generated_column: generated_column as u32,
+        generated_column,
         source: NO_SOURCE,
         original_line: 0,
         original_column: 0,
@@ -2922,15 +2922,34 @@ fn vlq_unsigned_fast(bytes: &[u8], pos: &mut usize) -> Result<u64, DecodeError> 
     Ok(result)
 }
 
-/// Read one VLQ value at `pos` and add it to `acc`.
+/// Convert an accumulated VLQ value to a mapping position or index.
 ///
-/// Returns [`DecodeError::VlqOverflow`] at the value's offset when the sum overflows `i64`.
+/// Valid values are `0..u32::MAX`. `u32::MAX` itself is excluded, because
+/// `NO_SOURCE` and `NO_NAME` use it as a sentinel.
 #[inline(always)]
-fn add_vlq(acc: &mut i64, bytes: &[u8], pos: &mut usize) -> Result<(), DecodeError> {
+fn to_position(value: i64, offset: usize) -> Result<u32, DecodeError> {
+    match u32::try_from(value) {
+        Ok(v) if v != u32::MAX => Ok(v),
+        _ => Err(DecodeError::ValueOutOfRange { offset }),
+    }
+}
+
+/// Read one VLQ value at `pos`, add it to `acc`, and return the new value as a position.
+///
+/// Returns [`DecodeError::VlqOverflow`] when the sum overflows `i64`, and
+/// [`DecodeError::ValueOutOfRange`] when the sum is outside `0..u32::MAX`. Both
+/// errors carry the offset of the value.
+#[inline(always)]
+fn add_vlq(acc: &mut i64, bytes: &[u8], pos: &mut usize) -> Result<u32, DecodeError> {
     let start = *pos;
     let delta = vlq_fast(bytes, pos)?;
     *acc = acc.checked_add(delta).ok_or(DecodeError::VlqOverflow { offset: start })?;
-    Ok(())
+    to_position(*acc, start)
+}
+
+#[inline(always)]
+const fn at_segment_delimiter(bytes: &[u8], pos: usize) -> bool {
+    pos >= bytes.len() || bytes[pos] == b',' || bytes[pos] == b';'
 }
 
 fn decode_range_mappings(
@@ -2984,44 +3003,48 @@ fn decode_mapping_segment(
     generated_column: &mut i64,
     state: &mut VlqState,
 ) -> Result<Mapping, DecodeError> {
-    add_vlq(generated_column, bytes, pos)?;
+    let column = add_vlq(generated_column, bytes, pos)?;
 
-    if *pos < bytes.len() && bytes[*pos] != b',' && bytes[*pos] != b';' {
-        add_vlq(&mut state.source_index, bytes, pos)?;
-
-        // Reject 2-field segments (only 1, 4, or 5 are valid per ECMA-426)
-        if *pos >= bytes.len() || bytes[*pos] == b',' || bytes[*pos] == b';' {
-            return Err(DecodeError::InvalidSegmentLength { fields: 2, offset: *pos });
-        }
-
-        add_vlq(&mut state.original_line, bytes, pos)?;
-
-        // Reject 3-field segments (only 1, 4, or 5 are valid per ECMA-426)
-        if *pos >= bytes.len() || bytes[*pos] == b',' || bytes[*pos] == b';' {
-            return Err(DecodeError::InvalidSegmentLength { fields: 3, offset: *pos });
-        }
-
-        add_vlq(&mut state.original_column, bytes, pos)?;
-
-        let name = if *pos < bytes.len() && bytes[*pos] != b',' && bytes[*pos] != b';' {
-            add_vlq(&mut state.name_index, bytes, pos)?;
-            state.name_index as u32
-        } else {
-            NO_NAME
-        };
-
-        Ok(Mapping {
-            generated_line,
-            generated_column: *generated_column as u32,
-            source: state.source_index as u32,
-            original_line: state.original_line as u32,
-            original_column: state.original_column as u32,
-            name,
-            is_range_mapping: false,
-        })
-    } else {
-        Ok(generated_only_mapping(generated_line, *generated_column))
+    if at_segment_delimiter(bytes, *pos) {
+        return Ok(generated_only_mapping(generated_line, column));
     }
+
+    let source = add_vlq(&mut state.source_index, bytes, pos)?;
+
+    // Reject 2-field segments (only 1, 4, or 5 are valid per ECMA-426)
+    if at_segment_delimiter(bytes, *pos) {
+        return Err(DecodeError::InvalidSegmentLength { fields: 2, offset: *pos });
+    }
+
+    let original_line = add_vlq(&mut state.original_line, bytes, pos)?;
+
+    // Reject 3-field segments (only 1, 4, or 5 are valid per ECMA-426)
+    if at_segment_delimiter(bytes, *pos) {
+        return Err(DecodeError::InvalidSegmentLength { fields: 3, offset: *pos });
+    }
+
+    let original_column = add_vlq(&mut state.original_column, bytes, pos)?;
+
+    let name = if at_segment_delimiter(bytes, *pos) {
+        NO_NAME
+    } else {
+        add_vlq(&mut state.name_index, bytes, pos)?
+    };
+
+    // Reject 6-field segments (only 1, 4, or 5 are valid per ECMA-426)
+    if !at_segment_delimiter(bytes, *pos) {
+        return Err(DecodeError::InvalidSegmentLength { fields: 6, offset: *pos });
+    }
+
+    Ok(Mapping {
+        generated_line,
+        generated_column: column,
+        source,
+        original_line,
+        original_column,
+        name,
+        is_range_mapping: false,
+    })
 }
 
 fn build_range_line_offsets(
@@ -3280,53 +3303,40 @@ impl<'a> MappingsIter<'a> {
     }
 
     fn at_segment_delimiter(&self) -> bool {
-        self.pos >= self.len || self.bytes[self.pos] == b',' || self.bytes[self.pos] == b';'
+        at_segment_delimiter(self.bytes, self.pos)
     }
 
-    fn generated_only_mapping(&self) -> Mapping {
-        Mapping {
-            generated_line: self.generated_line,
-            generated_column: self.generated_column as u32,
-            source: NO_SOURCE,
-            original_line: 0,
-            original_column: 0,
-            name: NO_NAME,
-            is_range_mapping: false,
-        }
-    }
-
-    fn sourced_mapping(&self, name: u32) -> Mapping {
-        Mapping {
-            generated_line: self.generated_line,
-            generated_column: self.generated_column as u32,
-            source: self.source_index as u32,
-            original_line: self.original_line as u32,
-            original_column: self.original_column as u32,
-            name,
-            is_range_mapping: false,
-        }
-    }
-
-    fn decode_sourced_mapping(&mut self) -> Result<Mapping, DecodeError> {
-        add_vlq(&mut self.source_index, self.bytes, &mut self.pos)?;
+    fn decode_sourced_mapping(&mut self, generated_column: u32) -> Result<Mapping, DecodeError> {
+        let source = add_vlq(&mut self.source_index, self.bytes, &mut self.pos)?;
         if self.at_segment_delimiter() {
             return Err(DecodeError::InvalidSegmentLength { fields: 2, offset: self.pos });
         }
 
-        add_vlq(&mut self.original_line, self.bytes, &mut self.pos)?;
+        let original_line = add_vlq(&mut self.original_line, self.bytes, &mut self.pos)?;
         if self.at_segment_delimiter() {
             return Err(DecodeError::InvalidSegmentLength { fields: 3, offset: self.pos });
         }
 
-        add_vlq(&mut self.original_column, self.bytes, &mut self.pos)?;
+        let original_column = add_vlq(&mut self.original_column, self.bytes, &mut self.pos)?;
         let name = if self.at_segment_delimiter() {
             NO_NAME
         } else {
-            add_vlq(&mut self.name_index, self.bytes, &mut self.pos)?;
-            self.name_index as u32
+            add_vlq(&mut self.name_index, self.bytes, &mut self.pos)?
         };
 
-        Ok(self.sourced_mapping(name))
+        if !self.at_segment_delimiter() {
+            return Err(DecodeError::InvalidSegmentLength { fields: 6, offset: self.pos });
+        }
+
+        Ok(Mapping {
+            generated_line: self.generated_line,
+            generated_column,
+            source,
+            original_line,
+            original_column,
+            name,
+            is_range_mapping: false,
+        })
     }
 }
 
@@ -3359,15 +3369,17 @@ impl Iterator for MappingsIter<'_> {
             }
 
             // Field 1: generated column
-            if let Err(e) = add_vlq(&mut self.generated_column, self.bytes, &mut self.pos) {
-                return self.stop_with_error(e);
-            }
+            let generated_column =
+                match add_vlq(&mut self.generated_column, self.bytes, &mut self.pos) {
+                    Ok(column) => column,
+                    Err(e) => return self.stop_with_error(e),
+                };
 
             if self.at_segment_delimiter() {
-                return Some(Ok(self.generated_only_mapping()));
+                return Some(Ok(generated_only_mapping(self.generated_line, generated_column)));
             }
 
-            return match self.decode_sourced_mapping() {
+            return match self.decode_sourced_mapping(generated_column) {
                 Ok(mapping) => Some(Ok(mapping)),
                 Err(e) => self.stop_with_error(e),
             };
@@ -3897,6 +3909,14 @@ mod tests {
         assert_eq!(sm.line_count(), 1);
     }
 
+    /// A running VLQ sum that leaves the `u32` range fails before it can overflow `i64`.
+    const fn is_sum_range_error(err: &ParseError) -> bool {
+        matches!(
+            err,
+            ParseError::Vlq(DecodeError::VlqOverflow { .. } | DecodeError::ValueOutOfRange { .. })
+        )
+    }
+
     fn sum_overflow_map(segment: &str) -> String {
         let mappings = [segment; 40].join(",");
         format!(r#"{{"version":3,"sources":["a.js"],"names":[],"mappings":"{mappings}"}}"#)
@@ -3905,20 +3925,26 @@ mod tests {
     #[test]
     fn rejects_generated_column_sum_overflow() {
         let err = SourceMap::from_json(&sum_overflow_map("gggggggggggQ")).unwrap_err();
-        assert!(matches!(err, ParseError::Vlq(DecodeError::VlqOverflow { .. })), "{err:?}");
+        assert!(is_sum_range_error(&err), "{err:?}");
     }
 
     #[test]
     fn rejects_source_index_sum_overflow() {
         let err = SourceMap::from_json(&sum_overflow_map("AgggggggggggQAA")).unwrap_err();
-        assert!(matches!(err, ParseError::Vlq(DecodeError::VlqOverflow { .. })), "{err:?}");
+        assert!(is_sum_range_error(&err), "{err:?}");
     }
 
     #[test]
     fn mappings_iter_reports_sum_overflow() {
         let mappings = ["gggggggggggQ"; 40].join(",");
         let result = MappingsIter::new(&mappings).collect::<Result<Vec<_>, _>>();
-        assert!(matches!(result, Err(DecodeError::VlqOverflow { .. })), "{result:?}");
+        assert!(
+            matches!(
+                result,
+                Err(DecodeError::VlqOverflow { .. } | DecodeError::ValueOutOfRange { .. })
+            ),
+            "{result:?}"
+        );
     }
 
     #[test]
@@ -3961,6 +3987,113 @@ mod tests {
         let sm = SourceMap::from_json(json).unwrap();
         assert!(sm.original_position_for(1, 0).is_some());
         assert!(sm.original_position_for(2, 0).is_none());
+    }
+
+    fn vlq_error(mappings: &str, names: &str) -> DecodeError {
+        let json = format!(
+            r#"{{"version":3,"sources":["a.js"],"names":[{names}],"mappings":"{mappings}"}}"#
+        );
+        match SourceMap::from_json(&json).unwrap_err() {
+            ParseError::Vlq(err) => err,
+            other => panic!("expected a VLQ error for {mappings}, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn rejects_negative_source_index() {
+        assert!(matches!(vlq_error("ADAA", ""), DecodeError::ValueOutOfRange { .. }));
+    }
+
+    #[test]
+    fn rejects_negative_generated_column() {
+        assert!(matches!(vlq_error("DAAA", ""), DecodeError::ValueOutOfRange { .. }));
+    }
+
+    #[test]
+    fn rejects_generated_column_above_u32() {
+        assert!(matches!(vlq_error("AAAA,ggggggIAAA", ""), DecodeError::ValueOutOfRange { .. }));
+    }
+
+    #[test]
+    fn rejects_original_line_above_u32() {
+        assert!(matches!(vlq_error("AAggggggIA", ""), DecodeError::ValueOutOfRange { .. }));
+    }
+
+    #[test]
+    fn rejects_original_column_and_name_above_u32() {
+        assert!(matches!(vlq_error("AAAggggggI", ""), DecodeError::ValueOutOfRange { .. }));
+        assert!(matches!(vlq_error("AAAAggggggI", r#""n""#), DecodeError::ValueOutOfRange { .. }));
+    }
+
+    #[test]
+    fn rejects_u32_max_sentinel_value() {
+        // `NO_SOURCE` uses u32::MAX as its sentinel
+        let u32_max = "+/////H";
+        let mappings = format!("A{u32_max}AA");
+        assert!(matches!(vlq_error(&mappings, ""), DecodeError::ValueOutOfRange { .. }));
+    }
+
+    #[test]
+    fn rejects_six_field_segment() {
+        assert!(matches!(
+            vlq_error("AAAAAA", r#""n""#),
+            DecodeError::InvalidSegmentLength { fields: 6, .. }
+        ));
+    }
+
+    #[test]
+    fn accepts_large_valid_values() {
+        let json = r#"{"version":3,"sources":["a.js"],"names":[],"mappings":"AAAA,ggggggEAAA"}"#;
+        let sm = SourceMap::from_json(json).unwrap();
+        assert_eq!(sm.all_mappings()[1].generated_column, 2_147_483_648);
+    }
+
+    #[test]
+    fn accepts_negative_delta_with_non_negative_value() {
+        let json = r#"{"version":3,"sources":["a.js"],"names":[],"mappings":"UAAA,DACA"}"#;
+        let sm = SourceMap::from_json(json).unwrap();
+        assert_eq!(sm.mapping_count(), 2);
+    }
+
+    #[test]
+    fn mappings_iter_rejects_negative_source() {
+        let result: Result<Vec<_>, _> = MappingsIter::new("ADAA").collect();
+        assert!(matches!(result, Err(DecodeError::ValueOutOfRange { .. })), "{result:?}");
+    }
+
+    #[test]
+    fn mappings_iter_rejects_negative_generated_column() {
+        let result: Result<Vec<_>, _> = MappingsIter::new("D").collect();
+        assert!(matches!(result, Err(DecodeError::ValueOutOfRange { .. })), "{result:?}");
+    }
+
+    #[test]
+    fn mappings_iter_rejects_six_fields() {
+        let result: Result<Vec<_>, _> = MappingsIter::new("AAAAAA").collect();
+        assert!(
+            matches!(result, Err(DecodeError::InvalidSegmentLength { fields: 6, .. })),
+            "{result:?}"
+        );
+    }
+
+    #[test]
+    fn lazy_rejects_negative_source() {
+        let json = r#"{"version":3,"sources":["a.js"],"names":[],"mappings":"ADAA"}"#;
+        // The lazy constructor walks the VLQ state of every line, so it reports the error
+        let err = LazySourceMap::from_json(json).unwrap_err();
+        assert!(matches!(err, ParseError::Vlq(DecodeError::ValueOutOfRange { .. })), "{err:?}");
+    }
+
+    // The codec decodes any i64 value; the sourcemap crate requires u32 positions.
+    #[test]
+    fn codec_and_sourcemap_value_range_differ_by_design() {
+        let mut encoded = Vec::new();
+        srcmap_codec::vlq_encode(&mut encoded, 1_i64 << 60);
+        let mappings = format!("A{}AA", String::from_utf8(encoded).unwrap());
+        assert!(srcmap_codec::decode(&mappings).is_ok());
+        let json =
+            format!(r#"{{"version":3,"sources":["a.js"],"names":[],"mappings":"{mappings}"}}"#);
+        assert!(SourceMap::from_json(&json).is_err());
     }
 
     #[test]

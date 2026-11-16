@@ -131,6 +131,9 @@ fn decode_sourced_segment(
         let (delta, consumed) = vlq_decode(bytes, *pos)?;
         state.name_index = checked_sum(state.name_index, delta, *pos)?;
         *pos += consumed;
+        if *pos < bytes.len() && bytes[*pos] != b',' && bytes[*pos] != b';' {
+            return Err(DecodeError::InvalidSegmentLength { fields: 6, offset: *pos });
+        }
         return Ok(Segment::five(
             generated_column,
             state.source_index,

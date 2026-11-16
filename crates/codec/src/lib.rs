@@ -185,6 +185,8 @@ pub enum DecodeError {
     VlqOverflow { offset: usize },
     /// A segment has an invalid number of fields (only 1, 4, or 5 are valid per ECMA-426).
     InvalidSegmentLength { fields: u8, offset: usize },
+    /// A decoded position or index is negative, or does not fit below `u32::MAX`.
+    ValueOutOfRange { offset: usize },
 }
 
 impl fmt::Display for DecodeError {
@@ -204,6 +206,9 @@ impl fmt::Display for DecodeError {
                     f,
                     "invalid segment with {fields} fields at offset {offset} (expected 1, 4, or 5)"
                 )
+            }
+            Self::ValueOutOfRange { offset } => {
+                write!(f, "decoded value at offset {offset} is negative or exceeds the u32 range")
             }
         }
     }
@@ -338,6 +343,18 @@ mod tests {
     fn decode_many_commas_has_no_segments() {
         let decoded = decode(&",".repeat(1_000_000)).unwrap();
         assert_eq!(decoded, vec![Line::new()]);
+    }
+
+    #[test]
+    fn decode_rejects_six_field_segment() {
+        let err = decode("AAAAAA").unwrap_err();
+        assert!(matches!(err, DecodeError::InvalidSegmentLength { fields: 6, .. }));
+    }
+
+    #[test]
+    fn decode_accepts_negative_accumulated_values() {
+        let decoded = decode("ADAA").unwrap();
+        assert_eq!(decoded[0][0].to_vec(), vec![0, -1, 0, 0]);
     }
 
     #[test]
