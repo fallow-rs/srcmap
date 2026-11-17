@@ -1,6 +1,6 @@
 {
   "name": "@srcmap/remapping",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "The @jridgewell/remapping and @ampproject/remapping API on the srcmap Rust remapping code, compiled to WebAssembly",
   "keywords": [
     "composition",
@@ -42,7 +42,7 @@
   },
   "dependencies": {
     "@jridgewell/resolve-uri": "^3.1.2",
-    "@srcmap/remapping-wasm": "0.5.0"
+    "@srcmap/remapping-wasm": "0.6.0"
   },
   "devDependencies": {
     "@jridgewell/remapping": "^2.3.5",

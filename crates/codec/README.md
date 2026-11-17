@@ -13,7 +13,7 @@ Encodes and decodes source map `mappings` strings using the Base64 VLQ format sp
 
 ```toml
 [dependencies]
-srcmap-codec = "0.5"
+srcmap-codec = "0.6"
 ```
 
 ## Usage
@@ -49,7 +49,7 @@ Enable the `parallel` feature for multi-threaded encoding via [rayon](https://cr
 
 ```toml
 [dependencies]
-srcmap-codec = { version = "0.5", features = ["parallel"] }
+srcmap-codec = { version = "0.6", features = ["parallel"] }
 ```
 
 ```rust

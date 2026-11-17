@@ -1,6 +1,6 @@
 {
   "name": "@srcmap/sourcemap-linux-arm64-musl",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "Source map parser and consumer, written in Rust",
   "keywords": [
     "consumer",

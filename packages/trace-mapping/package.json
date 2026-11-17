@@ -1,6 +1,6 @@
 {
   "name": "@srcmap/trace-mapping",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "The @jridgewell/trace-mapping API on the srcmap Rust parser, compiled to WebAssembly",
   "keywords": [
     "consumer",
@@ -41,7 +41,7 @@
   },
   "dependencies": {
     "@jridgewell/resolve-uri": "^3.1.2",
-    "@srcmap/sourcemap-wasm": "0.5.0"
+    "@srcmap/sourcemap-wasm": "0.6.0"
   },
   "devDependencies": {
     "@jridgewell/sourcemap-codec": "^1.6.0",

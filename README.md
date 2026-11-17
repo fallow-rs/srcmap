@@ -27,9 +27,9 @@ Most users start with `srcmap-sourcemap`. Add `srcmap-generator` if you produce 
 
 ```toml
 [dependencies]
-srcmap-sourcemap = "0.5"
-srcmap-generator = "0.5"    # if you produce source maps
-srcmap-remapping = "0.5"    # if you compose/concatenate source maps
+srcmap-sourcemap = "0.6"
+srcmap-generator = "0.6"    # if you produce source maps
+srcmap-remapping = "0.6"    # if you compose/concatenate source maps
 ```
 
 > srcmap is pre-1.0. The parsing and lookup APIs are stable. The generator and remapping APIs can still change.
