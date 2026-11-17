@@ -7,262 +7,1283 @@
     {
       "check": "dupes",
       "rule": "code-duplication",
-      "id": "dup:043b5277"
+      "id": "dup:043b5277",
+      "instances": [
+        {
+          "file": "crates/remapping/benches/remap.rs",
+          "start_line": 49,
+          "end_line": 58,
+          "functions": [
+            "<closure>",
+            "bench_remap_streaming_input"
+          ]
+        },
+        {
+          "file": "crates/remapping/benches/remap.rs",
+          "start_line": 213,
+          "end_line": 222,
+          "functions": [
+            "<closure>",
+            "bench_bundler"
+          ]
+        },
+        {
+          "file": "crates/remapping/benches/remap.rs",
+          "start_line": 242,
+          "end_line": 252,
+          "functions": [
+            "<closure>",
+            "bench_bundler"
+          ]
+        }
+      ]
     },
     {
       "check": "dupes",
       "rule": "code-duplication",
-      "id": "dup:06de7357"
+      "id": "dup:06de7357",
+      "instances": [
+        {
+          "file": "crates/sourcemap/examples/consumer.rs",
+          "start_line": 65,
+          "end_line": 75,
+          "functions": [
+            "main"
+          ]
+        },
+        {
+          "file": "crates/sourcemap/examples/consumer.rs",
+          "start_line": 82,
+          "end_line": 92,
+          "functions": [
+            "main"
+          ]
+        }
+      ]
     },
     {
       "check": "dupes",
       "rule": "code-duplication",
-      "id": "dup:0c328c5b"
+      "id": "dup:0c328c5b",
+      "instances": [
+        {
+          "file": "crates/generator/src/lib.rs",
+          "start_line": 743,
+          "end_line": 753,
+          "functions": [
+            "<closure>",
+            "SourceMapGenerator::to_decoded_map"
+          ]
+        },
+        {
+          "file": "crates/generator/src/lib.rs",
+          "start_line": 1262,
+          "end_line": 1271,
+          "functions": [
+            "<closure>",
+            "StreamingGenerator::to_decoded_map"
+          ]
+        }
+      ]
     },
     {
       "check": "dupes",
       "rule": "code-duplication",
-      "id": "dup:1165af3c"
+      "id": "dup:1165af3c",
+      "instances": [
+        {
+          "file": "crates/cli/src/main.rs",
+          "start_line": 1447,
+          "end_line": 1451,
+          "functions": [
+            "<closure>",
+            "load_explicit_upstreams"
+          ]
+        },
+        {
+          "file": "crates/cli/src/main.rs",
+          "start_line": 1636,
+          "end_line": 1640,
+          "functions": [
+            "<closure>",
+            "cmd_symbolicate"
+          ]
+        }
+      ]
     },
     {
       "check": "dupes",
       "rule": "code-duplication",
-      "id": "dup:12df578a"
+      "id": "dup:12df578a",
+      "instances": [
+        {
+          "file": "crates/sourcemap/src/lib.rs",
+          "start_line": 1779,
+          "end_line": 1788,
+          "functions": [
+            "SourceMap::from_parts_with_extensions"
+          ]
+        },
+        {
+          "file": "crates/sourcemap/src/lib.rs",
+          "start_line": 3589,
+          "end_line": 3598
+        }
+      ]
     },
     {
       "check": "dupes",
       "rule": "code-duplication",
-      "id": "dup:1e71f13d"
+      "id": "dup:1e71f13d",
+      "instances": [
+        {
+          "file": "crates/generator/src/lib.rs",
+          "start_line": 639,
+          "end_line": 653,
+          "functions": [
+            "SourceMapGenerator::to_json"
+          ]
+        },
+        {
+          "file": "crates/generator/src/lib.rs",
+          "start_line": 1217,
+          "end_line": 1231,
+          "functions": [
+            "StreamingGenerator::to_json"
+          ]
+        }
+      ]
     },
     {
       "check": "dupes",
       "rule": "code-duplication",
-      "id": "dup:229760ee"
+      "id": "dup:229760ee",
+      "instances": [
+        {
+          "file": "crates/cli/src/main.rs",
+          "start_line": 1540,
+          "end_line": 1545,
+          "functions": [
+            "<closure>",
+            "cmd_remap"
+          ]
+        },
+        {
+          "file": "crates/cli/src/main.rs",
+          "start_line": 1624,
+          "end_line": 1629,
+          "functions": [
+            "<closure>",
+            "cmd_symbolicate"
+          ]
+        }
+      ]
     },
     {
       "check": "dupes",
       "rule": "code-duplication",
-      "id": "dup:28ac78a3"
+      "id": "dup:28ac78a3",
+      "instances": [
+        {
+          "file": "crates/generator/src/lib.rs",
+          "start_line": 199,
+          "end_line": 207,
+          "functions": [
+            "SourceMapGenerator::add_name"
+          ]
+        },
+        {
+          "file": "crates/generator/src/lib.rs",
+          "start_line": 962,
+          "end_line": 970,
+          "functions": [
+            "StreamingGenerator::add_name"
+          ]
+        },
+        {
+          "file": "crates/scopes/src/encode.rs",
+          "start_line": 77,
+          "end_line": 85,
+          "functions": [
+            "ScopesEncoder<'a>::name_idx"
+          ]
+        }
+      ]
     },
     {
       "check": "dupes",
       "rule": "code-duplication",
-      "id": "dup:294cc583"
+      "id": "dup:294cc583",
+      "instances": [
+        {
+          "file": "crates/codec/src/vlq.rs",
+          "start_line": 56,
+          "end_line": 70,
+          "functions": [
+            "vlq_encode_unchecked"
+          ]
+        },
+        {
+          "file": "crates/codec/src/vlq.rs",
+          "start_line": 175,
+          "end_line": 189,
+          "functions": [
+            "vlq_encode_unsigned_unchecked"
+          ]
+        }
+      ]
     },
     {
       "check": "dupes",
       "rule": "code-duplication",
-      "id": "dup:2db9192c"
+      "id": "dup:2db9192c",
+      "instances": [
+        {
+          "file": "crates/generator/src/lib.rs",
+          "start_line": 612,
+          "end_line": 628,
+          "functions": [
+            "SourceMapGenerator::to_json"
+          ]
+        },
+        {
+          "file": "crates/generator/src/lib.rs",
+          "start_line": 1191,
+          "end_line": 1207,
+          "functions": [
+            "StreamingGenerator::to_json"
+          ]
+        }
+      ]
     },
     {
       "check": "dupes",
       "rule": "code-duplication",
-      "id": "dup:384b2251"
+      "id": "dup:384b2251",
+      "instances": [
+        {
+          "file": "crates/sourcemap/src/lib.rs",
+          "start_line": 1729,
+          "end_line": 1738,
+          "functions": [
+            "SourceMap::from_parts"
+          ]
+        },
+        {
+          "file": "crates/sourcemap/src/lib.rs",
+          "start_line": 1778,
+          "end_line": 1787,
+          "functions": [
+            "SourceMap::from_parts_with_extensions"
+          ]
+        }
+      ]
     },
     {
       "check": "dupes",
       "rule": "code-duplication",
-      "id": "dup:38fa2c74"
+      "id": "dup:38fa2c74",
+      "instances": [
+        {
+          "file": "crates/sourcemap/src/lib.rs",
+          "start_line": 3290,
+          "end_line": 3305,
+          "functions": [
+            "decode_mappings"
+          ]
+        },
+        {
+          "file": "crates/sourcemap/src/lib.rs",
+          "start_line": 3375,
+          "end_line": 3390,
+          "functions": [
+            "decode_mappings_range"
+          ]
+        }
+      ]
     },
     {
       "check": "dupes",
       "rule": "code-duplication",
-      "id": "dup:3acf886a"
+      "id": "dup:3acf886a",
+      "instances": [
+        {
+          "file": "crates/remapping/benches/remap.rs",
+          "start_line": 263,
+          "end_line": 271,
+          "functions": [
+            "<closure>",
+            "bench_bundler"
+          ]
+        },
+        {
+          "file": "crates/remapping/benches/remap.rs",
+          "start_line": 296,
+          "end_line": 304,
+          "functions": [
+            "<closure>",
+            "bench_real_world"
+          ]
+        }
+      ]
     },
     {
       "check": "dupes",
       "rule": "code-duplication",
-      "id": "dup:4076239c"
+      "id": "dup:4076239c",
+      "instances": [
+        {
+          "file": "packages/sourcemap-wasm/src/lib.rs",
+          "start_line": 323,
+          "end_line": 335,
+          "functions": [
+            "SourceMap::debug_id",
+            "SourceMap::is_ignored_index",
+            "SourceMap::source_content_for"
+          ]
+        },
+        {
+          "file": "packages/sourcemap-wasm/src/lib.rs",
+          "start_line": 543,
+          "end_line": 555,
+          "functions": [
+            "LazySourceMap::debug_id",
+            "LazySourceMap::ignore_list",
+            "LazySourceMap::is_ignored_index"
+          ]
+        }
+      ]
     },
     {
       "check": "dupes",
       "rule": "code-duplication",
-      "id": "dup:538b962e"
+      "id": "dup:538b962e",
+      "instances": [
+        {
+          "file": "crates/generator/src/lib.rs",
+          "start_line": 174,
+          "end_line": 221,
+          "functions": [
+            "SourceMapGenerator::add_name",
+            "SourceMapGenerator::add_source",
+            "SourceMapGenerator::add_to_ignore_list",
+            "SourceMapGenerator::set_assume_sorted",
+            "SourceMapGenerator::set_source_content"
+          ]
+        },
+        {
+          "file": "crates/generator/src/lib.rs",
+          "start_line": 937,
+          "end_line": 982,
+          "functions": [
+            "StreamingGenerator::add_name",
+            "StreamingGenerator::add_source",
+            "StreamingGenerator::add_to_ignore_list",
+            "StreamingGenerator::set_debug_id",
+            "StreamingGenerator::set_source_content"
+          ]
+        }
+      ]
     },
     {
       "check": "dupes",
       "rule": "code-duplication",
-      "id": "dup:58f599dc"
+      "id": "dup:58f599dc",
+      "instances": [
+        {
+          "file": "crates/generator/src/lib.rs",
+          "start_line": 1051,
+          "end_line": 1061,
+          "functions": [
+            "StreamingGenerator::add_range_mapping"
+          ]
+        },
+        {
+          "file": "crates/generator/src/lib.rs",
+          "start_line": 1137,
+          "end_line": 1147,
+          "functions": [
+            "StreamingGenerator::add_named_range_mapping"
+          ]
+        }
+      ]
     },
     {
       "check": "dupes",
       "rule": "code-duplication",
-      "id": "dup:5d00fe0b"
+      "id": "dup:5d00fe0b",
+      "instances": [
+        {
+          "file": "crates/cli/src/main.rs",
+          "start_line": 682,
+          "end_line": 691,
+          "functions": [
+            "open_or_create_output_component"
+          ]
+        },
+        {
+          "file": "crates/cli/src/main.rs",
+          "start_line": 764,
+          "end_line": 773,
+          "functions": [
+            "open_or_create_extraction_parent"
+          ]
+        }
+      ]
     },
     {
       "check": "dupes",
       "rule": "code-duplication",
-      "id": "dup:5f6d4349"
+      "id": "dup:5f6d4349",
+      "instances": [
+        {
+          "file": "packages/sourcemap-wasm/src/lib.rs",
+          "start_line": 132,
+          "end_line": 144,
+          "functions": [
+            "<closure>",
+            "SourceMap::from_vlq",
+            "SourceMap::original_position_for"
+          ]
+        },
+        {
+          "file": "packages/sourcemap-wasm/src/lib.rs",
+          "start_line": 461,
+          "end_line": 470,
+          "functions": [
+            "<closure>",
+            "LazySourceMap::from_parts",
+            "LazySourceMap::original_position_for"
+          ]
+        }
+      ]
     },
     {
       "check": "dupes",
       "rule": "code-duplication",
-      "id": "dup:6028dad7"
+      "id": "dup:6028dad7",
+      "instances": [
+        {
+          "file": "crates/generator/benches/generate.rs",
+          "start_line": 7,
+          "end_line": 42,
+          "functions": [
+            "build_generator",
+            "build_range_generator",
+            "build_sorted_generator"
+          ]
+        },
+        {
+          "file": "crates/generator/benches/generate_parallel.rs",
+          "start_line": 6,
+          "end_line": 44,
+          "functions": [
+            "bench_parallel_generate",
+            "build_generator",
+            "build_sorted_generator"
+          ]
+        }
+      ]
     },
     {
       "check": "dupes",
       "rule": "code-duplication",
-      "id": "dup:6460188a"
+      "id": "dup:6460188a",
+      "instances": [
+        {
+          "file": "crates/codec/src/decode.rs",
+          "start_line": 90,
+          "end_line": 94,
+          "functions": [
+            "decode_capacity_hints"
+          ]
+        },
+        {
+          "file": "crates/sourcemap/src/lib.rs",
+          "start_line": 3275,
+          "end_line": 3279,
+          "functions": [
+            "decode_mappings"
+          ]
+        }
+      ]
     },
     {
       "check": "dupes",
       "rule": "code-duplication",
-      "id": "dup:67c31250"
+      "id": "dup:67c31250",
+      "instances": [
+        {
+          "file": "crates/generator/src/lib.rs",
+          "start_line": 250,
+          "end_line": 265,
+          "functions": [
+            "SourceMapGenerator::add_mapping"
+          ]
+        },
+        {
+          "file": "crates/generator/src/lib.rs",
+          "start_line": 295,
+          "end_line": 310,
+          "functions": [
+            "SourceMapGenerator::add_range_mapping"
+          ]
+        }
+      ]
     },
     {
       "check": "dupes",
       "rule": "code-duplication",
-      "id": "dup:682cfb43"
+      "id": "dup:682cfb43",
+      "instances": [
+        {
+          "file": "crates/generator/src/lib.rs",
+          "start_line": 423,
+          "end_line": 433,
+          "functions": [
+            "SourceMapGenerator::encode_sequential_into"
+          ]
+        },
+        {
+          "file": "crates/sourcemap/src/lib.rs",
+          "start_line": 1925,
+          "end_line": 1935,
+          "functions": [
+            "SourceMap::encode_mappings"
+          ]
+        }
+      ]
     },
     {
       "check": "dupes",
       "rule": "code-duplication",
-      "id": "dup:6b4cee06"
+      "id": "dup:6b4cee06",
+      "instances": [
+        {
+          "file": "crates/generator/src/lib.rs",
+          "start_line": 591,
+          "end_line": 606,
+          "functions": [
+            "SourceMapGenerator::encode_range_mappings"
+          ]
+        },
+        {
+          "file": "crates/sourcemap/src/lib.rs",
+          "start_line": 1997,
+          "end_line": 2009,
+          "functions": [
+            "SourceMap::encode_range_mappings"
+          ]
+        }
+      ]
     },
     {
       "check": "dupes",
       "rule": "code-duplication",
-      "id": "dup:6ebfd9ad"
+      "id": "dup:6ebfd9ad",
+      "instances": [
+        {
+          "file": "crates/generator/src/lib.rs",
+          "start_line": 773,
+          "end_line": 793,
+          "functions": [
+            "SourceMapGenerator::into_parts",
+            "SourceMapGenerator::to_writer"
+          ]
+        },
+        {
+          "file": "crates/generator/src/lib.rs",
+          "start_line": 1341,
+          "end_line": 1361,
+          "functions": [
+            "StreamingGenerator::into_parts",
+            "StreamingGenerator::to_writer"
+          ]
+        }
+      ]
     },
     {
       "check": "dupes",
       "rule": "code-duplication",
-      "id": "dup:70320154"
+      "id": "dup:70320154",
+      "instances": [
+        {
+          "file": "crates/generator/src/lib.rs",
+          "start_line": 817,
+          "end_line": 831,
+          "functions": [
+            "SourceMapGenerator::to_writer"
+          ]
+        },
+        {
+          "file": "crates/generator/src/lib.rs",
+          "start_line": 1383,
+          "end_line": 1397,
+          "functions": [
+            "StreamingGenerator::to_writer"
+          ]
+        }
+      ]
     },
     {
       "check": "dupes",
       "rule": "code-duplication",
-      "id": "dup:72e508e9"
+      "id": "dup:72e508e9",
+      "instances": [
+        {
+          "file": "packages/sourcemap-wasm/src/lib.rs",
+          "start_line": 412,
+          "end_line": 417,
+          "functions": [
+            "<closure>",
+            "SourceMap::all_mappings_flat",
+            "SourceMap::original_positions_for"
+          ]
+        },
+        {
+          "file": "packages/sourcemap-wasm/src/lib.rs",
+          "start_line": 501,
+          "end_line": 506,
+          "functions": [
+            "<closure>",
+            "LazySourceMap::original_position_buf",
+            "LazySourceMap::original_positions_for"
+          ]
+        }
+      ]
     },
     {
       "check": "dupes",
       "rule": "code-duplication",
-      "id": "dup:737a0aaf"
+      "id": "dup:737a0aaf",
+      "instances": [
+        {
+          "file": "crates/sourcemap/src/lib.rs",
+          "start_line": 1507,
+          "end_line": 1548,
+          "functions": [
+            "<closure>",
+            "SourceMap::get_name",
+            "SourceMap::get_source",
+            "SourceMap::map_range",
+            "SourceMap::name",
+            "SourceMap::source",
+            "SourceMap::source_index"
+          ]
+        },
+        {
+          "file": "crates/sourcemap/src/lib.rs",
+          "start_line": 2494,
+          "end_line": 2535,
+          "functions": [
+            "<closure>",
+            "LazySourceMap::get_name",
+            "LazySourceMap::get_source",
+            "LazySourceMap::line_count",
+            "LazySourceMap::name",
+            "LazySourceMap::source",
+            "LazySourceMap::source_index"
+          ]
+        }
+      ]
     },
     {
       "check": "dupes",
       "rule": "code-duplication",
-      "id": "dup:73d342fc"
+      "id": "dup:73d342fc",
+      "instances": [
+        {
+          "file": "crates/generator/src/lib.rs",
+          "start_line": 1013,
+          "end_line": 1045,
+          "functions": [
+            "StreamingGenerator::add_mapping",
+            "StreamingGenerator::add_range_mapping"
+          ]
+        },
+        {
+          "file": "crates/generator/src/lib.rs",
+          "start_line": 1054,
+          "end_line": 1085,
+          "functions": [
+            "StreamingGenerator::add_named_mapping",
+            "StreamingGenerator::add_range_mapping"
+          ]
+        }
+      ]
     },
     {
       "check": "dupes",
       "rule": "code-duplication",
-      "id": "dup:76edbc63"
+      "id": "dup:76edbc63",
+      "instances": [
+        {
+          "file": "crates/sourcemap/benches/parse.rs",
+          "start_line": 19,
+          "end_line": 35
+        },
+        {
+          "file": "crates/sourcemap/src/lib.rs",
+          "start_line": 913,
+          "end_line": 930
+        }
+      ]
     },
     {
       "check": "dupes",
       "rule": "code-duplication",
-      "id": "dup:772ede2e"
+      "id": "dup:772ede2e",
+      "instances": [
+        {
+          "file": "packages/scopes-wasm/src/lib.rs",
+          "start_line": 81,
+          "end_line": 85,
+          "functions": [
+            "encode_original_scope"
+          ]
+        },
+        {
+          "file": "packages/scopes-wasm/src/lib.rs",
+          "start_line": 124,
+          "end_line": 128,
+          "functions": [
+            "encode_generated_range"
+          ]
+        }
+      ]
     },
     {
       "check": "dupes",
       "rule": "code-duplication",
-      "id": "dup:8258c0de"
+      "id": "dup:8258c0de",
+      "instances": [
+        {
+          "file": "crates/codec/src/vlq.rs",
+          "start_line": 91,
+          "end_line": 106,
+          "functions": [
+            "vlq_decode"
+          ]
+        },
+        {
+          "file": "crates/codec/src/vlq.rs",
+          "start_line": 214,
+          "end_line": 229,
+          "functions": [
+            "vlq_decode_unsigned"
+          ]
+        }
+      ]
     },
     {
       "check": "dupes",
       "rule": "code-duplication",
-      "id": "dup:847486c8"
+      "id": "dup:847486c8",
+      "instances": [
+        {
+          "file": "packages/generator-wasm/src/lib.rs",
+          "start_line": 100,
+          "end_line": 119,
+          "functions": [
+            "SourceMapGenerator::maybe_add_mapping"
+          ]
+        },
+        {
+          "file": "packages/generator/src/lib.rs",
+          "start_line": 100,
+          "end_line": 119,
+          "functions": [
+            "JsSourceMapGenerator::maybe_add_mapping"
+          ]
+        }
+      ]
     },
     {
       "check": "dupes",
       "rule": "code-duplication",
-      "id": "dup:8aaa92d5"
+      "id": "dup:8aaa92d5",
+      "instances": [
+        {
+          "file": "crates/generator/src/lib.rs",
+          "start_line": 270,
+          "end_line": 286,
+          "functions": [
+            "SourceMapGenerator::add_named_mapping"
+          ]
+        },
+        {
+          "file": "crates/generator/src/lib.rs",
+          "start_line": 315,
+          "end_line": 331,
+          "functions": [
+            "SourceMapGenerator::add_named_range_mapping"
+          ]
+        }
+      ]
     },
     {
       "check": "dupes",
       "rule": "code-duplication",
-      "id": "dup:9112595d"
+      "id": "dup:9112595d",
+      "instances": [
+        {
+          "file": "crates/generator/src/lib.rs",
+          "start_line": 793,
+          "end_line": 811,
+          "functions": [
+            "SourceMapGenerator::to_writer"
+          ]
+        },
+        {
+          "file": "crates/generator/src/lib.rs",
+          "start_line": 1361,
+          "end_line": 1379,
+          "functions": [
+            "StreamingGenerator::to_writer"
+          ]
+        }
+      ]
     },
     {
       "check": "dupes",
       "rule": "code-duplication",
-      "id": "dup:9266e80d"
+      "id": "dup:9266e80d",
+      "instances": [
+        {
+          "file": "crates/generator/benches/generate.rs",
+          "start_line": 203,
+          "end_line": 213,
+          "functions": [
+            "<closure>",
+            "bench_generate"
+          ]
+        },
+        {
+          "file": "crates/generator/benches/generate_parallel.rs",
+          "start_line": 72,
+          "end_line": 82,
+          "functions": [
+            "<closure>",
+            "bench_parallel_generate"
+          ]
+        }
+      ]
     },
     {
       "check": "dupes",
       "rule": "code-duplication",
-      "id": "dup:97872d4b"
+      "id": "dup:97872d4b",
+      "instances": [
+        {
+          "file": "packages/generator-wasm/src/lib.rs",
+          "start_line": 78,
+          "end_line": 100,
+          "functions": [
+            "SourceMapGenerator::add_named_mapping"
+          ]
+        },
+        {
+          "file": "packages/generator/src/lib.rs",
+          "start_line": 78,
+          "end_line": 100,
+          "functions": [
+            "JsSourceMapGenerator::add_named_mapping"
+          ]
+        }
+      ]
     },
     {
       "check": "dupes",
       "rule": "code-duplication",
-      "id": "dup:9931df15"
+      "id": "dup:9931df15",
+      "instances": [
+        {
+          "file": "crates/sourcemap/src/lib.rs",
+          "start_line": 1098,
+          "end_line": 1110
+        },
+        {
+          "file": "crates/sourcemap/src/lib.rs",
+          "start_line": 2154,
+          "end_line": 2163
+        }
+      ]
     },
     {
       "check": "dupes",
       "rule": "code-duplication",
-      "id": "dup:a78bff54"
+      "id": "dup:a78bff54",
+      "instances": [
+        {
+          "file": "crates/codec/benches/vlq.rs",
+          "start_line": 23,
+          "end_line": 56,
+          "functions": [
+            "make_realistic_mappings"
+          ]
+        },
+        {
+          "file": "crates/codec/benches/vlq_parallel.rs",
+          "start_line": 20,
+          "end_line": 43,
+          "functions": [
+            "make_realistic_mappings"
+          ]
+        }
+      ]
     },
     {
       "check": "dupes",
       "rule": "code-duplication",
-      "id": "dup:abef3d55"
+      "id": "dup:abef3d55",
+      "instances": [
+        {
+          "file": "crates/generator/src/lib.rs",
+          "start_line": 1094,
+          "end_line": 1122,
+          "functions": [
+            "StreamingGenerator::add_named_mapping"
+          ]
+        },
+        {
+          "file": "crates/generator/src/lib.rs",
+          "start_line": 1140,
+          "end_line": 1168,
+          "functions": [
+            "StreamingGenerator::add_named_range_mapping"
+          ]
+        }
+      ]
     },
     {
       "check": "dupes",
       "rule": "code-duplication",
-      "id": "dup:b548cdb1"
+      "id": "dup:b548cdb1",
+      "instances": [
+        {
+          "file": "crates/codec/src/vlq.rs",
+          "start_line": 108,
+          "end_line": 149,
+          "functions": [
+            "vlq_decode"
+          ]
+        },
+        {
+          "file": "crates/codec/src/vlq.rs",
+          "start_line": 230,
+          "end_line": 271,
+          "functions": [
+            "<closure>",
+            "vlq_decode_unsigned"
+          ]
+        }
+      ]
     },
     {
       "check": "dupes",
       "rule": "code-duplication",
-      "id": "dup:b8b0995f"
+      "id": "dup:b8b0995f",
+      "instances": [
+        {
+          "file": "packages/codec/src/lib.rs",
+          "start_line": 157,
+          "end_line": 171,
+          "functions": [
+            "from_json"
+          ]
+        },
+        {
+          "file": "packages/codec/src/lib.rs",
+          "start_line": 174,
+          "end_line": 188,
+          "functions": [
+            "from_json"
+          ]
+        }
+      ]
     },
     {
       "check": "dupes",
       "rule": "code-duplication",
-      "id": "dup:b9fc55b4"
+      "id": "dup:b9fc55b4",
+      "instances": [
+        {
+          "file": "packages/generator-wasm/src/lib.rs",
+          "start_line": 59,
+          "end_line": 78,
+          "functions": [
+            "SourceMapGenerator::add_mapping"
+          ]
+        },
+        {
+          "file": "packages/generator/src/lib.rs",
+          "start_line": 59,
+          "end_line": 78,
+          "functions": [
+            "JsSourceMapGenerator::add_mapping"
+          ]
+        }
+      ]
     },
     {
       "check": "dupes",
       "rule": "code-duplication",
-      "id": "dup:bc55f0ec"
+      "id": "dup:bc55f0ec",
+      "instances": [
+        {
+          "file": "packages/sourcemap-wasm/src/lib.rs",
+          "start_line": 35,
+          "end_line": 37,
+          "functions": [
+            "<closure>",
+            "original_position_object"
+          ]
+        },
+        {
+          "file": "packages/sourcemap-wasm/src/lib.rs",
+          "start_line": 222,
+          "end_line": 226,
+          "functions": [
+            "<closure>",
+            "SourceMap::map_range"
+          ]
+        }
+      ]
     },
     {
       "check": "dupes",
       "rule": "code-duplication",
-      "id": "dup:be96d10c"
+      "id": "dup:be96d10c",
+      "instances": [
+        {
+          "file": "crates/cli/src/main.rs",
+          "start_line": 1398,
+          "end_line": 1406,
+          "functions": [
+            "cmd_concat"
+          ]
+        },
+        {
+          "file": "crates/cli/src/main.rs",
+          "start_line": 1593,
+          "end_line": 1601,
+          "functions": [
+            "write_remap_output"
+          ]
+        }
+      ]
     },
     {
       "check": "dupes",
       "rule": "code-duplication",
-      "id": "dup:bf8aa60c"
+      "id": "dup:bf8aa60c",
+      "instances": [
+        {
+          "file": "crates/remapping/benches/remap.rs",
+          "start_line": 210,
+          "end_line": 223,
+          "functions": [
+            "<closure>",
+            "bench_bundler"
+          ]
+        },
+        {
+          "file": "crates/remapping/benches/remap.rs",
+          "start_line": 239,
+          "end_line": 253,
+          "functions": [
+            "<closure>",
+            "bench_bundler"
+          ]
+        }
+      ]
     },
     {
       "check": "dupes",
       "rule": "code-duplication",
-      "id": "dup:cdabd221"
+      "id": "dup:cdabd221",
+      "instances": [
+        {
+          "file": "packages/sourcemap-wasm/src/lib.rs",
+          "start_line": 160,
+          "end_line": 189,
+          "functions": [
+            "<closure>",
+            "SourceMap::original_position_buf",
+            "SourceMap::original_position_flat",
+            "SourceMap::original_position_for_with_bias"
+          ]
+        },
+        {
+          "file": "packages/sourcemap-wasm/src/lib.rs",
+          "start_line": 476,
+          "end_line": 503,
+          "functions": [
+            "<closure>",
+            "LazySourceMap::original_position_buf",
+            "LazySourceMap::original_position_flat",
+            "LazySourceMap::original_position_for"
+          ]
+        }
+      ]
     },
     {
       "check": "dupes",
       "rule": "code-duplication",
-      "id": "dup:d508e0e5"
+      "id": "dup:d508e0e5",
+      "instances": [
+        {
+          "file": "crates/generator/src/lib.rs",
+          "start_line": 100,
+          "end_line": 109
+        },
+        {
+          "file": "crates/sourcemap/src/lib.rs",
+          "start_line": 3588,
+          "end_line": 3597
+        }
+      ]
     },
     {
       "check": "dupes",
       "rule": "code-duplication",
-      "id": "dup:d88ef3a2"
+      "id": "dup:d88ef3a2",
+      "instances": [
+        {
+          "file": "crates/sourcemap/src/lib.rs",
+          "start_line": 1811,
+          "end_line": 1819,
+          "functions": [
+            "SourceMap::from_vlq"
+          ]
+        },
+        {
+          "file": "crates/sourcemap/src/lib.rs",
+          "start_line": 1840,
+          "end_line": 1848,
+          "functions": [
+            "SourceMap::from_vlq_with_range_mappings"
+          ]
+        }
+      ]
     },
     {
       "check": "dupes",
       "rule": "code-duplication",
-      "id": "dup:e07a2b2c"
+      "id": "dup:e07a2b2c",
+      "instances": [
+        {
+          "file": "crates/generator/src/lib.rs",
+          "start_line": 147,
+          "end_line": 159,
+          "functions": [
+            "SourceMapGenerator::set_debug_id",
+            "SourceMapGenerator::set_source_root",
+            "SourceMapGenerator::with_capacity"
+          ]
+        },
+        {
+          "file": "crates/generator/src/lib.rs",
+          "start_line": 926,
+          "end_line": 938,
+          "functions": [
+            "StreamingGenerator::set_debug_id",
+            "StreamingGenerator::set_source_root",
+            "StreamingGenerator::with_capacity"
+          ]
+        }
+      ]
     },
     {
       "check": "dupes",
       "rule": "code-duplication",
-      "id": "dup:ef0a7339"
+      "id": "dup:ef0a7339",
+      "instances": [
+        {
+          "file": "crates/codec/src/encode.rs",
+          "start_line": 34,
+          "end_line": 73,
+          "functions": [
+            "encode"
+          ]
+        },
+        {
+          "file": "crates/codec/src/encode.rs",
+          "start_line": 102,
+          "end_line": 141,
+          "functions": [
+            "encode_line_to_bytes"
+          ]
+        }
+      ]
     },
     {
       "check": "dupes",
       "rule": "code-duplication",
-      "id": "dup:f9fc7cef"
+      "id": "dup:f9fc7cef",
+      "instances": [
+        {
+          "file": "crates/generator/benches/generate.rs",
+          "start_line": 19,
+          "end_line": 26,
+          "functions": [
+            "build_generator"
+          ]
+        },
+        {
+          "file": "crates/generator/benches/generate.rs",
+          "start_line": 115,
+          "end_line": 121,
+          "functions": [
+            "build_streaming_generator"
+          ]
+        },
+        {
+          "file": "crates/generator/benches/generate_parallel.rs",
+          "start_line": 20,
+          "end_line": 27,
+          "functions": [
+            "build_generator"
+          ]
+        }
+      ]
     },
     {
       "check": "dupes",
       "rule": "code-duplication",
-      "id": "dup:ff8d532e"
+      "id": "dup:ff8d532e",
+      "instances": [
+        {
+          "file": "packages/sourcemap-wasm/src/lib.rs",
+          "start_line": 265,
+          "end_line": 300,
+          "functions": [
+            "<closure>",
+            "SourceMap::all_generated_positions_for",
+            "SourceMap::file",
+            "SourceMap::name",
+            "SourceMap::names",
+            "SourceMap::source",
+            "SourceMap::source_root",
+            "SourceMap::sources"
+          ]
+        },
+        {
+          "file": "packages/sourcemap-wasm/src/lib.rs",
+          "start_line": 505,
+          "end_line": 540,
+          "functions": [
+            "<closure>",
+            "LazySourceMap::file",
+            "LazySourceMap::name",
+            "LazySourceMap::names",
+            "LazySourceMap::original_positions_for",
+            "LazySourceMap::source",
+            "LazySourceMap::source_root",
+            "LazySourceMap::sources"
+          ]
+        }
+      ]
     }
   ]
 }
