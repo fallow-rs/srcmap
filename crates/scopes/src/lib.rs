@@ -202,6 +202,14 @@ fn find_nth_scope<'a>(
 
 // ── Errors ───────────────────────────────────────────────────────
 
+/// The maximum depth of nested original scopes, and of nested generated
+/// ranges, that [`decode_scopes`] accepts.
+///
+/// The scope types drop, clone, compare, encode and print with recursion, one
+/// call per level. At this limit, each of these steps fits in half of the
+/// 2 MiB default stack of a spawned thread, also in a debug build.
+pub const MAX_NESTING_DEPTH: usize = 512;
+
 /// Errors during scopes decoding.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ScopesError {
@@ -217,6 +225,11 @@ pub enum ScopesError {
     UnclosedRange,
     /// Name index out of bounds.
     InvalidNameIndex(i64),
+    /// A line, column or index does not fit in a `u32`, or a delta makes it
+    /// overflow.
+    ValueOverflow,
+    /// Scopes or ranges nest deeper than [`MAX_NESTING_DEPTH`].
+    NestingTooDeep,
 }
 
 impl fmt::Display for ScopesError {
@@ -228,6 +241,10 @@ impl fmt::Display for ScopesError {
             Self::UnmatchedRangeEnd => write!(f, "range end without matching start"),
             Self::UnclosedRange => write!(f, "range opened but never closed"),
             Self::InvalidNameIndex(idx) => write!(f, "invalid name index: {idx}"),
+            Self::ValueOverflow => write!(f, "scopes position or index is out of range"),
+            Self::NestingTooDeep => {
+                write!(f, "scopes nest deeper than {MAX_NESTING_DEPTH} levels")
+            }
         }
     }
 }
@@ -244,10 +261,11 @@ impl From<DecodeError> for ScopesError {
 
 /// Resolve a name from the names array by absolute index.
 fn resolve_name(names: &[String], index: i64) -> Result<String, ScopesError> {
-    if index < 0 || index as usize >= names.len() {
-        return Err(ScopesError::InvalidNameIndex(index));
-    }
-    Ok(names[index as usize].clone())
+    usize::try_from(index)
+        .ok()
+        .and_then(|i| names.get(i))
+        .cloned()
+        .ok_or(ScopesError::InvalidNameIndex(index))
 }
 
 /// Resolve a 1-based binding name (0 = unavailable).
@@ -255,11 +273,11 @@ fn resolve_binding(names: &[String], index: u64) -> Result<Option<String>, Scope
     if index == 0 {
         return Ok(None);
     }
-    let actual = (index - 1) as usize;
-    if actual >= names.len() {
-        return Err(ScopesError::InvalidNameIndex(index as i64));
-    }
-    Ok(Some(names[actual].clone()))
+    usize::try_from(index - 1)
+        .ok()
+        .and_then(|i| names.get(i))
+        .map(|name| Some(name.clone()))
+        .ok_or_else(|| ScopesError::InvalidNameIndex(i64::try_from(index).unwrap_or(i64::MAX)))
 }
 
 // ── Tests ────────────────────────────────────────────────────────
@@ -1143,5 +1161,146 @@ mod tests {
         let err: ScopesError = srcmap_codec::DecodeError::UnexpectedEof { offset: 5 }.into();
         assert!(matches!(err, ScopesError::Vlq(_)));
         assert!(err.to_string().contains("VLQ decode error"));
+    }
+
+    fn vlq_unsigned(value: u64) -> String {
+        let mut out = Vec::new();
+        srcmap_codec::vlq_encode_unsigned(&mut out, value);
+        String::from_utf8(out).unwrap()
+    }
+
+    fn vlq_signed(value: i64) -> String {
+        let mut out = Vec::new();
+        srcmap_codec::vlq_encode(&mut out, value);
+        String::from_utf8(out).unwrap()
+    }
+
+    #[test]
+    fn decode_rejects_original_column_overflow() {
+        // Outer scope at column u32::MAX, nested scope one column later.
+        let max = vlq_unsigned(u64::from(u32::MAX));
+        let raw = format!("BAA{max},BAAC,CAA,CAA");
+        assert_eq!(decode_scopes(&raw, &[], 1).unwrap_err(), ScopesError::ValueOverflow);
+    }
+
+    #[test]
+    fn decode_rejects_original_line_overflow() {
+        let max = vlq_unsigned(u64::from(u32::MAX));
+        let raw = format!("BA{max}A,BACA,CAA,CAA");
+        assert_eq!(decode_scopes(&raw, &[], 1).unwrap_err(), ScopesError::ValueOverflow);
+    }
+
+    #[test]
+    fn decode_rejects_position_value_above_u32() {
+        let big = vlq_unsigned(1 << 32);
+        let raw = format!("BAA{big},CAA");
+        assert_eq!(decode_scopes(&raw, &[], 1).unwrap_err(), ScopesError::ValueOverflow);
+    }
+
+    #[test]
+    fn decode_rejects_generated_column_overflow() {
+        let max = vlq_unsigned(u64::from(u32::MAX));
+        let raw = format!(",EA{max},EAC,FA,FA");
+        assert_eq!(decode_scopes(&raw, &[], 1).unwrap_err(), ScopesError::ValueOverflow);
+    }
+
+    #[test]
+    fn decode_rejects_definition_index_overflow() {
+        // The second range start adds i64::MAX to definition index 1.
+        let max = vlq_signed(i64::MAX);
+        let raw = format!(",ECAC,FA,ECA{max},FA");
+        assert_eq!(decode_scopes(&raw, &[], 1).unwrap_err(), ScopesError::ValueOverflow);
+    }
+
+    #[test]
+    fn decode_rejects_name_index_overflow() {
+        // The first scope moves the name index to 1, the second adds i64::MAX.
+        let names = vec!["a".to_string(), "b".to_string()];
+        let max = vlq_signed(i64::MAX);
+        let raw = format!("BBAAC,CAA,BBAA{max},CAA");
+        assert_eq!(decode_scopes(&raw, &names, 1).unwrap_err(), ScopesError::ValueOverflow);
+    }
+
+    #[test]
+    fn new_error_variants_display() {
+        assert_eq!(
+            ScopesError::ValueOverflow.to_string(),
+            "scopes position or index is out of range"
+        );
+        assert_eq!(
+            ScopesError::NestingTooDeep.to_string(),
+            format!("scopes nest deeper than {MAX_NESTING_DEPTH} levels")
+        );
+    }
+
+    #[test]
+    fn decode_rejects_definition_index_above_u32() {
+        let delta = vlq_signed(1 << 32);
+        let raw = format!(",ECA{delta},FA");
+        assert_eq!(decode_scopes(&raw, &[], 1).unwrap_err(), ScopesError::ValueOverflow);
+    }
+
+    #[test]
+    fn decode_rejects_sub_range_variable_index_overflow() {
+        // Each H item adds a large delta to the variable index of one range.
+        let delta = vlq_unsigned(1 << 58);
+        let item = format!("H{delta}");
+        let raw = format!(",EAA,{},FA", vec![item.as_str(); 80].join(","));
+        assert_eq!(decode_scopes(&raw, &[], 1).unwrap_err(), ScopesError::ValueOverflow);
+    }
+
+    #[test]
+    fn decode_accepts_original_scopes_at_the_nesting_limit() {
+        let raw =
+            [vec!["BAAA"; MAX_NESTING_DEPTH], vec!["CAA"; MAX_NESTING_DEPTH]].concat().join(",");
+        let info = decode_scopes(&raw, &[], 1).unwrap();
+        assert!(info.scopes[0].is_some());
+    }
+
+    #[test]
+    fn decode_rejects_original_scopes_above_the_nesting_limit() {
+        let depth = MAX_NESTING_DEPTH + 1;
+        let raw = [vec!["BAAA"; depth], vec!["CAA"; depth]].concat().join(",");
+        assert_eq!(decode_scopes(&raw, &[], 1).unwrap_err(), ScopesError::NestingTooDeep);
+    }
+
+    #[test]
+    fn decode_accepts_generated_ranges_at_the_nesting_limit() {
+        let raw = format!(
+            ",{}",
+            [vec!["EAA"; MAX_NESTING_DEPTH], vec!["FA"; MAX_NESTING_DEPTH]].concat().join(",")
+        );
+        let info = decode_scopes(&raw, &[], 1).unwrap();
+        assert_eq!(info.ranges.len(), 1);
+    }
+
+    #[test]
+    fn decode_rejects_generated_ranges_above_the_nesting_limit() {
+        let depth = MAX_NESTING_DEPTH + 1;
+        let raw = format!(",{}", [vec!["EAA"; depth], vec!["FA"; depth]].concat().join(","));
+        assert_eq!(decode_scopes(&raw, &[], 1).unwrap_err(), ScopesError::NestingTooDeep);
+    }
+
+    #[test]
+    fn scope_trees_at_the_nesting_limit_fit_on_a_default_thread_stack() {
+        const DEFAULT_THREAD_STACK: usize = 2 * 1024 * 1024;
+        let raw = format!(
+            "{},{}",
+            [vec!["BAAA"; MAX_NESTING_DEPTH], vec!["CAA"; MAX_NESTING_DEPTH]].concat().join(","),
+            [vec!["EAA"; MAX_NESTING_DEPTH], vec!["FA"; MAX_NESTING_DEPTH]].concat().join(",")
+        );
+        std::thread::Builder::new()
+            .stack_size(DEFAULT_THREAD_STACK)
+            .spawn(move || {
+                let info = decode_scopes(&raw, &[], 1).unwrap();
+                let mut names = Vec::new();
+                let encoded = encode_scopes(&info, &mut names);
+                let copy = info.clone();
+                assert!(format!("{copy:?}").starts_with("ScopeInfo"));
+                assert_eq!(decode_scopes(&encoded, &names, 1).unwrap(), copy);
+            })
+            .unwrap()
+            .join()
+            .unwrap();
     }
 }
