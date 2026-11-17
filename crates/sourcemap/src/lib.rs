@@ -4062,28 +4062,33 @@ mod tests {
         assert_eq!(sm.scopes.unwrap().ranges[0].children.len(), 1);
     }
 
-    #[test]
-    fn deeply_nested_original_scopes_do_not_overflow_the_stack() {
-        const DEPTH: usize = 100_000;
+    fn nested_scopes_json(depth: usize) -> String {
         // One original scope per level: `B` opens a scope at (0, 0), `C` closes it.
-        let scopes = [vec!["BAAA"; DEPTH], vec!["CAA"; DEPTH]].concat().join(",");
-        let json = format!(
+        let scopes = [vec!["BAAA"; depth], vec!["CAA"; depth]].concat().join(",");
+        format!(
             r#"{{"version":3,"sources":["a.js"],"names":[],"mappings":"AAAA","scopes":"{scopes}"}}"#
-        );
-        // A small stack makes a recursive walk overflow at this depth.
+        )
+    }
+
+    #[test]
+    fn original_scopes_at_the_nesting_limit_parse_and_drop_on_a_small_stack() {
+        let json = nested_scopes_json(srcmap_scopes::MAX_NESTING_DEPTH);
         let mapping_count = std::thread::Builder::new()
             .stack_size(256 * 1024)
             .spawn(move || {
-                let result = SourceMap::from_json(&json);
-                let count = result.as_ref().map(|sm| sm.mappings.len()).map_err(|e| e.to_string());
-                // The drop of the scope tree recurses once per level. This test does not cover it.
-                std::mem::forget(result);
-                count
+                SourceMap::from_json(&json).map(|sm| sm.mappings.len()).map_err(|e| e.to_string())
             })
             .unwrap()
             .join()
             .unwrap();
         assert_eq!(mapping_count, Ok(1));
+    }
+
+    #[test]
+    fn rejects_original_scopes_above_the_nesting_limit() {
+        let json = nested_scopes_json(100_000);
+        let err = SourceMap::from_json(&json).unwrap_err();
+        assert!(matches!(err, ParseError::Scopes(srcmap_scopes::ScopesError::NestingTooDeep)));
     }
 
     #[test]

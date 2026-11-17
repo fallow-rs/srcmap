@@ -5,8 +5,8 @@
 use srcmap_codec::{vlq_decode, vlq_decode_unsigned};
 
 use crate::{
-    Binding, CallSite, GeneratedRange, OriginalScope, Position, ScopeInfo, ScopesError,
-    SubRangeBinding, TAG_GENERATED_RANGE_BINDINGS, TAG_GENERATED_RANGE_CALL_SITE,
+    Binding, CallSite, GeneratedRange, MAX_NESTING_DEPTH, OriginalScope, Position, ScopeInfo,
+    ScopesError, SubRangeBinding, TAG_GENERATED_RANGE_BINDINGS, TAG_GENERATED_RANGE_CALL_SITE,
     TAG_GENERATED_RANGE_END, TAG_GENERATED_RANGE_START, TAG_GENERATED_RANGE_SUB_RANGE_BINDINGS,
     TAG_ORIGINAL_SCOPE_END, TAG_ORIGINAL_SCOPE_START, TAG_ORIGINAL_SCOPE_VARIABLES,
     resolve_binding, resolve_name,
@@ -48,6 +48,12 @@ impl<'a> Tokenizer<'a> {
         let (val, consumed) = vlq_decode_unsigned(self.input, self.pos)?;
         self.pos += consumed;
         Ok(val)
+    }
+
+    /// Read an unsigned value that must fit in a `u32`.
+    #[inline]
+    fn read_u32(&mut self) -> Result<u32, ScopesError> {
+        u32::try_from(self.read_unsigned()?).map_err(|_| ScopesError::ValueOverflow)
     }
 
     #[inline]
@@ -170,19 +176,18 @@ impl DecodeState {
             self.os_col = 0;
         }
 
+        if self.scope_stack.len() >= MAX_NESTING_DEPTH {
+            return Err(ScopesError::NestingTooDeep);
+        }
+
         let flags = tok.read_unsigned()?;
 
-        let line_delta = tok.read_unsigned()? as u32;
-        Self::advance_position(
-            line_delta,
-            tok.read_unsigned()? as u32,
-            &mut self.os_line,
-            &mut self.os_col,
-        );
+        let line_delta = tok.read_u32()?;
+        Self::advance_position(line_delta, tok.read_u32()?, &mut self.os_line, &mut self.os_col)?;
 
         let name = if flags & crate::OS_FLAG_HAS_NAME != 0 {
             let d = tok.read_signed()?;
-            self.os_name += d;
+            self.os_name = checked_add_i64(self.os_name, d)?;
             Some(resolve_name(names, self.os_name)?)
         } else {
             None
@@ -190,7 +195,7 @@ impl DecodeState {
 
         let kind = if flags & crate::OS_FLAG_HAS_KIND != 0 {
             let d = tok.read_signed()?;
-            self.os_kind += d;
+            self.os_kind = checked_add_i64(self.os_kind, d)?;
             Some(resolve_name(names, self.os_kind)?)
         } else {
             None
@@ -215,13 +220,8 @@ impl DecodeState {
             return Err(ScopesError::UnmatchedScopeEnd);
         }
 
-        let line_delta = tok.read_unsigned()? as u32;
-        Self::advance_position(
-            line_delta,
-            tok.read_unsigned()? as u32,
-            &mut self.os_line,
-            &mut self.os_col,
-        );
+        let line_delta = tok.read_u32()?;
+        Self::advance_position(line_delta, tok.read_u32()?, &mut self.os_line, &mut self.os_col)?;
 
         let building = self.scope_stack.pop().expect("non-empty: checked above");
         let finished = OriginalScope {
@@ -252,7 +252,7 @@ impl DecodeState {
         if let Some(current) = self.scope_stack.last_mut() {
             while !tok.at_item_end() {
                 let d = tok.read_signed()?;
-                self.os_var += d;
+                self.os_var = checked_add_i64(self.os_var, d)?;
                 current.variables.push(resolve_name(names, self.os_var)?);
             }
         } else {
@@ -266,22 +266,19 @@ impl DecodeState {
 
     fn handle_generated_range_start(&mut self, tok: &mut Tokenizer<'_>) -> Result<(), ScopesError> {
         self.start_generated_ranges_if_needed();
+        if self.range_stack.len() >= MAX_NESTING_DEPTH {
+            return Err(ScopesError::NestingTooDeep);
+        }
 
         let flags = tok.read_unsigned()?;
 
-        let line_delta =
-            if flags & crate::GR_FLAG_HAS_LINE != 0 { tok.read_unsigned()? as u32 } else { 0 };
-        Self::advance_position(
-            line_delta,
-            tok.read_unsigned()? as u32,
-            &mut self.gr_line,
-            &mut self.gr_col,
-        );
+        let line_delta = if flags & crate::GR_FLAG_HAS_LINE != 0 { tok.read_u32()? } else { 0 };
+        Self::advance_position(line_delta, tok.read_u32()?, &mut self.gr_line, &mut self.gr_col)?;
 
         let definition = if flags & crate::GR_FLAG_HAS_DEFINITION != 0 {
             let d = tok.read_signed()?;
-            self.gr_def += d;
-            Some(self.gr_def as u32)
+            self.gr_def = checked_add_i64(self.gr_def, d)?;
+            Some(u32::try_from(self.gr_def).map_err(|_| ScopesError::ValueOverflow)?)
         } else {
             None
         };
@@ -312,14 +309,14 @@ impl DecodeState {
         }
 
         // F tag: 1 VLQ = column only, 2 VLQs = line + column.
-        let first = tok.read_unsigned()? as u32;
+        let first = tok.read_u32()?;
         let (line_delta, col_raw) = if !tok.at_item_end() {
-            let second = tok.read_unsigned()? as u32;
+            let second = tok.read_u32()?;
             (first, second)
         } else {
             (0, first)
         };
-        Self::advance_position(line_delta, col_raw, &mut self.gr_line, &mut self.gr_col);
+        Self::advance_position(line_delta, col_raw, &mut self.gr_line, &mut self.gr_col)?;
 
         let building = self.range_stack.pop().expect("non-empty: checked above");
 
@@ -374,8 +371,10 @@ impl DecodeState {
     ) -> Result<(), ScopesError> {
         if let Some(current) = self.range_stack.last_mut() {
             let var_delta = tok.read_unsigned()?;
-            self.h_var_acc += var_delta;
-            let var_idx = self.h_var_acc as usize;
+            self.h_var_acc =
+                self.h_var_acc.checked_add(var_delta).ok_or(ScopesError::ValueOverflow)?;
+            // An index above usize::MAX is out of range, and the merge ignores it.
+            let var_idx = usize::try_from(self.h_var_acc).unwrap_or(usize::MAX);
 
             let mut sub_ranges: Vec<SubRangeBinding> = Vec::new();
             // Line/column state relative to range start.
@@ -384,13 +383,8 @@ impl DecodeState {
 
             while !tok.at_item_end() {
                 let binding_raw = tok.read_unsigned()?;
-                let line_delta = tok.read_unsigned()? as u32;
-                Self::advance_position(
-                    line_delta,
-                    tok.read_unsigned()? as u32,
-                    &mut h_line,
-                    &mut h_col,
-                );
+                let line_delta = tok.read_u32()?;
+                Self::advance_position(line_delta, tok.read_u32()?, &mut h_line, &mut h_col)?;
 
                 let expression = resolve_binding(names, binding_raw)?;
                 sub_ranges.push(SubRangeBinding {
@@ -412,9 +406,9 @@ impl DecodeState {
         tok: &mut Tokenizer<'_>,
     ) -> Result<(), ScopesError> {
         if let Some(current) = self.range_stack.last_mut() {
-            let source_index = tok.read_unsigned()? as u32;
-            let line = tok.read_unsigned()? as u32;
-            let column = tok.read_unsigned()? as u32;
+            let source_index = tok.read_u32()?;
+            let line = tok.read_u32()?;
+            let column = tok.read_u32()?;
             current.call_site = Some(CallSite { source_index, line, column });
         } else {
             Self::skip_unsigned_item(tok)?;
@@ -423,9 +417,15 @@ impl DecodeState {
         Ok(())
     }
 
-    fn advance_position(line_delta: u32, col_raw: u32, line: &mut u32, column: &mut u32) {
-        *line += line_delta;
-        *column = if line_delta != 0 { col_raw } else { *column + col_raw };
+    fn advance_position(
+        line_delta: u32,
+        col_raw: u32,
+        line: &mut u32,
+        column: &mut u32,
+    ) -> Result<(), ScopesError> {
+        *line = checked_add_u32(*line, line_delta)?;
+        *column = if line_delta != 0 { col_raw } else { checked_add_u32(*column, col_raw)? };
+        Ok(())
     }
 
     fn skip_unsigned_item(tok: &mut Tokenizer<'_>) -> Result<(), ScopesError> {
@@ -434,6 +434,14 @@ impl DecodeState {
         }
         Ok(())
     }
+}
+
+fn checked_add_u32(value: u32, delta: u32) -> Result<u32, ScopesError> {
+    value.checked_add(delta).ok_or(ScopesError::ValueOverflow)
+}
+
+fn checked_add_i64(value: i64, delta: i64) -> Result<i64, ScopesError> {
+    value.checked_add(delta).ok_or(ScopesError::ValueOverflow)
 }
 
 // ── Decode ───────────────────────────────────────────────────────
