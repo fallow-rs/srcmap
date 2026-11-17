@@ -1,0 +1,7 @@
+{
+  "version": 3,
+  "file": "second.js",
+  "sources": ["src/other.ts"],
+  "names": ["foo"],
+  "mappings": "AAAA,IAAI"
+}

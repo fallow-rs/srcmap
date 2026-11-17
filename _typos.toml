@@ -8,6 +8,9 @@ extend-exclude = [
     "packages/*/pkg/",
     "packages/*/web/",
     "packages/*/bundler/",
+    "fuzz/seeds/",
+    "fuzz/corpus/",
+    "fuzz/artifacts/",
 ]
 
 [default.extend-words]

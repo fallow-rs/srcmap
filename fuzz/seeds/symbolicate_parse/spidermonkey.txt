@@ -1,0 +1,2 @@
+foo@bundle.js:1:2
+bar@bundle.js:3:4

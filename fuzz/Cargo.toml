@@ -1,0 +1,80 @@
+[package]
+name = "srcmap-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+srcmap-codec = { path = "../crates/codec" }
+srcmap-sourcemap = { path = "../crates/sourcemap" }
+srcmap-scopes = { path = "../crates/scopes" }
+srcmap-ram-bundle = { path = "../crates/ram-bundle" }
+srcmap-hermes = { path = "../crates/hermes" }
+srcmap-symbolicate = { path = "../crates/symbolicate" }
+
+# A separate workspace keeps the fuzz crate out of the root workspace checks.
+[workspace]
+members = ["."]
+
+[profile.release]
+debug = 1
+
+[[bin]]
+name = "codec_decode"
+path = "fuzz_targets/codec_decode.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "sourcemap_from_json"
+path = "fuzz_targets/sourcemap_from_json.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "sourcemap_url"
+path = "fuzz_targets/sourcemap_url.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "lazy_sourcemap"
+path = "fuzz_targets/lazy_sourcemap.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "scopes_decode"
+path = "fuzz_targets/scopes_decode.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "ram_bundle"
+path = "fuzz_targets/ram_bundle.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "hermes_from_json"
+path = "fuzz_targets/hermes_from_json.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "symbolicate_parse"
+path = "fuzz_targets/symbolicate_parse.rs"
+test = false
+doc = false
+bench = false
