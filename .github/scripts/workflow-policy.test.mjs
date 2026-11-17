@@ -374,6 +374,12 @@ describe("Benchmark runner compatibility", () => {
       workflowJob(workflow, "benchmark-matrix"),
       /^    if: github\.event_name != 'schedule'$/m,
     );
+    // A newer push must not cancel the nightly run while it waits in the
+    // group of main.
+    assert.match(
+      workflow,
+      /^ {2}group: bench-\$\{\{ github\.event_name == 'schedule' && github\.run_id \|\| github\.ref \}\}$/m,
+    );
     assert.match(job, /^          mode: walltime$/m);
     assert.match(job, /--bench vlq_parallel/);
     assert.match(job, /--bench generate_parallel/);
