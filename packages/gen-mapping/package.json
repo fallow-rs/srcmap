@@ -4,7 +4,6 @@
   "description": "The @jridgewell/gen-mapping API on the srcmap Rust generator, compiled to WebAssembly",
   "keywords": [
     "builder",
-    "drop-in",
     "gen-mapping",
     "generator",
     "source-map",

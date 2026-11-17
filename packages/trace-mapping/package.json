@@ -4,7 +4,6 @@
   "description": "The @jridgewell/trace-mapping API on the srcmap Rust parser, compiled to WebAssembly",
   "keywords": [
     "consumer",
-    "drop-in",
     "lookup",
     "source-map",
     "sourcemap",
