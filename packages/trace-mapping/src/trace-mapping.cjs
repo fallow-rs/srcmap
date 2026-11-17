@@ -1,5 +1,7 @@
 "use strict";
 
+const resolveUri = require("@jridgewell/resolve-uri");
+
 let SourceMap;
 try {
   SourceMap = require("@srcmap/sourcemap-wasm").SourceMap;
@@ -20,45 +22,33 @@ const SOURCE_LINE = 2;
 const SOURCE_COLUMN = 3;
 const NAMES_INDEX = 4;
 
-const stripFilename = (path) => {
-  if (!path) return "";
-  const index = path.lastIndexOf("/");
-  return path.slice(0, index + 1);
-};
+const stripFilename = (path) => (path ? path.slice(0, path.lastIndexOf("/") + 1) : "");
 
-const normalizePath = (path) => {
-  // Normalize /./ and /../ components in paths (matches resolve-uri behavior)
-  const parts = path.split("/");
-  const out = [];
-  for (const part of parts) {
-    if (part === ".") continue;
-    if (part === ".." && out.length > 0 && out[out.length - 1] !== "..") {
-      out.pop();
-    } else {
-      out.push(part);
-    }
-  }
-  return out.join("/");
-};
-
+// The same resolver as @jridgewell/trace-mapping: join `sourceRoot` with a slash,
+// then resolve against the directory of `mapUrl` with @jridgewell/resolve-uri.
 const resolver = (mapUrl, sourceRoot) => {
   const from = stripFilename(mapUrl);
   const prefix = sourceRoot ? sourceRoot + "/" : "";
-  return (source) => {
-    const resolved = prefix + (source || "");
-    // Absolute URIs (http, https, data, webpack, node, etc.) pass through
-    if (
-      resolved.startsWith("http://") ||
-      resolved.startsWith("https://") ||
-      resolved.startsWith("/") ||
-      resolved.startsWith("data:") ||
-      resolved.includes("://")
-    ) {
-      return normalizePath(resolved);
-    }
-    if (!from) return normalizePath(resolved);
-    return normalizePath(from + resolved);
-  };
+  return (source) => resolveUri(prefix + (source || ""), from);
+};
+
+const NULL_SOURCE_PLACEHOLDER = "\0srcmap-null-source";
+
+// The WASM parser stores a null source as "" and finds a source by its first index
+// with that name. Without a `sourceRoot`, a null source and a "" source then share a
+// name, but @jridgewell/trace-mapping finds the "" source by its own index. A unique
+// name for the null sources keeps the two apart in WASM.
+const wasmInput = (parsed, json) => {
+  const sources = parsed.sources;
+  if (parsed.sections || parsed.sourceRoot || !Array.isArray(sources)) return json;
+  const firstNull = sources.indexOf(null);
+  if (firstNull === -1 || sources.indexOf("", firstNull) === -1) return json;
+  let placeholder = NULL_SOURCE_PLACEHOLDER;
+  while (sources.includes(placeholder)) placeholder += "\0";
+  return JSON.stringify({
+    ...parsed,
+    sources: sources.map((source) => (source === null ? placeholder : source)),
+  });
 };
 
 class TraceMap {
@@ -81,7 +71,7 @@ class TraceMap {
     const parsed = typeof map === "string" ? JSON.parse(map) : map;
     const json = typeof map === "string" ? map : JSON.stringify(map);
 
-    this._wasm = new SourceMap(json);
+    this._wasm = new SourceMap(wasmInput(parsed, json));
 
     const isIndexed = !!parsed.sections;
 
@@ -380,8 +370,10 @@ const sourceIndexOf = (map, source) => {
   return index;
 };
 
+// The WASM names join `sourceRoot` and the source without a slash, so a lookup by the
+// WASM name can find another index than @jridgewell/trace-mapping. Find the index the
+// same way as jridgewell, then use the WASM name at that index.
 const resolveSourceName = (map, source) => {
-  if (map._wasmSourceMap.has(source)) return source;
   const index = sourceIndexOf(map, source);
   if (index === -1) return null;
   return map._wasmSources[index] ?? null;

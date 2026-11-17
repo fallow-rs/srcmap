@@ -37,12 +37,14 @@
 
 mod decode;
 mod encode;
+mod json;
 mod vlq;
 
 pub use decode::decode;
 pub use encode::encode;
 #[cfg(feature = "parallel")]
 pub use encode::encode_parallel;
+pub use json::json_quote_into;
 pub use vlq::{
     MAX_VLQ_BYTES, vlq_decode, vlq_decode_unsigned, vlq_encode, vlq_encode_unchecked,
     vlq_encode_unsigned, vlq_encode_unsigned_unchecked,

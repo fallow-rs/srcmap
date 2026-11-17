@@ -44,8 +44,17 @@ const BASE64_DECODE: [u8; 128] = {
 /// available for this write (`out.capacity() - out.len() >= MAX_VLQ_BYTES`).
 #[inline(always)]
 pub unsafe fn vlq_encode_unchecked(out: &mut Vec<u8>, value: i64) {
-    let magnitude = value.unsigned_abs() as u128;
-    let mut vlq = (magnitude << 1) | u128::from(value.is_negative());
+    let magnitude = value.unsigned_abs();
+    // Every value except `i64::MIN` leaves room for the sign bit in 64 bits.
+    // The 64-bit loop is faster than the 128-bit loop below.
+    if magnitude >> (u64::BITS - 1) == 0 {
+        let vlq = (magnitude << 1) | u64::from(value.is_negative());
+        // SAFETY: the caller guarantees MAX_VLQ_BYTES bytes of spare capacity.
+        unsafe { vlq_encode_unsigned_unchecked(out, vlq) };
+        return;
+    }
+
+    let mut vlq = (u128::from(magnitude) << 1) | u128::from(value.is_negative());
 
     let table = &BASE64_TABLE.0;
     // SAFETY: caller guarantees at least MAX_VLQ_BYTES bytes of spare capacity.

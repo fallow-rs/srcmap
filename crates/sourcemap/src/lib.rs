@@ -45,6 +45,17 @@ pub use source_view::SourceView;
 const NO_SOURCE: u32 = u32::MAX;
 const NO_NAME: u32 = u32::MAX;
 
+/// The largest encoded segment: one separator and 5 VLQ values.
+const MAX_SEGMENT_BYTES: usize = 1 + 5 * srcmap_codec::MAX_VLQ_BYTES;
+/// A typical encoded segment, with its separator, takes about 6 bytes.
+const ESTIMATED_BYTES_PER_MAPPING: usize = 6;
+/// The fixed keys and punctuation of the JSON output.
+const JSON_FIXED_OVERHEAD: usize = 256;
+/// The quotes and the comma of one JSON string in an array.
+const JSON_STRING_OVERHEAD: usize = 3;
+/// Source text grows by about one sixteenth when its line breaks and quotes get an escape.
+const ESCAPE_SHARE_DIVISOR: usize = 16;
+
 // ── Public types ───────────────────────────────────────────────────
 
 /// A single decoded mapping entry. Compact at 28 bytes (6 × u32 + bool with padding).
@@ -174,6 +185,42 @@ pub enum IndexKind {
     CallSiteSource,
 }
 
+/// Options for [`SourceMap::from_json_with_options`].
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ParseOptions {
+    /// What the parser does with a mapping name index outside `names`.
+    pub out_of_range_names: OutOfRangeNames,
+    /// Accept the `names` values that JavaScript reads as no name.
+    ///
+    /// When this is true, an entry of `names` that is `null`, `false` or `0`
+    /// becomes `""`. A top-level `names` value that is `null`, a boolean, a
+    /// number or `""` becomes `[]`. Other entries that are not strings stay
+    /// invalid. The parser does this only after the first parse fails, so a
+    /// valid map parses once. Section maps do not get this check.
+    pub lenient_names: bool,
+}
+
+/// What the parser does with a mapping name index outside `names`.
+///
+/// A negative name index is also outside `names`. Source indices, `ignoreList`
+/// entries and scopes references stay strict in each mode.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub enum OutOfRangeNames {
+    /// Fail with [`ParseError::IndexOutOfRange`]. [`SourceMap::from_json`] does this.
+    #[default]
+    Reject,
+    /// Give the mapping no name, as `@jridgewell/trace-mapping` does when
+    /// `names[index]` is `undefined`.
+    Unnamed,
+    /// Give the mapping the name at index `names.len()` of the input, and add
+    /// this string to the end of `names`. The parser adds the string only when
+    /// a mapping needs it.
+    ///
+    /// A caller that composes maps can use this mode to tell a 5-field segment
+    /// with an invalid name from a 4-field segment, and remove the string later.
+    Placeholder(String),
+}
+
 impl IndexKind {
     const fn label(self) -> &'static str {
         match self {
@@ -293,6 +340,11 @@ struct DecodeChecks {
     index_out_of_range: bool,
     /// True when a line has a segment with a lower column than the segment before it.
     unsorted: bool,
+    /// The name index for a name index outside `names`, or `None` to report it
+    /// with `index_out_of_range` (see [`OutOfRangeNames`]).
+    out_of_range_name: Option<u32>,
+    /// True when a mapping got `out_of_range_name`.
+    used_out_of_range_name: bool,
 }
 
 impl DecodeChecks {
@@ -303,7 +355,25 @@ impl DecodeChecks {
             name_limit: (names_len as u64).min(POSITION_END),
             index_out_of_range: false,
             unsorted: false,
+            out_of_range_name: None,
+            used_out_of_range_name: false,
         }
+    }
+
+    /// Checks like [`DecodeChecks::new`] that apply `mode` to name indices outside `names`.
+    fn with_names_mode(sources_len: usize, names_len: usize, mode: &OutOfRangeNames) -> Self {
+        let out_of_range_name = match mode {
+            OutOfRangeNames::Reject => None,
+            OutOfRangeNames::Unnamed => Some(NO_NAME),
+            // A placeholder index at or above `POSITION_END` cannot be a name index.
+            OutOfRangeNames::Placeholder(_) => Some(
+                u32::try_from(names_len)
+                    .ok()
+                    .filter(|&i| u64::from(i) < POSITION_END)
+                    .unwrap_or(NO_NAME),
+            ),
+        };
+        Self { out_of_range_name, ..Self::new(sources_len, names_len) }
     }
 
     /// Checks that only find unsorted lines, for a decode that does not check indices.
@@ -313,6 +383,8 @@ impl DecodeChecks {
             name_limit: POSITION_END,
             index_out_of_range: false,
             unsorted: false,
+            out_of_range_name: None,
+            used_out_of_range_name: false,
         }
     }
 }
@@ -494,9 +566,13 @@ impl SectionMergeState {
         }
     }
 
-    fn append_section(&mut self, section: &RawSection) -> Result<(), ParseError> {
+    fn append_section(
+        &mut self,
+        section: &RawSection,
+        options: &ParseOptions,
+    ) -> Result<(), ParseError> {
         // Section maps must not be indexed maps themselves (ECMA-426)
-        let sub = SourceMap::from_json_inner(section.map.get(), false)?;
+        let sub = SourceMap::from_json_inner(section.map.get(), false, options)?;
 
         let line_offset = section.offset.line;
         let col_offset = section.offset.column;
@@ -594,20 +670,27 @@ fn range_fallback_location(last: &Mapping, line: u32, column: u32) -> Option<Ori
 }
 
 fn original_position_glb_index(line_mappings: &[Mapping], column: u32) -> Option<usize> {
-    match line_mappings.binary_search_by_key(&column, |m| m.generated_column) {
-        // Exact match: walk back to the earliest segment sharing this column.
-        // `binary_search_by_key` returns an unspecified index among equal keys;
-        // `@jridgewell/trace-mapping` specifies GLB = earliest-equal.
-        Ok(i) => {
-            let mut idx = i;
-            while idx > 0 && line_mappings[idx - 1].generated_column == column {
-                idx -= 1;
-            }
-            Some(idx)
+    // A binary search with no early exit: each step is one compare and one
+    // conditional move, which the CPU does not have to predict.
+    let mut base = 0;
+    let mut size = line_mappings.len();
+    while size > 1 {
+        let half = size / 2;
+        let mid = base + half;
+        if line_mappings[mid].generated_column <= column {
+            base = mid;
         }
-        Err(0) => None,
-        Err(i) => Some(i - 1),
+        size -= half;
     }
+    if line_mappings.get(base)?.generated_column > column {
+        return None;
+    }
+    // `base` is the last mapping at or before `column`. On an exact match,
+    // `@jridgewell/trace-mapping` takes the earliest segment with that column.
+    while base > 0 && line_mappings[base - 1].generated_column == column {
+        base -= 1;
+    }
+    Some(base)
 }
 
 fn original_position_lub_index(line_mappings: &[Mapping], column: u32) -> Option<usize> {
@@ -909,6 +992,43 @@ fn remap_generated_range(
 
 // ── Raw JSON structure ─────────────────────────────────────────────
 
+/// Return a copy of `json` with the changes of [`ParseOptions::lenient_names`],
+/// or `None` when `json` is not an object or has no `names` value to change.
+fn lenient_names_json(json: &str) -> Option<String> {
+    use serde_json::Value;
+
+    let mut map: Value = serde_json::from_str(json).ok()?;
+    let names = map.as_object_mut()?.get_mut("names")?;
+    match names {
+        Value::Array(entries) => {
+            let mut changed = false;
+            for entry in entries.iter_mut().filter(|entry| is_falsy_non_string(entry)) {
+                *entry = Value::String(String::new());
+                changed = true;
+            }
+            if !changed {
+                return None;
+            }
+        }
+        Value::Null | Value::Bool(_) | Value::Number(_) => *names = Value::Array(Vec::new()),
+        Value::String(s) if s.is_empty() => *names = Value::Array(Vec::new()),
+        Value::String(_) | Value::Object(_) => return None,
+    }
+    serde_json::to_string(&map).ok()
+}
+
+/// True when `value` is not a string and JavaScript reads it as falsy.
+fn is_falsy_non_string(value: &serde_json::Value) -> bool {
+    match value {
+        serde_json::Value::Null => true,
+        serde_json::Value::Bool(b) => !b,
+        serde_json::Value::Number(n) => n.as_f64() == Some(0.0),
+        serde_json::Value::String(_)
+        | serde_json::Value::Array(_)
+        | serde_json::Value::Object(_) => false,
+    }
+}
+
 #[derive(Deserialize)]
 struct RawSourceMap<'a> {
     version: u32,
@@ -1131,7 +1251,38 @@ impl SourceMap {
     /// Parse a source map from a JSON string.
     /// Supports both regular and indexed (sectioned) source maps.
     pub fn from_json(json: &str) -> Result<Self, ParseError> {
-        Self::from_json_inner(json, true)
+        Self::from_json_inner(json, true, &ParseOptions::default())
+    }
+
+    /// Parse a source map from a JSON string like [`SourceMap::from_json`], with `options`.
+    ///
+    /// With [`OutOfRangeNames::Unnamed`], a mapping name index outside `names`
+    /// gives a mapping without a name. The default options give the result of
+    /// [`SourceMap::from_json`].
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use srcmap_sourcemap::{OutOfRangeNames, ParseOptions, SourceMap};
+    ///
+    /// let json = r#"{"version":3,"sources":["a.js"],"names":[],"mappings":"AAAAA"}"#;
+    /// assert!(SourceMap::from_json(json).is_err());
+    ///
+    /// let options =
+    ///     ParseOptions { out_of_range_names: OutOfRangeNames::Unnamed, ..Default::default() };
+    /// let sm = SourceMap::from_json_with_options(json, &options).unwrap();
+    /// assert_eq!(sm.original_position_for(0, 0).unwrap().name, None);
+    /// ```
+    pub fn from_json_with_options(json: &str, options: &ParseOptions) -> Result<Self, ParseError> {
+        match Self::from_json_inner(json, true, options) {
+            Err(error @ ParseError::Json(_)) if options.lenient_names => {
+                match lenient_names_json(json) {
+                    Some(fixed) => Self::from_json_inner(&fixed, true, options),
+                    None => Err(error),
+                }
+            }
+            result => result,
+        }
     }
 
     /// Parse a source map from JSON, skipping sourcesContent allocation.
@@ -1141,11 +1292,15 @@ impl SourceMap {
     pub fn from_json_no_content(json: &str) -> Result<Self, ParseError> {
         let fields = RegularFields::parse_lite(json)?;
         let decoded = decode_mappings(fields.mappings, fields.sources.len(), fields.names.len())?;
-        Self::from_decoded(fields, decoded)
+        Self::from_decoded(fields, decoded, &OutOfRangeNames::Reject)
     }
 
     /// Internal parser with control over whether indexed maps (sections) are allowed.
-    fn from_json_inner(json: &str, allow_sections: bool) -> Result<Self, ParseError> {
+    fn from_json_inner(
+        json: &str,
+        allow_sections: bool,
+        options: &ParseOptions,
+    ) -> Result<Self, ParseError> {
         let raw: RawSourceMap<'_> = serde_json::from_str(json)?;
 
         check_version(raw.version)?;
@@ -1161,31 +1316,45 @@ impl SourceMap {
                 raw.debug_id,
                 filter_extensions(raw.extensions),
                 sections,
+                options,
             );
         }
 
-        Self::from_regular(raw)
+        Self::from_regular(raw, options)
     }
 
     /// Parse a regular (non-indexed) source map.
-    fn from_regular(raw: RawSourceMap<'_>) -> Result<Self, ParseError> {
+    fn from_regular(raw: RawSourceMap<'_>, options: &ParseOptions) -> Result<Self, ParseError> {
         let fields = RegularFields::from_raw(raw);
-        let decoded = decode_mappings(fields.mappings, fields.sources.len(), fields.names.len())?;
-        Self::from_decoded(fields, decoded)
+        let checks = DecodeChecks::with_names_mode(
+            fields.sources.len(),
+            fields.names.len(),
+            &options.out_of_range_names,
+        );
+        let decoded = decode_mappings_with(fields.mappings, checks)?;
+        Self::from_decoded(fields, decoded, &options.out_of_range_names)
     }
 
     /// Run the steps that follow the decode of `mappings`, and build the map.
     ///
     /// The steps decode `rangeMappings` and `scopes`, sort out-of-order
     /// segments, and check every source, name and ignore-list index.
+    /// `names_mode` must be the mode that the decode of `mappings` used.
     fn from_decoded(
-        fields: RegularFields<'_>,
+        mut fields: RegularFields<'_>,
         (mut mappings, line_offsets, checks): (Vec<Mapping>, Vec<u32>, DecodeChecks),
+        names_mode: &OutOfRangeNames,
     ) -> Result<Self, ParseError> {
         let has_range_mappings =
             decode_range_mappings_field(fields.range_mappings, &mut mappings, &line_offsets)?;
         sort_unsorted_lines(&mut mappings, &line_offsets, &checks);
         let scopes = decode_scopes_field(fields.scopes, &fields.names, fields.sources.len())?;
+        // Add the placeholder after the scopes decode, so that scopes cannot refer to it.
+        if checks.used_out_of_range_name
+            && let OutOfRangeNames::Placeholder(placeholder) = names_mode
+        {
+            fields.names.push(placeholder.clone());
+        }
         let ignore_list = resolve_ignore_list(fields.ignore_list, fields.x_google_ignore_list);
         check_indices(
             &mappings,
@@ -1222,12 +1391,13 @@ impl SourceMap {
         debug_id: Option<String>,
         extensions: HashMap<String, serde_json::Value>,
         sections: Vec<RawSection>,
+        options: &ParseOptions,
     ) -> Result<Self, ParseError> {
         validate_section_order(&sections)?;
 
         let mut state = SectionMergeState::new();
         for section in &sections {
-            state.append_section(section)?;
+            state.append_section(section, options)?;
         }
 
         merge_section_scopes_and_ranges(
@@ -1589,8 +1759,6 @@ impl SourceMap {
     ///
     /// If `exclude_content` is true, `sourcesContent` is omitted from the output.
     pub fn to_json_with_options(&self, exclude_content: bool) -> String {
-        let mappings = self.encode_mappings();
-
         let scopes_encoded = self.encode_scopes_for_json();
         let names_for_json = match &scopes_encoded {
             Some((_, expanded_names)) => expanded_names,
@@ -1599,7 +1767,7 @@ impl SourceMap {
 
         let source_root_prefix = self.source_root.as_deref().unwrap_or("");
 
-        let mut json = String::with_capacity(256 + mappings.len());
+        let mut json = String::with_capacity(self.json_capacity_estimate(exclude_content));
         json.push_str(r#"{"version":3"#);
 
         if let Some(ref file) = self.file {
@@ -1618,7 +1786,8 @@ impl SourceMap {
 
         // VLQ mappings are pure base64/,/; — no escaping needed
         json.push_str(r#","mappings":""#);
-        json.push_str(&mappings);
+        // SAFETY: `encode_mappings_into` appends ASCII bytes only.
+        self.encode_mappings_into(unsafe { json.as_mut_vec() });
         json.push('"');
 
         if let Some(range_mappings) = self.encode_range_mappings() {
@@ -1655,6 +1824,23 @@ impl SourceMap {
 
         json.push('}');
         json
+    }
+
+    /// Estimates the size of the JSON output, so that `to_json` allocates one time.
+    fn json_capacity_estimate(&self, exclude_content: bool) -> usize {
+        let quoted_len = |text: &String| text.len() + JSON_STRING_OVERHEAD;
+        let content: usize = if exclude_content {
+            0
+        } else {
+            self.sources_content.iter().flatten().map(String::len).sum()
+        };
+        JSON_FIXED_OVERHEAD
+            + self.mappings.len() * ESTIMATED_BYTES_PER_MAPPING
+            + content
+            + content / ESCAPE_SHARE_DIVISOR
+            + self.sources_content.len() * JSON_STRING_OVERHEAD
+            + self.sources.iter().map(quoted_len).sum::<usize>()
+            + self.names.iter().map(quoted_len).sum::<usize>()
     }
 
     fn encode_scopes_for_json(&self) -> Option<(String, Vec<String>)> {
@@ -1913,22 +2099,26 @@ impl SourceMap {
         let fields = RegularFields::parse(json)?;
         let checks = DecodeChecks::new(fields.sources.len(), fields.names.len());
         let decoded = decode_mappings_range(fields.mappings, start_line, end_line, checks)?;
-        Self::from_decoded(fields, decoded)
+        Self::from_decoded(fields, decoded, &OutOfRangeNames::Reject)
     }
 
     /// Encode all mappings back to a VLQ mappings string.
     pub fn encode_mappings(&self) -> String {
-        if self.mappings.is_empty() {
-            return String::new();
-        }
+        let mut encoded = String::new();
+        // SAFETY: `encode_mappings_into` appends ASCII bytes only.
+        self.encode_mappings_into(unsafe { encoded.as_mut_vec() });
+        encoded
+    }
 
-        let mut out: Vec<u8> = Vec::with_capacity(self.mappings.len() * 6);
+    /// Appends the VLQ `mappings` string to `out`. The bytes are ASCII.
+    fn encode_mappings_into(&self, out: &mut Vec<u8>) {
+        out.reserve(self.mappings.len() * ESTIMATED_BYTES_PER_MAPPING);
 
-        let mut prev_gen_col: i64 = 0;
-        let mut prev_source: i64 = 0;
-        let mut prev_orig_line: i64 = 0;
-        let mut prev_orig_col: i64 = 0;
-        let mut prev_name: i64 = 0;
+        let mut prev_gen_col: u32 = 0;
+        let mut prev_source: u32 = 0;
+        let mut prev_orig_line: u32 = 0;
+        let mut prev_orig_col: u32 = 0;
+        let mut prev_name: u32 = 0;
         let mut prev_gen_line: u32 = 0;
         let mut first_in_line = true;
 
@@ -1940,35 +2130,39 @@ impl SourceMap {
                 first_in_line = true;
             }
 
-            if !first_in_line {
-                out.push(b',');
-            }
-            first_in_line = false;
+            // One capacity check covers the separator and the 5 values of a segment.
+            out.reserve(MAX_SEGMENT_BYTES);
 
-            srcmap_codec::vlq_encode(&mut out, m.generated_column as i64 - prev_gen_col);
-            prev_gen_col = m.generated_column as i64;
+            // SAFETY: the `reserve` above gives room for a separator and 5 VLQ
+            // values, and this block writes at most that much.
+            unsafe {
+                if !first_in_line {
+                    let len = out.len();
+                    out.as_mut_ptr().add(len).write(b',');
+                    out.set_len(len + 1);
+                }
+                first_in_line = false;
 
-            if m.source != NO_SOURCE {
-                srcmap_codec::vlq_encode(&mut out, m.source as i64 - prev_source);
-                prev_source = m.source as i64;
+                encode_delta_unchecked(out, m.generated_column, prev_gen_col);
+                prev_gen_col = m.generated_column;
 
-                srcmap_codec::vlq_encode(&mut out, m.original_line as i64 - prev_orig_line);
-                prev_orig_line = m.original_line as i64;
+                if m.source != NO_SOURCE {
+                    encode_delta_unchecked(out, m.source, prev_source);
+                    prev_source = m.source;
 
-                srcmap_codec::vlq_encode(&mut out, m.original_column as i64 - prev_orig_col);
-                prev_orig_col = m.original_column as i64;
+                    encode_delta_unchecked(out, m.original_line, prev_orig_line);
+                    prev_orig_line = m.original_line;
 
-                if m.name != NO_NAME {
-                    srcmap_codec::vlq_encode(&mut out, m.name as i64 - prev_name);
-                    prev_name = m.name as i64;
+                    encode_delta_unchecked(out, m.original_column, prev_orig_col);
+                    prev_orig_col = m.original_column;
+
+                    if m.name != NO_NAME {
+                        encode_delta_unchecked(out, m.name, prev_name);
+                        prev_name = m.name;
+                    }
                 }
             }
         }
-
-        debug_assert!(out.is_ascii());
-        // SAFETY: vlq_encode only pushes bytes from BASE64_ENCODE (all ASCII),
-        // and we only add b';' and b',' — all valid UTF-8.
-        unsafe { String::from_utf8_unchecked(out) }
     }
 
     pub fn encode_range_mappings(&self) -> Option<String> {
@@ -2875,43 +3069,22 @@ fn write_string_array_field(out: &mut String, field: &str, values: &[String]) {
     out.push(']');
 }
 
+/// Appends the signed VLQ of `value - previous` to `out`. The sign is the low bit.
+///
+/// # Safety
+/// `out` must have at least [`srcmap_codec::MAX_VLQ_BYTES`] bytes of spare capacity.
+#[inline(always)]
+unsafe fn encode_delta_unchecked(out: &mut Vec<u8>, value: u32, previous: u32) {
+    let vlq = (u64::from(value.abs_diff(previous)) << 1) | u64::from(value < previous);
+    // SAFETY: the caller guarantees the spare capacity.
+    unsafe { srcmap_codec::vlq_encode_unsigned_unchecked(out, vlq) };
+}
+
 /// Append a JSON-quoted string to the output buffer.
 fn json_quote_into(out: &mut String, s: &str) {
-    let bytes = s.as_bytes();
-    out.push('"');
-
-    let mut start = 0;
-    for (i, &b) in bytes.iter().enumerate() {
-        let escape = match b {
-            b'"' => "\\\"",
-            b'\\' => "\\\\",
-            b'\n' => "\\n",
-            b'\r' => "\\r",
-            b'\t' => "\\t",
-            // Remaining control chars (excluding \n, \r, \t handled above)
-            0x00..=0x08 | 0x0b | 0x0c | 0x0e..=0x1f => {
-                if start < i {
-                    out.push_str(&s[start..i]);
-                }
-                use std::fmt::Write;
-                let _ = write!(out, "\\u{:04x}", b);
-                start = i + 1;
-                continue;
-            }
-            _ => continue,
-        };
-        if start < i {
-            out.push_str(&s[start..i]);
-        }
-        out.push_str(escape);
-        start = i + 1;
-    }
-
-    if start < bytes.len() {
-        out.push_str(&s[start..]);
-    }
-
-    out.push('"');
+    // SAFETY: `srcmap_codec::json_quote_into` appends the bytes of `s` and
+    // ASCII escapes, so the buffer stays valid UTF-8.
+    srcmap_codec::json_quote_into(unsafe { out.as_mut_vec() }, s);
 }
 
 // ── Internal: decode VLQ mappings directly into flat Mapping vec ───
@@ -3046,19 +3219,24 @@ fn column_outside_order(
     }
 }
 
-/// Read one source or name index like [`add_vlq`], and compare it with `limit`.
+/// Read one source or name index like [`add_vlq`], and compare it with the
+/// `checks` limit for `kind` ([`IndexKind::Source`] or [`IndexKind::Name`]).
 ///
-/// `limit` is at most `POSITION_END`. An index from `limit` up that is still a
-/// valid position sets `checks.index_out_of_range` and decodes as usual, so a
-/// later decode error still takes precedence.
+/// The limit is at most `POSITION_END`. An index from the limit up that is still
+/// a valid position sets `checks.index_out_of_range` and decodes as usual, so a
+/// later decode error still takes precedence. When `checks.out_of_range_name`
+/// is set, a name index outside `names` gives that value. The accumulated name
+/// index can then leave `0..POSITION_END`.
 #[inline(always)]
 fn add_vlq_index(
     acc: &mut i64,
     bytes: &[u8],
     pos: &mut usize,
-    limit: u64,
+    kind: IndexKind,
     checks: &mut DecodeChecks,
 ) -> Result<u32, DecodeError> {
+    let limit =
+        if matches!(kind, IndexKind::Name) { checks.name_limit } else { checks.source_limit };
     let start = *pos;
     let delta = vlq_fast(bytes, pos)?;
     *acc = acc.wrapping_add(delta);
@@ -3066,7 +3244,7 @@ fn add_vlq_index(
     if (*acc as u64) < limit {
         Ok(*acc as u32)
     } else {
-        index_at_or_above_limit(*acc, start, checks)
+        index_at_or_above_limit(*acc, start, kind, checks)
     }
 }
 
@@ -3075,8 +3253,15 @@ fn add_vlq_index(
 fn index_at_or_above_limit(
     value: i64,
     offset: usize,
+    kind: IndexKind,
     checks: &mut DecodeChecks,
 ) -> Result<u32, DecodeError> {
+    if matches!(kind, IndexKind::Name)
+        && let Some(name) = checks.out_of_range_name
+    {
+        checks.used_out_of_range_name = true;
+        return Ok(name);
+    }
     if (value as u64) < POSITION_END {
         checks.index_out_of_range = true;
         Ok(value as u32)
@@ -3161,7 +3346,7 @@ fn decode_mapping_segment(
         return Ok(generated_only_mapping(generated_line, column));
     }
 
-    let source = add_vlq_index(&mut state.source_index, bytes, pos, checks.source_limit, checks)?;
+    let source = add_vlq_index(&mut state.source_index, bytes, pos, IndexKind::Source, checks)?;
 
     // Reject 2-field segments (only 1, 4, or 5 are valid per ECMA-426)
     if at_segment_delimiter(bytes, *pos) {
@@ -3180,7 +3365,7 @@ fn decode_mapping_segment(
     let name = if at_segment_delimiter(bytes, *pos) {
         NO_NAME
     } else {
-        let name = add_vlq_index(&mut state.name_index, bytes, pos, checks.name_limit, checks)?;
+        let name = add_vlq_index(&mut state.name_index, bytes, pos, IndexKind::Name, checks)?;
         // Reject 6-field segments (only 1, 4, or 5 are valid per ECMA-426)
         if !at_segment_delimiter(bytes, *pos) {
             return Err(DecodeError::InvalidSegmentLength { fields: 6, offset: *pos });
@@ -3261,7 +3446,14 @@ fn decode_mappings(
     sources_len: usize,
     names_len: usize,
 ) -> Result<(Vec<Mapping>, Vec<u32>, DecodeChecks), DecodeError> {
-    let mut checks = DecodeChecks::new(sources_len, names_len);
+    decode_mappings_with(input, DecodeChecks::new(sources_len, names_len))
+}
+
+/// Decode all mappings like [`decode_mappings`], with the limits and modes of `checks`.
+fn decode_mappings_with(
+    input: &str,
+    mut checks: DecodeChecks,
+) -> Result<(Vec<Mapping>, Vec<u32>, DecodeChecks), DecodeError> {
     if input.is_empty() {
         return Ok((Vec::new(), vec![0], checks));
     }
@@ -3726,6 +3918,41 @@ impl Default for SourceMapBuilder {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The tie-break of `@jridgewell/trace-mapping`: the earliest mapping at
+    /// `column` on an exact match, otherwise the last mapping before `column`.
+    fn linear_glb_index(line_mappings: &[Mapping], column: u32) -> Option<usize> {
+        line_mappings
+            .iter()
+            .position(|m| m.generated_column == column)
+            .or_else(|| line_mappings.iter().rposition(|m| m.generated_column < column))
+    }
+
+    #[test]
+    fn glb_index_matches_a_linear_search_for_every_line_shape() {
+        // Each bit of `shape` says if a column repeats the column before it,
+        // so the lines cover every pattern of equal columns up to 9 segments.
+        for len in 0..=9u32 {
+            for shape in 0..(1u32 << len.saturating_sub(1)) {
+                let mut column = 2;
+                let line: Vec<Mapping> = (0..len)
+                    .map(|i| {
+                        if i > 0 && shape & (1 << (i - 1)) == 0 {
+                            column += 3;
+                        }
+                        generated_only_mapping(0, column)
+                    })
+                    .collect();
+                for query in 0..=column + 2 {
+                    assert_eq!(
+                        original_position_glb_index(&line, query),
+                        linear_glb_index(&line, query),
+                        "len {len}, shape {shape:b}, column {query}"
+                    );
+                }
+            }
+        }
+    }
 
     fn simple_map() -> &'static str {
         r#"{"version":3,"sources":["input.js"],"names":["hello"],"mappings":"AAAA;AACA,EAAA;AACA"}"#
@@ -4301,6 +4528,13 @@ mod tests {
     }
 
     #[test]
+    fn mappings_iter_keeps_name_index_without_names_check() {
+        // `remap_streaming` reads names through this iterator and looks each one up.
+        let mappings: Vec<_> = MappingsIter::new("AAAAE").collect::<Result<_, _>>().unwrap();
+        assert_eq!(mappings[0].name, 2);
+    }
+
+    #[test]
     fn mappings_iter_rejects_six_fields() {
         let result: Result<Vec<_>, _> = MappingsIter::new("AAAAAA").collect();
         assert!(
@@ -4438,6 +4672,147 @@ mod tests {
         assert_eq!(sm.original_position_for(1, 0).unwrap().source, 0);
         let err = SourceMap::from_json_lines(json, 0, 2).unwrap_err();
         assert!(matches!(err, ParseError::IndexOutOfRange { kind: IndexKind::Source, .. }));
+    }
+
+    fn names_options(mode: OutOfRangeNames) -> ParseOptions {
+        ParseOptions { out_of_range_names: mode, ..Default::default() }
+    }
+
+    fn lenient_options() -> ParseOptions {
+        ParseOptions { lenient_names: true, ..names_options(OutOfRangeNames::Unnamed) }
+    }
+
+    #[test]
+    fn default_options_reject_null_names_entry() {
+        let json = r#"{"version":3,"sources":["a.js"],"names":[null],"mappings":"AAAA"}"#;
+        let err = SourceMap::from_json_with_options(json, &ParseOptions::default()).unwrap_err();
+        assert!(matches!(err, ParseError::Json(_)), "{err:?}");
+    }
+
+    #[test]
+    fn lenient_names_reads_falsy_entries_as_empty_names() {
+        let json = r#"{"version":3,"sources":["a.js"],"names":[null,false,0,-0.0,"x"],"mappings":"AAAAA,CAAAC,CAAAC,CAAAC,CAAAC"}"#;
+        let sm = SourceMap::from_json_with_options(json, &lenient_options()).unwrap();
+        assert_eq!(sm.names, ["", "", "", "", "x"]);
+        assert_eq!(mapping_names(&sm), [Some(""), Some(""), Some(""), Some(""), Some("x")]);
+    }
+
+    #[test]
+    fn lenient_names_reads_falsy_or_scalar_names_as_no_names() {
+        for names in ["null", "false", "true", "0", "5", r#""""#] {
+            let json =
+                format!(r#"{{"version":3,"sources":["a.js"],"names":{names},"mappings":"AAAAA"}}"#);
+            let sm = SourceMap::from_json_with_options(&json, &lenient_options()).unwrap();
+            assert!(sm.names.is_empty(), "{names}");
+            assert_eq!(mapping_names(&sm), [None], "{names}");
+        }
+    }
+
+    #[test]
+    fn lenient_names_keeps_other_invalid_names_as_errors() {
+        for names in ["[1]", "[true]", "[{}]", "[[]]", r#""ab""#, "{}"] {
+            let json =
+                format!(r#"{{"version":3,"sources":["a.js"],"names":{names},"mappings":"AAAA"}}"#);
+            let err = SourceMap::from_json_with_options(&json, &lenient_options()).unwrap_err();
+            assert!(matches!(err, ParseError::Json(_)), "{names}: {err:?}");
+        }
+    }
+
+    #[test]
+    fn lenient_names_keeps_other_json_errors() {
+        let err = SourceMap::from_json_with_options("{", &lenient_options()).unwrap_err();
+        assert!(matches!(err, ParseError::Json(_)), "{err:?}");
+        let json = r#"{"version":3,"sources":[null,1],"names":[null],"mappings":"AAAA"}"#;
+        let err = SourceMap::from_json_with_options(json, &lenient_options()).unwrap_err();
+        assert!(err.to_string().contains("integer `1`"), "{err}");
+    }
+
+    fn mapping_names(sm: &SourceMap) -> Vec<Option<&str>> {
+        sm.all_mappings()
+            .iter()
+            .map(|m| (m.name != NO_NAME).then(|| sm.names[m.name as usize].as_str()))
+            .collect()
+    }
+
+    #[test]
+    fn default_options_reject_name_index_out_of_range() {
+        let json = r#"{"version":3,"sources":["a.js"],"names":[],"mappings":"AAAAA"}"#;
+        let err = SourceMap::from_json_with_options(json, &ParseOptions::default()).unwrap_err();
+        assert!(matches!(
+            err,
+            ParseError::IndexOutOfRange { kind: IndexKind::Name, index: 0, len: 0 }
+        ));
+    }
+
+    #[test]
+    fn unnamed_mode_drops_name_index_out_of_range() {
+        // Name indices: 0 (valid), 2 (past the end), 1 (valid), -1 (negative), 0 (valid).
+        let json = r#"{"version":3,"sources":["a.js"],"names":["x","y"],"mappings":"AAAAA,CAAAE,CAAAD,CAAAF,CAAAC"}"#;
+        let sm = SourceMap::from_json_with_options(json, &names_options(OutOfRangeNames::Unnamed))
+            .unwrap();
+        assert_eq!(mapping_names(&sm), [Some("x"), None, Some("y"), None, Some("x")]);
+        assert_eq!(sm.names, ["x", "y"]);
+        assert_eq!(sm.original_position_for(0, 1).unwrap().name, None);
+    }
+
+    #[test]
+    fn unnamed_mode_accepts_missing_names_field() {
+        let json = r#"{"version":3,"sources":["a.js"],"mappings":"AAAAA"}"#;
+        let sm = SourceMap::from_json_with_options(json, &names_options(OutOfRangeNames::Unnamed))
+            .unwrap();
+        assert_eq!(mapping_names(&sm), [None]);
+    }
+
+    #[test]
+    fn unnamed_mode_keeps_source_index_check() {
+        let json = r#"{"version":3,"sources":["a.js"],"names":[],"mappings":"ACAAA"}"#;
+        let err = SourceMap::from_json_with_options(json, &names_options(OutOfRangeNames::Unnamed))
+            .unwrap_err();
+        assert!(matches!(err, ParseError::IndexOutOfRange { kind: IndexKind::Source, .. }));
+    }
+
+    #[test]
+    fn unnamed_mode_applies_to_sections() {
+        let json = r#"{"version":3,"sections":[{"offset":{"line":0,"column":0},"map":{"version":3,"sources":["a.js"],"names":["x"],"mappings":"AAAAA,CAAAC"}}]}"#;
+        assert!(SourceMap::from_json(json).is_err());
+        let sm = SourceMap::from_json_with_options(json, &names_options(OutOfRangeNames::Unnamed))
+            .unwrap();
+        assert_eq!(mapping_names(&sm), [Some("x"), None]);
+    }
+
+    #[test]
+    fn placeholder_mode_adds_placeholder_only_when_used() {
+        let mode = OutOfRangeNames::Placeholder("?".to_owned());
+        let json =
+            r#"{"version":3,"sources":["a.js"],"names":["x"],"mappings":"AAAAA,CAAAC,CAAAF"}"#;
+        let sm = SourceMap::from_json_with_options(json, &names_options(mode.clone())).unwrap();
+        assert_eq!(sm.names, ["x", "?"]);
+        assert_eq!(mapping_names(&sm), [Some("x"), Some("?"), Some("?")]);
+
+        let valid = r#"{"version":3,"sources":["a.js"],"names":["x"],"mappings":"AAAAA"}"#;
+        let sm = SourceMap::from_json_with_options(valid, &names_options(mode)).unwrap();
+        assert_eq!(sm.names, ["x"]);
+    }
+
+    #[test]
+    fn placeholder_mode_does_not_resolve_scopes_names() {
+        // The placeholder goes into `names` after the scopes decode.
+        // A scope name with index 0 and no names: the placeholder must not become that name.
+        let mut info = one_scope_info(base_range());
+        if let Some(Some(scope)) = info.scopes.first_mut() {
+            scope.name = Some("f".to_owned());
+        }
+        let mut scope_names = vec![];
+        let scopes_str = srcmap_scopes::encode_scopes(&info, &mut scope_names);
+        assert_eq!(scope_names, ["f"]);
+        let json = format!(
+            r#"{{"version":3,"sources":["a.js"],"names":[],"mappings":"AAAAA","scopes":"{scopes_str}"}}"#
+        );
+        let mode = OutOfRangeNames::Placeholder("?".to_owned());
+        let err = SourceMap::from_json_with_options(&json, &names_options(mode)).unwrap_err();
+        assert!(matches!(err, ParseError::Scopes(_)), "{err:?}");
+        let with_name = json.replace(r#""names":[]"#, r#""names":["f"]"#);
+        assert!(SourceMap::from_json(&with_name).is_ok());
     }
 
     #[test]

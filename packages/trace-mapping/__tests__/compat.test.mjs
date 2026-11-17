@@ -13,6 +13,7 @@ import {
   decodedMappings as srcmapDecodedMappings,
   sourceContentFor as srcmapSourceContentFor,
   isIgnored as srcmapIsIgnored,
+  allGeneratedPositionsFor as srcmapAllGenerated,
 } from "../src/trace-mapping.mjs";
 
 import {
@@ -24,6 +25,7 @@ import {
   decodedMappings as jrDecodedMappings,
   sourceContentFor as jrSourceContentFor,
   isIgnored as jrIsIgnored,
+  allGeneratedPositionsFor as jrAllGenerated,
 } from "@jridgewell/trace-mapping";
 
 import { encode } from "@jridgewell/sourcemap-codec";
@@ -330,4 +332,179 @@ describe("decoded/encoded mappings cross-validation", () => {
     assert.equal(srcmapEncoded, jrEncoded);
     srcmap.free();
   });
+});
+
+// Source resolution must follow @jridgewell/resolve-uri: it collapses "//", keeps a
+// leading "./", and does not go above the first directory of a relative path.
+const RESOLVE_SOURCE_ROOTS = [
+  undefined,
+  "",
+  ".",
+  "./",
+  "..",
+  "a",
+  "a/b/",
+  "a//b",
+  "/abs",
+  "http://x.com/r/",
+  "//cdn/r",
+  "webpack://",
+  "webpack:///src",
+  "C:\\w",
+  "file:///C:/w/",
+];
+const RESOLVE_SOURCES = [
+  "x.js",
+  "./a.js",
+  "../../c.js",
+  "a//b.js",
+  "a/./b/../c.js",
+  "/r.js",
+  "http://h/p/../q.js",
+  "//s/t.js",
+  "data:text/plain,hi",
+  "webpack:///./s.js",
+  "C:\\a\\b.js",
+  ".",
+  "..",
+  "",
+  null,
+];
+const RESOLVE_MAP_URLS = [
+  undefined,
+  null,
+  "",
+  "out.js.map",
+  "dist/out.js.map",
+  "../m.map",
+  "/dist/x.map",
+  "http://e.com/d/x.map",
+  "//cdn/d/x.map",
+  "file:///C:/d/x.map",
+  "data:application/json,{}",
+];
+
+const resolveCaseMap = (sourceRoot) => {
+  const map = {
+    version: 3,
+    names: [],
+    sources: RESOLVE_SOURCES,
+    sourcesContent: RESOLVE_SOURCES.map((_, i) => `content ${i}`),
+    ignoreList: [1, 3],
+    mappings: "AAAA" + ",CCAA".repeat(RESOLVE_SOURCES.length - 1),
+  };
+  if (sourceRoot !== undefined) map.sourceRoot = sourceRoot;
+  return map;
+};
+
+describe("source resolution cross-validation", () => {
+  for (const sourceRoot of RESOLVE_SOURCE_ROOTS) {
+    for (const mapUrl of RESOLVE_MAP_URLS) {
+      it(`sourceRoot ${JSON.stringify(sourceRoot)}, mapUrl ${JSON.stringify(mapUrl)}`, () => {
+        const map = resolveCaseMap(sourceRoot);
+        const srcmap = new SrcmapTraceMap(map, mapUrl);
+        const jr = new JrTraceMap(map, mapUrl);
+
+        assert.deepEqual(srcmap.resolvedSources, jr.resolvedSources, "resolvedSources");
+
+        for (let column = 0; column < RESOLVE_SOURCES.length; column++) {
+          for (const bias of [undefined, -1]) {
+            const needle = { line: 1, column, bias };
+            assert.deepEqual(
+              srcmapOriginal(srcmap, needle),
+              jrOriginal(jr, needle),
+              `column ${column}`,
+            );
+          }
+        }
+
+        const srcmapEach = [];
+        const jrEach = [];
+        srcmapEachMapping(srcmap, (m) => srcmapEach.push(m));
+        jrEachMapping(jr, (m) => jrEach.push(m));
+        assert.deepEqual(srcmapEach, jrEach, "eachMapping");
+
+        const names = new Set([
+          ...RESOLVE_SOURCES.filter((source) => source !== null),
+          ...jr.resolvedSources,
+          ...srcmap.resolvedSources,
+        ]);
+        for (const source of names) {
+          const needle = { source, line: 1, column: 0 };
+          const label = JSON.stringify(source);
+          assert.deepEqual(
+            srcmapGenerated(srcmap, needle),
+            jrGenerated(jr, needle),
+            `generated ${label}`,
+          );
+          assert.deepEqual(
+            srcmapAllGenerated(srcmap, needle),
+            jrAllGenerated(jr, needle),
+            `all ${label}`,
+          );
+          assert.equal(
+            srcmapSourceContentFor(srcmap, source),
+            jrSourceContentFor(jr, source),
+            `content ${label}`,
+          );
+          assert.equal(
+            srcmapIsIgnored(srcmap, source),
+            jrIsIgnored(jr, source),
+            `ignored ${label}`,
+          );
+        }
+
+        srcmap.free();
+      });
+    }
+  }
+});
+
+describe("lookup by source name cross-validation", () => {
+  // Without a `sourceRoot`, a null source and a "" source both resolve to "".
+  // jridgewell finds "" at the index of the "" source, not of the null source.
+  for (const sourceRoot of [undefined, "", "root"]) {
+    it(`null source before "" source, sourceRoot ${JSON.stringify(sourceRoot)}`, () => {
+      const map = {
+        version: 3,
+        names: [],
+        sources: [null, "", "a.js", null],
+        sourcesContent: ["null", "empty", "a", "null again"],
+        ignoreList: [1],
+        mappings: "AAAA,CCAA,CCAA,CCAA",
+      };
+      if (sourceRoot !== undefined) map.sourceRoot = sourceRoot;
+      for (const input of [map, JSON.stringify(map)]) {
+        const srcmap = new SrcmapTraceMap(input);
+        const jr = new JrTraceMap(input);
+        assert.deepEqual(srcmap.resolvedSources, jr.resolvedSources);
+        for (const source of ["", "a.js", "root/", "root/a.js"]) {
+          for (const line of [1, 3]) {
+            const needle = { source, line, column: 0 };
+            assert.deepEqual(
+              srcmapGenerated(srcmap, needle),
+              jrGenerated(jr, needle),
+              `${source}:${line}`,
+            );
+            assert.deepEqual(
+              srcmapAllGenerated(srcmap, needle),
+              jrAllGenerated(jr, needle),
+              `${source}:${line}`,
+            );
+          }
+          assert.equal(srcmapSourceContentFor(srcmap, source), jrSourceContentFor(jr, source));
+          assert.equal(srcmapIsIgnored(srcmap, source), jrIsIgnored(jr, source));
+        }
+        for (let column = 0; column < 4; column++) {
+          const needle = { line: 1, column };
+          assert.deepEqual(
+            srcmapOriginal(srcmap, needle),
+            jrOriginal(jr, needle),
+            `column ${column}`,
+          );
+        }
+        srcmap.free();
+      }
+    });
+  }
 });
