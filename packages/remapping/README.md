@@ -77,6 +77,7 @@ The `loader` function receives a source filename and a `LoaderContext`, and shou
 
 - **WASM-powered**: Composition runs in Rust via WebAssembly
 - **Indexed source maps**: Handled natively (no JS-side flattening)
+- **`ctx.source` that is not a string**: As in `@jridgewell/remapping`, a falsy value gives segments without a source, and an other value stays in `sources` as it is. One difference stays: when the loader ignores falsy sources of more than one kind in one call (for example `""` and `null`), the result has one entry for them, and jridgewell can have one entry for each kind.
 
 ## Part of [srcmap](https://github.com/fallow-rs/srcmap)
 

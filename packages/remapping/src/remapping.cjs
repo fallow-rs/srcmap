@@ -212,6 +212,52 @@ class UpstreamMaps {
     this.ignoredNames = new Set();
     this.plainNames = new Set();
     this.standIns = new Map();
+    this.stringNames = new Set();
+    this.values = new Map();
+    this.valueNames = new Map();
+    this.invalidNames = new Set();
+  }
+
+  // jridgewell keeps a `ctx.source` that is not a string, and finds a source by its
+  // property key. Thus values with the same string form share one source. A falsy
+  // value gives sourceless segments, and an ignored one stays in `sources`.
+  leafName(source, ignored) {
+    if (!source && !ignored) return "";
+    const name = this.nameOf(source);
+    if (typeof source === "string") this.stringNames.add(name);
+    else if (!this.values.has(name) && !this.stringNames.has(name)) this.values.set(name, source);
+    return name;
+  }
+
+  nameOf(source) {
+    if (typeof source === "string") return source;
+    if (!source) return "";
+    if (typeof source !== "symbol") {
+      try {
+        return String(source);
+      } catch {
+        // jridgewell throws only when a segment uses this source.
+      }
+    }
+    let name = this.valueNames.get(source);
+    if (name === undefined) {
+      name = `${this.prefix}value-${this.valueNames.size}`;
+      this.valueNames.set(source, name);
+      if (typeof source !== "symbol") this.invalidNames.add(name);
+    }
+    return name;
+  }
+
+  // Puts each value from `leafName` back in the result `sources`. jridgewell keeps
+  // the value of the first segment for a name. Here the first leaf in loader order
+  // gives the value.
+  restoreValues(sources) {
+    return sources.map((name) => {
+      if (this.invalidNames.has(name)) {
+        throw new TypeError("Cannot convert object to primitive value");
+      }
+      return this.values.has(name) ? this.values.get(name) : name;
+    });
   }
 
   add(node, depth) {
@@ -280,8 +326,9 @@ const buildTree = (input, loader, importer, importerDepth, upstreams) => {
     );
     const isIgnored = ctx.ignore !== undefined ? ctx.ignore : ignoreList.includes(i);
     if (isIgnored) ignored.add(i);
-    upstreams.noteLeaf(ctx.source, isIgnored);
-    return ctx.source;
+    const name = upstreams.leafName(ctx.source, isIgnored);
+    upstreams.noteLeaf(name, isIgnored);
+    return name;
   });
   return { map, sources, ignored, fields: { sourcesContent, ignoreList: [...ignored] } };
 };
@@ -295,11 +342,13 @@ const restoreStandIns = (json, standIns) => {
 };
 
 // A WASM remap pass resolves one level of keys, so the remap runs once per level.
+// Returns the parsed result map.
 const remapAll = (input, loader) => {
   const maps = (Array.isArray(input) ? input : [input]).map(toRawMap);
   checkTransformationMaps(maps);
   if (maps.length === 0) {
-    return JSON.stringify({ version: 3, sources: [], names: [], mappings: "" });
+    // jridgewell throws a TypeError here too, before it calls the loader.
+    throw new TypeError("remapping needs at least one source map, but got an empty array");
   }
 
   const upstreams = new UpstreamMaps();
@@ -320,7 +369,10 @@ const remapAll = (input, loader) => {
   for (let level = 1; level < upstreams.height; level++) {
     result = wasmRemap(result, lookup);
   }
-  return upstreams.standIns.size > 0 ? restoreStandIns(result, upstreams.standIns) : result;
+  if (upstreams.standIns.size > 0) result = restoreStandIns(result, upstreams.standIns);
+  const map = JSON.parse(result);
+  if (upstreams.values.size > 0) map.sources = upstreams.restoreValues(map.sources);
+  return map;
 };
 
 /**
@@ -341,7 +393,7 @@ const remapping = (input, loader, options) => {
     typeof options === "object" && options !== null
       ? options
       : { excludeContent: !!options, decodedMappings: false };
-  return new SourceMap(JSON.parse(remapAll(input, loader)), opts);
+  return new SourceMap(remapAll(input, loader), opts);
 };
 
 module.exports = remapping;
