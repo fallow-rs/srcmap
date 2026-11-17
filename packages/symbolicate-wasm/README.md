@@ -3,7 +3,7 @@
 [![npm](https://img.shields.io/npm/v/@srcmap/symbolicate-wasm.svg)](https://www.npmjs.com/package/@srcmap/symbolicate-wasm)
 [![CI](https://github.com/fallow-rs/srcmap/actions/workflows/ci.yml/badge.svg)](https://github.com/fallow-rs/srcmap/actions/workflows/ci.yml)
 
-Stack trace symbolication using source maps, powered by Rust via WebAssembly.
+Stack trace symbolication using source maps, written in Rust and compiled to WebAssembly.
 
 Parses stack traces from V8 (Chrome, Node.js), SpiderMonkey (Firefox), and JavaScriptCore (Safari), resolves each frame through source maps, and produces readable output. Built for error monitoring, crash reporting, and debugging services.
 
@@ -89,7 +89,7 @@ Returns an array of `{ functionName: string | null, file: string, line: number, 
 
 ## Part of [srcmap](https://github.com/fallow-rs/srcmap)
 
-High-performance source map tooling written in Rust. See also:
+Source map tooling written in Rust. See also:
 - [`@srcmap/sourcemap-wasm`](https://www.npmjs.com/package/@srcmap/sourcemap-wasm) - Source map parser (WASM)
 - [`@srcmap/generator-wasm`](https://www.npmjs.com/package/@srcmap/generator-wasm) - Source map generator (WASM)
 - [`@srcmap/remapping-wasm`](https://www.npmjs.com/package/@srcmap/remapping-wasm) - Concatenation + composition (WASM)

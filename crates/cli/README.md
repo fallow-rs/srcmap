@@ -86,16 +86,16 @@ srcmap schema
 
 ## Features
 
-- **Structured JSON output** — `--json` flag on most commands for machine-readable output
-- **Agent introspection** — `srcmap schema` describes all commands, args, types, and flags as JSON
-- **stdin support** — use `-` as file argument to read from stdin
-- **Dry run** — `--dry-run` on mutating commands (`concat`, `remap`) to validate without writing
-- **Input hardening** — rejects control characters, path traversals, and percent-encoding in source names
-- **Output sandboxing** — all file writes validated against the current working directory
-- **Remote fetching** — `srcmap fetch` downloads bundles and source maps from URLs, resolving `sourceMappingURL` automatically
-- **Source extraction** — `srcmap sources --extract` writes embedded `sourcesContent` to disk with directory structure
-- **Context lines** — `srcmap lookup --context N` shows surrounding original source around a mapped position
-- **Structured errors** — error codes (`IO_ERROR`, `PARSE_ERROR`, `NOT_FOUND`, `VALIDATION_ERROR`, `PATH_TRAVERSAL`, `INVALID_INPUT`, `FETCH_ERROR`) in JSON mode
+- **Structured JSON output.** Most commands take `--json`.
+- **Agent introspection.** `srcmap schema` describes all commands, arguments, types and flags as JSON.
+- **stdin support.** Pass `-` as the file argument to read from stdin.
+- **Dry run.** `concat` and `remap` take `--dry-run`, which validates the input and writes nothing.
+- **Input hardening.** The CLI rejects control characters, path traversals and percent-encoding in source names.
+- **Output sandboxing.** The CLI writes only inside the current working directory.
+- **Remote fetching.** `srcmap fetch` downloads a bundle and its source map from a URL. It reads the `sourceMappingURL` comment to find the map.
+- **Source extraction.** `srcmap sources --extract` writes the embedded `sourcesContent` to disk and keeps the directory structure.
+- **Context lines.** `srcmap lookup --context N` prints N lines of original source around the mapped position.
+- **Structured errors.** JSON mode prints an error code (`IO_ERROR`, `PARSE_ERROR`, `NOT_FOUND`, `VALIDATION_ERROR`, `PATH_TRAVERSAL`, `INVALID_INPUT`, `FETCH_ERROR`).
 
 ## Part of [srcmap](https://github.com/fallow-rs/srcmap)
 

@@ -7,19 +7,19 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![ECMA-426](https://img.shields.io/badge/ECMA--426-core%20%2B%20proposals-44cc11.svg)](https://tc39.es/ecma426/)
 
-> The source map SDK for Rust tooling. Parse, generate, remap, and compose — with stable [ECMA-426](https://tc39.es/ecma426/) core support plus selected draft proposals.
+> A source map toolkit for Rust: parse, generate, compose, symbolicate and inspect. It supports the [ECMA-426](https://tc39.es/ecma426/) core and selected draft proposals.
 
-A standalone source map library that any Rust tool can embed. If you're building a bundler, compiler, minifier, linter, or symbolication service — srcmap gives you the complete source map stack so you don't have to build it yourself.
+srcmap is a set of Rust crates for source maps. A bundler, compiler, minifier, linter or symbolication service can embed them. The same code is available in Node.js as WASM and NAPI packages, and in the shell as a CLI.
 
 ```
-srcmap-sourcemap      Parser + consumer with O(log n) lookups
+srcmap-sourcemap      Parser + consumer
 srcmap-generator      Incremental source map builder
 srcmap-remapping      Concatenation + composition through transform chains
-srcmap-scopes         ECMA-426 scopes & variables (first Rust implementation of the draft proposal)
+srcmap-scopes         ECMA-426 scopes & variables (draft proposal)
 srcmap-symbolicate    Stack trace symbolication
 srcmap-hermes         Hermes/React Native source map extensions
 srcmap-ram-bundle     React Native RAM bundle parser
-srcmap-codec          VLQ encode/decode primitives
+srcmap-codec          VLQ encode/decode
 srcmap-cli            CLI with structured JSON output
 ```
 
@@ -32,30 +32,38 @@ srcmap-generator = "0.5"    # if you produce source maps
 srcmap-remapping = "0.5"    # if you compose/concatenate source maps
 ```
 
-> srcmap is pre-1.0. The parsing and lookup APIs are stable; generator and remapping APIs may evolve.
+> srcmap is pre-1.0. The parsing and lookup APIs are stable. The generator and remapping APIs can still change.
+
+## Where srcmap fits
+
+- **A Rust tool that needs more than parse and lookup.** srcmap composes maps through a transform chain, concatenates them, reads indexed maps, and symbolicates stack traces.
+- **Debug metadata from the draft proposals.** `srcmap-scopes` reads and writes the ECMA-426 scopes proposal. The parser and generator handle `rangeMappings` and `debugId`.
+- **React Native.** `srcmap-hermes` reads the Hermes extensions, and `srcmap-ram-bundle` reads RAM bundles.
+- **Many lookups on one map.** A symbolication or coverage service can send positions in batches (see [Performance](#performance)).
+- **Inspection from the shell.** The CLI validates, decodes, composes and symbolicates, with JSON output.
+
+srcmap is not a faster `@jridgewell/trace-mapping`. In Node.js, the jridgewell packages parse faster and do a single lookup faster. If your JavaScript code does one lookup per call, keep them.
 
 ## How it compares
 
-<!-- Comparison as of March 2026 -->
+<!-- oxc_sourcemap column checked against v10.0.0 in November 2026. The other columns are as of March 2026. -->
 | | srcmap | [sourcemap] (Sentry) | [oxc_sourcemap] | [parcel_sourcemap] |
 |---|---|---|---|---|
-| Parse + consume | **yes** | yes | yes | yes |
-| Generate | **yes** | yes | yes | yes |
-| Composition/remapping | **yes** | limited | no | yes |
-| Concatenation | **yes** | no | yes | yes |
-| Indexed source maps | **yes** | yes | no | no |
-| Scopes proposal | **yes** | no | no | no |
-| Stack trace symbolication | **yes** | yes | no | no |
-| Hermes/React Native | **yes** | yes | no | no |
-| RAM bundle parsing | **yes** | no | no | no |
+| Parse + consume | yes | yes | yes | yes |
+| Generate | yes | yes | yes | yes |
+| Composition/remapping | yes | limited | yes | yes |
+| Concatenation | yes | no | yes | yes |
+| Indexed source maps | yes | yes | no | no |
+| Scopes proposal | yes | no | no | no |
+| Stack trace symbolication | yes | yes | no | no |
+| Hermes/React Native | yes | yes | no | no |
+| RAM bundle parsing | yes | no | no | no |
 
 [sourcemap]: https://crates.io/crates/sourcemap
 [oxc_sourcemap]: https://crates.io/crates/oxc_sourcemap
 [parcel_sourcemap]: https://crates.io/crates/parcel-sourcemap
 
-All four crates can be used standalone. The difference is scope: srcmap is the only one that covers parse, generate, compose, concatenate, scopes, and symbolication in a single coherent API.
-
-> **Composition** is the hard part. When your tool chains transforms (TypeScript → Babel → minifier), each step produces a source map. srcmap composes the full chain into a single map that traces back to the original source — with a clean `remap()` API that takes a closure to resolve upstream maps.
+The table compares features. This repository has no speed benchmark against these crates.
 
 ## Quick start
 
@@ -115,9 +123,9 @@ builder.add_map(&chunk_b_map, 1000);   // chunk B starts at line 1000
 let concat_map = builder.build();
 
 // Compose source maps through a transform chain:
-// Your tool ran TS → JS → minified, each step produced a map.
+// Your tool ran TS to JS to minified, and each step produced a map.
 // remap() walks the minified map and resolves each position
-// through the upstream maps, producing a single TS → minified map.
+// through the upstream maps. The result is one TS-to-minified map.
 let composed = remap(&minified_map, |source| {
     load_upstream_sourcemap(source) // returns Option<SourceMap>
 });
@@ -144,84 +152,59 @@ Stable [ECMA-426](https://tc39.es/ecma426/) core support:
 - `ignoreList`
 - Indexed source maps with `sections`
 - `sourceRoot` resolution
-- Required extension tolerance for unrecognized properties
-- Robust error handling for malformed input
+- Unrecognized properties do not fail the parse
+- A typed `ParseError` for malformed input
 
 Draft proposal support:
 
 - `debugId` (ECMA-426 draft proposal, not part of the published core standard)
-- Scopes & variables via [`srcmap-scopes`](https://crates.io/crates/srcmap-scopes) (first Rust implementation of the [ECMA-426 scopes proposal](https://github.com/tc39/ecma426/blob/main/proposals/scopes.md))
+- Scopes & variables via [`srcmap-scopes`](https://crates.io/crates/srcmap-scopes) (the [ECMA-426 scopes proposal](https://github.com/tc39/ecma426/blob/main/proposals/scopes.md))
 - `rangeMappings` (ECMA-426 Stage 2 proposal)
 
 ## Performance
 
-For Rust consumers there is no FFI overhead. Benchmarked with Criterion:
+In Rust, a lookup is a binary search in a flat array, with no call into another runtime. `cargo bench -p srcmap-sourcemap` prints the parse and lookup times on your machine.
 
-| Operation | srcmap | trace-mapping (JS) | Speedup |
-|---|---|---|---|
-| Single lookup | **3 ns** | 24 ns | **8x** |
-| 1000 lookups | **5.5 μs** | 15 μs | **2.7x** |
-| Parse 100K segments | 718 μs | 326 μs | 0.5x |
+In Node.js, every lookup is a call into WASM or NAPI. The repository benchmarks compare the bindings with [`@jridgewell/trace-mapping`](https://github.com/jridgewell/trace-mapping) and [`source-map-js`](https://github.com/7rulnik/source-map-js) on the source maps of Preact, Chart.js and PDF.js:
 
-Parse is dominated by JSON deserialization — V8's `JSON.parse` is highly optimized C++. The VLQ decoder itself is fast (single-char fast path covers ~85% of real-world values).
+| Operation | Result |
+|---|---|
+| Parse | `@jridgewell/trace-mapping` is faster than the WASM binding on all three maps. The NAPI binding ties on the Preact map and is slower on the other two. |
+| Single lookup | `@jridgewell/trace-mapping` is faster on all three maps. `source-map-js` is also faster than the srcmap bindings. |
+| 1000 lookups in one call | The WASM batch API is faster than `@jridgewell/trace-mapping` on the two larger maps, and slower on the Preact map. |
 
-<details>
-<summary>Node.js benchmarks (WASM/NAPI bindings)</summary>
+The batch API sends all positions in one `Int32Array`, so the 1000 lookups need one call into WASM.
 
-Benchmarked against [`@jridgewell/trace-mapping`](https://github.com/jridgewell/trace-mapping) and [`source-map-js`](https://github.com/nicolo-ribaudo/source-map-js) using real-world source maps:
+To reproduce, run these commands from the repository root:
 
-| Source map | Size | Segments |
-|---|---|---|
-| [Preact](https://preactjs.com/) | 82 KB | 2,775 |
-| [Chart.js](https://www.chartjs.org/) | 988 KB | 83,942 |
-| [PDF.js](https://mozilla.github.io/pdf.js/) | 5.0 MB | 410,455 |
+```bash
+corepack pnpm --dir benchmarks run download-fixtures
+corepack pnpm --dir benchmarks run bench:real-world
+```
 
-**Parsing** — trace-mapping wins. V8's `JSON.parse` is hard to beat across an FFI boundary.
-
-| Source map | trace-mapping | source-map-js | srcmap WASM | srcmap NAPI |
-|---|---|---|---|---|
-| Preact | **0.06 ms** | 0.06 ms | 0.41 ms | 0.06 ms |
-| Chart.js | **0.69 ms** | 0.79 ms | 2.57 ms | 1.54 ms |
-| PDF.js | **3.56 ms** | 4.27 ms | 23.08 ms | 7.84 ms |
-
-**Single lookup** — trace-mapping wins. Pure JS with zero FFI overhead.
-
-| Source map | trace-mapping | source-map-js | srcmap WASM | srcmap NAPI |
-|---|---|---|---|---|
-| Preact | **26 ns** | 177 ns | 898 ns | 531 ns |
-| Chart.js | **26 ns** | 318 ns | 1,010 ns | 536 ns |
-| PDF.js | **25 ns** | 257 ns | 809 ns | 385 ns |
-
-**Batch lookup (1000 per call)** — srcmap wins. The WASM batch API sends all positions in a single `Int32Array`, amortizing the FFI boundary.
-
-| Source map | trace-mapping | source-map-js | srcmap WASM batch | srcmap NAPI batch |
-|---|---|---|---|---|
-| Preact | 18.5 μs | 206.6 μs | **20.7 μs** | 186.0 μs |
-| Chart.js | 17.2 μs | 328.1 μs | **11.6 μs** | 162.2 μs |
-| PDF.js | 16.6 μs | 368.6 μs | **12.1 μs** | 172.7 μs |
-
-Per-lookup amortized cost on a large map: **12 ns** (WASM batch) vs 17 ns (trace-mapping) — **1.4x faster**.
-
-Run `corepack pnpm --dir benchmarks run download-fixtures && corepack pnpm --dir benchmarks run bench:real-world` from the repository root to reproduce.
-
-</details>
+`benchmarks/vite-workload.mjs` replays the maps that a real Vite run combines. [benchmarks/vite-workload/README.md](benchmarks/vite-workload/README.md) describes how to record them.
 
 ## Node.js bindings
 
-srcmap ships WASM and NAPI bindings for use in Node.js — useful for symbolication services, error monitoring, and bulk source map operations.
+srcmap has WASM and NAPI bindings for Node.js. They fit a symbolication service, an error monitor, or any code that does many lookups per map.
 
 ### Choosing a package
 
-- **Consuming source maps?** → [`@srcmap/trace-mapping`](https://www.npmjs.com/package/@srcmap/trace-mapping) (drop-in for `@jridgewell/trace-mapping`)
-- **Generating source maps?** → [`@srcmap/gen-mapping`](https://www.npmjs.com/package/@srcmap/gen-mapping) (drop-in for `@jridgewell/gen-mapping`)
-- **Using Mozilla's API?** → [`@srcmap/source-map`](https://www.npmjs.com/package/@srcmap/source-map) (drop-in for `source-map` v0.6)
-- **Composing/remapping?** → [`@srcmap/remapping`](https://www.npmjs.com/package/@srcmap/remapping) (drop-in for `@ampproject/remapping`)
-- **Batch lookups or low-level control?** → [`@srcmap/sourcemap-wasm`](https://www.npmjs.com/package/@srcmap/sourcemap-wasm) (raw WASM API, fastest for bulk ops)
+| Your code | Package |
+|---|---|
+| Does many lookups per map, or needs the full parser API | [`@srcmap/sourcemap-wasm`](https://www.npmjs.com/package/@srcmap/sourcemap-wasm) |
+| Symbolicates stack traces | [`@srcmap/symbolicate-wasm`](https://www.npmjs.com/package/@srcmap/symbolicate-wasm) |
+| Uses the `@jridgewell/trace-mapping` API | [`@srcmap/trace-mapping`](https://www.npmjs.com/package/@srcmap/trace-mapping) |
+| Uses the `@jridgewell/gen-mapping` API | [`@srcmap/gen-mapping`](https://www.npmjs.com/package/@srcmap/gen-mapping) |
+| Uses the `@jridgewell/remapping` or `@ampproject/remapping` API | [`@srcmap/remapping`](https://www.npmjs.com/package/@srcmap/remapping) |
+| Uses the Mozilla `source-map` v0.6 API | [`@srcmap/source-map`](https://www.npmjs.com/package/@srcmap/source-map) |
+
+The last four packages copy the API of an existing package. Use them when a Node.js tool and a Rust tool must give the same results. Do not choose them for speed. No benchmark in this repository shows that one of them is faster than the package it copies.
 
 ### Quick start (Node.js)
 
 ```js
-// Swap the import — the rest of your code stays the same
+// The API of @jridgewell/trace-mapping, with one extra call to release WASM memory
 import { TraceMap, originalPositionFor } from '@srcmap/trace-mapping'
 
 const map = new TraceMap(sourceMapJsonOrObject)
@@ -235,10 +218,10 @@ map.free() // Release WASM memory (or use `using` with Symbol.dispose)
 
 | Package | Description |
 |---|---|
-| [`@srcmap/trace-mapping`](https://www.npmjs.com/package/@srcmap/trace-mapping) | Drop-in for `@jridgewell/trace-mapping` (WASM) |
-| [`@srcmap/gen-mapping`](https://www.npmjs.com/package/@srcmap/gen-mapping) | Drop-in for `@jridgewell/gen-mapping` (WASM) |
-| [`@srcmap/source-map`](https://www.npmjs.com/package/@srcmap/source-map) | Drop-in for Mozilla `source-map` v0.6 (WASM) |
-| [`@srcmap/remapping`](https://www.npmjs.com/package/@srcmap/remapping) | Drop-in for `@ampproject/remapping` (WASM) |
+| [`@srcmap/trace-mapping`](https://www.npmjs.com/package/@srcmap/trace-mapping) | The `@jridgewell/trace-mapping` API (WASM) |
+| [`@srcmap/gen-mapping`](https://www.npmjs.com/package/@srcmap/gen-mapping) | The `@jridgewell/gen-mapping` API (WASM) |
+| [`@srcmap/source-map`](https://www.npmjs.com/package/@srcmap/source-map) | The Mozilla `source-map` v0.6 API (WASM) |
+| [`@srcmap/remapping`](https://www.npmjs.com/package/@srcmap/remapping) | The `@jridgewell/remapping` and `@ampproject/remapping` API (WASM) |
 | [`@srcmap/sourcemap-wasm`](https://www.npmjs.com/package/@srcmap/sourcemap-wasm) | Parser + consumer (WASM) |
 | [`@srcmap/generator-wasm`](https://www.npmjs.com/package/@srcmap/generator-wasm) | Source map builder (WASM) |
 | [`@srcmap/remapping-wasm`](https://www.npmjs.com/package/@srcmap/remapping-wasm) | Concatenation + composition (WASM) |
@@ -248,7 +231,7 @@ map.free() // Release WASM memory (or use `using` with Symbol.dispose)
 
 ### Experimental bindings
 
-The Rust workspace also contains the following experimental binding crates. They are kept in the workspace for development and validation, but are not published as npm packages:
+The Rust workspace also has these experimental binding crates. The project does not publish them to npm:
 
 | Workspace crate | Status |
 |---|---|
@@ -279,14 +262,14 @@ srcmap schema                               # All commands as JSON (for agents)
 
 All commands except `decode` and `schema` support `--json` for structured output.
 
-## Why srcmap is fast
+## Implementation notes
 
-- **Cache-friendly layout** — 28-byte flat Mapping struct in contiguous memory (6 × u32 + bool)
-- **Single-char VLQ fast path** — ~85% of real-world values decode in one operation
-- **Lazy reverse index** — only built on first `generated_position_for` call
-- **Binary search** — O(log n) for both forward and reverse lookups
-- **Zero-copy parsing** — `mappings` string borrowed directly from JSON input
-- **Pre-counted capacity** — segment and line counts estimated before allocation
+- A mapping is a flat 28-byte struct (6 × u32 and a bool) in one contiguous array.
+- The VLQ decoder has a fast path for a value that fits in one character.
+- The parser builds the reverse index on the first `generated_position_for` call.
+- Forward and reverse lookups are binary searches.
+- The parser borrows the `mappings` string from the JSON input.
+- The parser estimates the segment and line counts before it allocates.
 
 ## Development
 

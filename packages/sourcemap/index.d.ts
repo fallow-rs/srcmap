@@ -27,7 +27,7 @@ export interface GeneratedPosition {
 }
 
 /**
- * High-performance source map parser and consumer powered by Rust via NAPI.
+ * Source map parser and consumer, written in Rust with a NAPI binding.
  *
  * Parses source map JSON (v3 / ECMA-426) and provides O(log n) position lookups.
  * Supports regular and indexed (sectioned) source maps.

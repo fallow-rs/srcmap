@@ -1,7 +1,4 @@
-/**
- * @srcmap/gen-mapping — drop-in replacement for @jridgewell/gen-mapping
- * powered by Rust via WebAssembly.
- */
+/** The @jridgewell/gen-mapping API on the srcmap Rust generator, compiled to WebAssembly. */
 
 // ── Segment types ────────────────────────────────────────────────
 

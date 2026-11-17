@@ -3,9 +3,13 @@
 [![npm](https://img.shields.io/npm/v/@srcmap/remapping.svg)](https://www.npmjs.com/package/@srcmap/remapping)
 [![CI](https://github.com/fallow-rs/srcmap/actions/workflows/ci.yml/badge.svg)](https://github.com/fallow-rs/srcmap/actions/workflows/ci.yml)
 
-Drop-in replacement for [`@jridgewell/remapping`](https://github.com/jridgewell/remapping) and [`@ampproject/remapping`](https://github.com/nicolo-ribaudo/remapping) powered by Rust via WebAssembly.
+The API of [`@jridgewell/remapping`](https://github.com/jridgewell/remapping) and [`@ampproject/remapping`](https://github.com/ampproject/remapping) on the srcmap Rust remapping code, compiled to WebAssembly.
 
-Same API, same types, same behavior. Swap the import and get source map composition backed by Rust under the hood.
+`remapping(maps, loader)` takes the arguments of `@jridgewell/remapping` and returns a `SourceMap` with the same fields.
+
+Each call writes the input maps to JSON, calls into WASM, and parses the result. For a small map, those three steps cost more than the composition. This package is not the faster choice in a build tool. `benchmarks/vite-workload.mjs` in the repository compares it with `@jridgewell/remapping` on the maps of a recorded Vite run.
+
+It fits a Node.js tool that must compose maps the same way as a Rust tool with `srcmap-remapping`.
 
 ## Install
 
@@ -74,9 +78,9 @@ The `loader` function receives a source filename and should return the upstream 
 
 ## Part of [srcmap](https://github.com/fallow-rs/srcmap)
 
-High-performance source map tooling written in Rust. See also:
-- [`@srcmap/trace-mapping`](https://www.npmjs.com/package/@srcmap/trace-mapping) - Drop-in for `@jridgewell/trace-mapping` (consumer)
-- [`@srcmap/gen-mapping`](https://www.npmjs.com/package/@srcmap/gen-mapping) - Drop-in for `@jridgewell/gen-mapping` (generator)
+Source map tooling written in Rust. See also:
+- [`@srcmap/trace-mapping`](https://www.npmjs.com/package/@srcmap/trace-mapping) - The `@jridgewell/trace-mapping` API (consumer)
+- [`@srcmap/gen-mapping`](https://www.npmjs.com/package/@srcmap/gen-mapping) - The `@jridgewell/gen-mapping` API (generator)
 - [`@srcmap/remapping-wasm`](https://www.npmjs.com/package/@srcmap/remapping-wasm) - Lower-level WASM remapping API
 
 ## License

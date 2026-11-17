@@ -1,12 +1,11 @@
 {
   "name": "@srcmap/remapping",
   "version": "0.5.0",
-  "description": "Drop-in replacement for @jridgewell/remapping and @ampproject/remapping powered by Rust via WebAssembly",
+  "description": "The @jridgewell/remapping and @ampproject/remapping API on the srcmap Rust remapping code, compiled to WebAssembly",
   "keywords": [
     "composition",
     "concatenation",
     "drop-in",
-    "performance",
     "remapping",
     "source-map",
     "sourcemap",

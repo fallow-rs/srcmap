@@ -3,9 +3,11 @@
 [![npm](https://img.shields.io/npm/v/@srcmap/source-map.svg)](https://www.npmjs.com/package/@srcmap/source-map)
 [![CI](https://github.com/fallow-rs/srcmap/actions/workflows/ci.yml/badge.svg)](https://github.com/fallow-rs/srcmap/actions/workflows/ci.yml)
 
-Drop-in replacement for [Mozilla's `source-map`](https://github.com/nicolo-ribaudo/source-map-js) v0.6 API powered by Rust via WebAssembly.
+The v0.6 API of [Mozilla's `source-map`](https://github.com/mozilla/source-map) on the srcmap Rust parser and generator, compiled to WebAssembly.
 
-Same `SourceMapConsumer` and `SourceMapGenerator` classes, same behavior. Swap the import and get source map operations backed by Rust under the hood.
+The package has the `SourceMapConsumer` and `SourceMapGenerator` classes of `source-map` v0.6. Existing code needs a changed import, and it must free WASM memory (see [Differences](#differences-from-mozilla-source-map)).
+
+A lookup is a call into WASM, and [`source-map-js`](https://github.com/7rulnik/source-map-js) does a single lookup in less time (see the [benchmarks](https://github.com/fallow-rs/srcmap#performance)). Choose this package when the results must match a Rust tool that uses srcmap.
 
 ## Install
 
@@ -91,15 +93,15 @@ generator.destroy()
 
 ## Differences from Mozilla source-map
 
-- **Synchronous API**: No `SourceMapConsumer.with()` or promise-based initialization — construction is synchronous
-- **WASM memory**: Call `consumer.destroy()` / `generator.destroy()` when done to free WASM memory
-- **Indexed source maps**: Handled natively by the WASM engine
+- **Synchronous API.** The constructor returns a consumer directly. The package has no `SourceMapConsumer.with()` and no promise-based initialization.
+- **WASM memory.** Call `consumer.destroy()` or `generator.destroy()` when you are done.
+- **Indexed source maps.** The parser reads them directly.
 
 ## Part of [srcmap](https://github.com/fallow-rs/srcmap)
 
-High-performance source map tooling written in Rust. See also:
-- [`@srcmap/trace-mapping`](https://www.npmjs.com/package/@srcmap/trace-mapping) - Drop-in for `@jridgewell/trace-mapping`
-- [`@srcmap/gen-mapping`](https://www.npmjs.com/package/@srcmap/gen-mapping) - Drop-in for `@jridgewell/gen-mapping`
+Source map tooling written in Rust. See also:
+- [`@srcmap/trace-mapping`](https://www.npmjs.com/package/@srcmap/trace-mapping) - The `@jridgewell/trace-mapping` API
+- [`@srcmap/gen-mapping`](https://www.npmjs.com/package/@srcmap/gen-mapping) - The `@jridgewell/gen-mapping` API
 - [`@srcmap/sourcemap-wasm`](https://www.npmjs.com/package/@srcmap/sourcemap-wasm) - Lower-level WASM API (0-based lines)
 
 ## License

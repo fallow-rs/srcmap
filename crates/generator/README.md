@@ -5,9 +5,9 @@
 [![CI](https://github.com/fallow-rs/srcmap/actions/workflows/ci.yml/badge.svg)](https://github.com/fallow-rs/srcmap/actions/workflows/ci.yml)
 [![Coverage](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/fallow-rs/srcmap/badges/rust-coverage.json)](https://github.com/fallow-rs/srcmap/actions/workflows/coverage.yml)
 
-High-performance source map generator for Rust.
+Source map generator for Rust.
 
-Builds source maps incrementally by adding mappings one at a time. Outputs standard [ECMA-426](https://tc39.es/ecma426/) source map v3 JSON. Drop-in Rust equivalent of [`@jridgewell/gen-mapping`](https://github.com/jridgewell/gen-mapping).
+Builds source maps incrementally by adding mappings one at a time. Outputs standard [ECMA-426](https://tc39.es/ecma426/) source map v3 JSON. It is the Rust counterpart of [`@jridgewell/gen-mapping`](https://github.com/jridgewell/gen-mapping).
 
 ## Install
 
@@ -33,7 +33,7 @@ gen.add_mapping(0, 0, src, 0, 6);
 gen.add_named_mapping(1, 0, src, 1, 0, name);
 
 // Skip redundant mappings automatically
-gen.maybe_add_mapping(1, 5, src, 1, 0); // skipped — same source position
+gen.maybe_add_mapping(1, 5, src, 1, 0); // skipped: same source position
 
 let json = gen.to_json();
 // {"version":3,"file":"bundle.js","sources":["src/app.ts"],...}
@@ -94,10 +94,10 @@ On-the-fly VLQ encoder that emits mappings as they are added, without collecting
 - **Automatic deduplication** of sources and names
 - **`maybe_add_mapping`** skips redundant mappings to reduce output size
 - **Range mappings** (`rangeMappings` field, ECMA-426 Stage 2)
-- **Streaming generation** via `StreamingGenerator` — zero-allocation VLQ encoding
+- **Streaming generation** via `StreamingGenerator`, which encodes VLQ as you add mappings
 - **`ignoreList`** support for filtering third-party sources in DevTools
 - **Parallel VLQ encoding** for large maps (opt-in via `parallel` feature)
-- **Hand-rolled JSON serialization** — no serde overhead in output path
+- **JSON output without serde**: the generator writes the JSON string itself
 
 ## Part of [srcmap](https://github.com/fallow-rs/srcmap)
 

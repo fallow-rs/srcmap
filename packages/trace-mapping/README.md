@@ -3,9 +3,11 @@
 [![npm](https://img.shields.io/npm/v/@srcmap/trace-mapping.svg)](https://www.npmjs.com/package/@srcmap/trace-mapping)
 [![CI](https://github.com/fallow-rs/srcmap/actions/workflows/ci.yml/badge.svg)](https://github.com/fallow-rs/srcmap/actions/workflows/ci.yml)
 
-Drop-in replacement for [`@jridgewell/trace-mapping`](https://github.com/jridgewell/trace-mapping) powered by Rust via WebAssembly.
+The API of [`@jridgewell/trace-mapping`](https://github.com/jridgewell/trace-mapping) on the srcmap Rust parser, compiled to WebAssembly.
 
-Same API, same types, same behavior. Swap the import and get source map lookups backed by Rust's O(log n) binary search under the hood.
+The package has the same functions and types as `@jridgewell/trace-mapping`. Code written for that package runs on this one after you change the import.
+
+Use it when a Node.js tool and a Rust tool must give the same lookup results. Do not use it for speed. Each lookup is a call into WASM, and `@jridgewell/trace-mapping` does a single lookup in less time (see the [benchmarks](https://github.com/fallow-rs/srcmap#performance)). For many lookups on one map, use the batch API of [`@srcmap/sourcemap-wasm`](https://www.npmjs.com/package/@srcmap/sourcemap-wasm).
 
 ## Install
 
@@ -42,7 +44,7 @@ All exports from `@jridgewell/trace-mapping` are supported:
 
 | Export | Description |
 |--------|-------------|
-| `TraceMap` | Main class — parses source maps (regular, indexed, decoded) |
+| `TraceMap` | Main class: parses source maps (regular, indexed, decoded) |
 | `originalPositionFor(map, needle)` | Forward lookup (1-based lines, 0-based columns) |
 | `generatedPositionFor(map, needle)` | Reverse lookup |
 | `allGeneratedPositionsFor(map, needle)` | All generated positions for an original position |
@@ -85,7 +87,7 @@ Follows `@jridgewell/trace-mapping` conventions:
 
 ## Part of [srcmap](https://github.com/fallow-rs/srcmap)
 
-High-performance source map tooling written in Rust. See also:
+Source map tooling written in Rust. See also:
 - [`@srcmap/sourcemap-wasm`](https://www.npmjs.com/package/@srcmap/sourcemap-wasm) - Lower-level WASM API (0-based lines)
 - [`@srcmap/generator-wasm`](https://www.npmjs.com/package/@srcmap/generator-wasm) - Source map generator (WASM)
 - [`@srcmap/remapping-wasm`](https://www.npmjs.com/package/@srcmap/remapping-wasm) - Concatenation + composition (WASM)

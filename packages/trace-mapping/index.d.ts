@@ -1,7 +1,4 @@
-/**
- * @srcmap/trace-mapping — drop-in replacement for @jridgewell/trace-mapping
- * powered by Rust via WebAssembly.
- */
+/** The @jridgewell/trace-mapping API on the srcmap Rust parser, compiled to WebAssembly. */
 
 // ── Segment types ────────────────────────────────────────────────
 

@@ -1,11 +1,10 @@
 {
   "name": "@srcmap/codec",
   "version": "0.5.0",
-  "description": "High-performance VLQ source map codec powered by Rust",
+  "description": "VLQ source map codec, written in Rust",
   "keywords": [
     "codec",
     "napi",
-    "performance",
     "rust",
     "source-map",
     "sourcemap",

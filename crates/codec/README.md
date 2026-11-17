@@ -5,9 +5,9 @@
 [![CI](https://github.com/fallow-rs/srcmap/actions/workflows/ci.yml/badge.svg)](https://github.com/fallow-rs/srcmap/actions/workflows/ci.yml)
 [![Coverage](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/fallow-rs/srcmap/badges/rust-coverage.json)](https://github.com/fallow-rs/srcmap/actions/workflows/coverage.yml)
 
-High-performance VLQ source map codec for Rust.
+VLQ source map codec for Rust.
 
-Encodes and decodes source map `mappings` strings using the Base64 VLQ format specified in [ECMA-426](https://tc39.es/ecma426/) (Source Map v3). Drop-in Rust equivalent of [`@jridgewell/sourcemap-codec`](https://github.com/jridgewell/sourcemap-codec).
+Encodes and decodes source map `mappings` strings using the Base64 VLQ format specified in [ECMA-426](https://tc39.es/ecma426/) (Source Map v3). It is the Rust counterpart of [`@jridgewell/sourcemap-codec`](https://github.com/jridgewell/sourcemap-codec).
 
 ## Install
 
@@ -45,7 +45,7 @@ assert_eq!(value, 42);
 
 ### Parallel encoding
 
-Enable the `parallel` feature for multi-threaded encoding via [rayon](https://crates.io/crates/rayon). ~1.5x faster for large maps (5K+ lines).
+Enable the `parallel` feature for multi-threaded encoding via [rayon](https://crates.io/crates/rayon). `cargo bench -p srcmap-codec --features parallel` compares it with the serial encoder.
 
 ```toml
 [dependencies]
@@ -83,13 +83,13 @@ Segments have 1, 4, or 5 fields:
 - **4 fields:** `[generated_column, source_index, original_line, original_column]`
 - **5 fields:** `[generated_column, source_index, original_line, original_column, name_index]`
 
-## Performance
+## Implementation
 
-Standard VLQ loop with a pre-computed base64 lookup table and continuation-bit processing. The encoder includes a single-char fast path for small values.
+The decoder is a standard VLQ loop with a pre-computed base64 lookup table. The encoder has a fast path for a value that fits in one character.
 
 ## Part of [srcmap](https://github.com/fallow-rs/srcmap)
 
-This crate is the foundation of the srcmap source map toolkit. See the [main repository](https://github.com/fallow-rs/srcmap) for the full suite including parser, generator, and remapping.
+The other srcmap crates use this crate. See the [main repository](https://github.com/fallow-rs/srcmap) for the parser, the generator and the remapping crate.
 
 ## License
 

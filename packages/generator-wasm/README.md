@@ -3,9 +3,9 @@
 [![npm](https://img.shields.io/npm/v/@srcmap/generator-wasm.svg)](https://www.npmjs.com/package/@srcmap/generator-wasm)
 [![CI](https://github.com/fallow-rs/srcmap/actions/workflows/ci.yml/badge.svg)](https://github.com/fallow-rs/srcmap/actions/workflows/ci.yml)
 
-High-performance source map generator powered by Rust via WebAssembly.
+Source map generator, written in Rust and compiled to WebAssembly.
 
-Builds source maps incrementally by registering sources, names, and mappings. Outputs standard source map v3 JSON (ECMA-426). Alternative to [`source-map`](https://github.com/nicolo-ribaudo/source-map-js)'s `SourceMapGenerator`.
+Builds source maps incrementally by registering sources, names, and mappings. Outputs standard source map v3 JSON (ECMA-426). Alternative to [`source-map`](https://github.com/7rulnik/source-map-js)'s `SourceMapGenerator`.
 
 ## Install
 
@@ -68,7 +68,7 @@ Create a new source map generator. `file` is the optional output filename.
 
 ## Part of [srcmap](https://github.com/fallow-rs/srcmap)
 
-High-performance source map tooling written in Rust. See also:
+Source map tooling written in Rust. See also:
 - [`@srcmap/sourcemap-wasm`](https://www.npmjs.com/package/@srcmap/sourcemap-wasm) - Source map parser (WASM)
 - [`@srcmap/remapping-wasm`](https://www.npmjs.com/package/@srcmap/remapping-wasm) - Concatenation + composition (WASM)
 - [`@srcmap/symbolicate-wasm`](https://www.npmjs.com/package/@srcmap/symbolicate-wasm) - Stack trace symbolication (WASM)

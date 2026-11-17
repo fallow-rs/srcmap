@@ -5,9 +5,9 @@
 [![CI](https://github.com/fallow-rs/srcmap/actions/workflows/ci.yml/badge.svg)](https://github.com/fallow-rs/srcmap/actions/workflows/ci.yml)
 [![Coverage](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/fallow-rs/srcmap/badges/rust-coverage.json)](https://github.com/fallow-rs/srcmap/actions/workflows/coverage.yml)
 
-High-performance source map parser and consumer for Rust.
+Source map parser and consumer for Rust.
 
-Parses source map JSON and provides O(log n) position lookups. Implements the [ECMA-426](https://tc39.es/ecma426/) Source Map v3 specification. Drop-in Rust equivalent of [`@jridgewell/trace-mapping`](https://github.com/jridgewell/trace-mapping).
+Parses source map JSON and provides O(log n) position lookups. Implements the [ECMA-426](https://tc39.es/ecma426/) Source Map v3 specification. It is the Rust counterpart of [`@jridgewell/trace-mapping`](https://github.com/jridgewell/trace-mapping).
 
 ## Install
 
@@ -212,17 +212,11 @@ the `OriginalPositionLookup` trait.
 - **Zero-copy JSON parsing** via borrowed mappings string
 - **Range mappings** (`rangeMappings` field, ECMA-426 Stage 2 proposal) with cross-line delta lookup
 - **Lazy iterator** (`MappingsIter`) for zero-allocation streaming over encoded mappings
-- **Robust error handling** for malformed input
+- **A typed `ParseError`** for malformed input
 
-## Performance
+## Benchmarks
 
-Benchmarked on a 100K segment source map (Criterion):
-
-| Operation | Time |
-|-----------|------|
-| Parse | 701 us |
-| Single lookup | 3 ns |
-| 1000x lookups | 5.8 us (5.8 ns/lookup) |
+`cargo bench -p srcmap-sourcemap` prints the parse and lookup times on your machine.
 
 ## Part of [srcmap](https://github.com/fallow-rs/srcmap)
 
