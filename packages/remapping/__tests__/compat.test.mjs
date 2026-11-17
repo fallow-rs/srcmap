@@ -589,3 +589,137 @@ describe("ignoreList order matches @jridgewell/remapping", () => {
     );
   });
 });
+
+// A loader can set `ctx.source` to a value that is not a string. jridgewell keeps
+// that value: a falsy value gives sourceless segments, and an other value is a source.
+describe("ctx.source values match @jridgewell/remapping", () => {
+  const top = {
+    version: 3,
+    sources: ["a.js", "b.js"],
+    sourcesContent: ["A", "B"],
+    names: [],
+    mappings: "AAAA,EAAC,ECAA",
+  };
+  const upstream = {
+    version: 3,
+    sources: ["o.js"],
+    sourcesContent: ["O"],
+    names: [],
+    mappings: "AAAA",
+  };
+  const EMPTY_FORM = { toString: () => "" };
+  const VALUES = [
+    null,
+    undefined,
+    "",
+    0,
+    NaN,
+    false,
+    42,
+    {},
+    ["x"],
+    [],
+    EMPTY_FORM,
+    true,
+    Symbol("s"),
+  ];
+  const labelOf = (value) => {
+    if (typeof value === "symbol") return value.description;
+    return Array.isArray(value) ? `[${value}]` : String(value) || "empty string form";
+  };
+  const fields = (result) => ({
+    sources: result.sources,
+    sourcesContent: result.sourcesContent,
+    mappings: result.mappings,
+    names: result.names,
+    ignoreList: result.ignoreList,
+  });
+  const outcome = (remapping, values, overrides = {}) => {
+    const {
+      upstream: withUpstream,
+      mappings = top.mappings,
+      ignored = [],
+      ...ctxFields
+    } = overrides;
+    try {
+      const result = remapping({ ...top, mappings }, (source, ctx) => {
+        if (ctx.depth !== 1 || !(source in values)) return null;
+        ctx.source = values[source];
+        Object.assign(ctx, ctxFields);
+        if (ignored.includes(source)) ctx.ignore = true;
+        return withUpstream ? upstream : null;
+      });
+      return fields(result);
+    } catch (error) {
+      return { error: error.constructor.name, message: error.message };
+    }
+  };
+  const same = (values, overrides, label) => {
+    assert.deepEqual(
+      outcome(srcmapRemapping, values, overrides),
+      outcome(jrRemapping, values, overrides),
+      label,
+    );
+  };
+
+  it("handles each value for a source without an upstream map", () => {
+    for (const value of VALUES) {
+      same({ "a.js": value }, {}, labelOf(value));
+      same({ "a.js": value }, { ignore: true }, `${labelOf(value)} ignored`);
+      same({ "a.js": value }, { content: "C", ignore: true }, `${labelOf(value)} content`);
+    }
+  });
+
+  it("handles each value for a source with an upstream map", () => {
+    for (const value of VALUES) same({ "a.js": value }, { upstream: true }, labelOf(value));
+  });
+
+  it("merges values that convert to the same string", () => {
+    same({ "a.js": {}, "b.js": {} }, {}, "two objects");
+    same({ "a.js": 42, "b.js": 42 }, {}, "two numbers");
+    same({ "a.js": null, "b.js": null }, { ignore: true }, "two nulls");
+    same({ "a.js": 42, "b.js": "42" }, {}, "number and string");
+    same({ "a.js": "42", "b.js": 42 }, {}, "string and number");
+  });
+
+  // jridgewell keeps the value of the first segment that uses a string form. The
+  // loader order and a source without segments do not change that value.
+  it("takes the value of the first segment for a shared string form", () => {
+    const pairs = [
+      [42, "42"],
+      ["42", 42],
+      [{}, "[object Object]"],
+      ["[object Object]", {}],
+      [[], ""],
+      ["", []],
+    ];
+    for (const [a, b] of pairs) {
+      const label = `${labelOf(a)} then ${labelOf(b)}`;
+      same({ "a.js": a, "b.js": b }, { mappings: "ACAA" }, `${label}, only b.js`);
+      same({ "a.js": a, "b.js": b }, { mappings: "ACAA,EDAA" }, `${label}, b.js first`);
+      same({ "a.js": a, "b.js": b }, { mappings: "ACAA,EDAA", ignored: ["a.js"] }, label);
+      same({ "a.js": a, "b.js": b }, { mappings: "ACAA,EDAA", ignored: ["b.js"] }, label);
+      same({ "a.js": a, "b.js": b }, { mappings: "AAAA,ECAA", ignored: ["b.js"] }, label);
+    }
+  });
+
+  it("keeps two symbols with the same description apart", () => {
+    same({ "a.js": Symbol("s"), "b.js": Symbol("s") }, {}, "two symbols");
+  });
+
+  it("rejects an object without a string form only when a segment uses it", () => {
+    same({ "a.js": Object.create(null) }, {}, "used");
+    const unused = { ...top, mappings: "AAAA" };
+    const run = (remapping) =>
+      remapping(unused, (source, ctx) => {
+        if (source === "b.js") ctx.source = Object.create(null);
+        return null;
+      }).sources;
+    assert.deepEqual(run(srcmapRemapping), run(jrRemapping));
+  });
+
+  it("rejects an empty array of maps with a TypeError", () => {
+    assert.throws(() => jrRemapping([], () => null), TypeError);
+    assert.throws(() => srcmapRemapping([], () => null), TypeError);
+  });
+});

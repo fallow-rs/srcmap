@@ -1,5 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import remapping, { SourceMap } from "../src/remapping.mjs";
 
 const ORIGINAL_MAP = {
@@ -366,10 +368,36 @@ describe("error handling", () => {
     assert.throws(() => remapping("not json", () => null));
   });
 
-  it("handles empty array gracefully", () => {
-    const result = remapping([], () => null);
-    assert.ok(result instanceof SourceMap);
-    assert.equal(result.version, 3);
+  it("throws a TypeError for an empty array, as jridgewell does", () => {
+    let calls = 0;
+    assert.throws(
+      () =>
+        remapping([], () => {
+          calls++;
+          return null;
+        }),
+      { name: "TypeError", message: /at least one source map/ },
+    );
+    assert.equal(calls, 0);
+  });
+});
+
+// remapping.mjs and remapping.cjs have the same body. Only the module header and
+// the export lines differ.
+describe("ESM and CJS builds", () => {
+  const BODY_START = "/**\n * Result class";
+  const bodyOf = (file, end) => {
+    const text = readFileSync(fileURLToPath(new URL(`../src/${file}`, import.meta.url)), "utf8");
+    const start = text.indexOf(BODY_START);
+    const stop = text.indexOf(end);
+    assert.ok(start >= 0 && stop > start, `${file}: body markers not found`);
+    return text.slice(start, stop);
+  };
+
+  it("have the same body", () => {
+    const esm = bodyOf("remapping.mjs", "\nexport default remapping;");
+    const cjs = bodyOf("remapping.cjs", "\nmodule.exports = remapping;");
+    assert.equal(cjs, esm, "copy the body of remapping.mjs to remapping.cjs");
   });
 });
 

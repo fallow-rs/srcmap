@@ -198,6 +198,48 @@ const checkTransformationMaps = (maps) => {
   }
 };
 
+const NO_NAME_INDEX = -1;
+
+// The same check as `skipSource` of @jridgewell/gen-mapping: a segment that repeats
+// the previous segment on its line adds nothing.
+const repeatsPrevious = (line, segment) => {
+  const prev = line.at(-1);
+  if (prev === undefined || prev.length === 1) return false;
+  return (
+    prev[1] === segment[1] &&
+    prev[2] === segment[2] &&
+    prev[3] === segment[3] &&
+    (prev[4] ?? NO_NAME_INDEX) === (segment[4] ?? NO_NAME_INDEX)
+  );
+};
+
+// Gives each source of `map` the index of its group. As in jridgewell, the content
+// of a group is the last content that a segment of the group sets.
+const mergeSources = (map, groupOf, groups, restore) => {
+  const contents = map.sourcesContent;
+  const lines = decodeMappings(map.mappings).map((line) => {
+    const merged = [];
+    for (const segment of line) {
+      if (segment.length === 1) {
+        merged.push(segment);
+        continue;
+      }
+      const group = groupOf[segment[1]];
+      if (contents?.[segment[1]] != null) group.content = contents[segment[1]];
+      const next = [segment[0], group.index, ...segment.slice(2)];
+      if (!repeatsPrevious(merged, next)) merged.push(next);
+    }
+    return merged;
+  });
+  map.mappings = encodeMappings(lines);
+  map.sources = groups.map((group) => restore(group.name));
+  if (contents) map.sourcesContent = groups.map((group) => group.content);
+  if (map.ignoreList) {
+    map.ignoreList = [...new Set(map.ignoreList.map((i) => groupOf[i].index))];
+  }
+  return map;
+};
+
 /**
  * The maps of one `remapping` call. Each map that the loader gives, and each outer
  * map of a chain, gets a unique key. The key is the source name of that map in the
@@ -212,6 +254,67 @@ class UpstreamMaps {
     this.ignoredNames = new Set();
     this.plainNames = new Set();
     this.standIns = new Map();
+    // The value of each name that `leafName` gives for a source that is not a string.
+    this.values = new Map();
+    this.valueNames = new Map();
+  }
+
+  // jridgewell keeps a `ctx.source` that is not a string, and finds a source by its
+  // property key. A falsy value gives sourceless segments, and an ignored one stays
+  // in `sources`. The WASM remap has one empty source, so the first ignored falsy
+  // value in loader order gives its value. Each other value gets a unique name, so
+  // that the WASM remap keeps it apart from a string with the same string form.
+  // `restoreValues` merges them after the last pass.
+  leafName(source, ignored) {
+    if (!source) {
+      if (ignored && !this.values.has("")) this.values.set("", source);
+      return "";
+    }
+    if (typeof source === "string") return source;
+    let name = this.valueNames.get(source);
+    if (name === undefined) {
+      name = `${this.prefix}value-${this.valueNames.size}`;
+      this.valueNames.set(source, name);
+      this.values.set(name, source);
+    }
+    return name;
+  }
+
+  hasValues() {
+    return this.values.size > 1 || (this.values.size === 1 && this.values.get("") !== "");
+  }
+
+  // Merges the sources that share a property key, as `put` of jridgewell does. The
+  // first source in the result is the first that a segment registered, so it gives
+  // the value. jridgewell throws for a value without a string form only when a
+  // segment uses it.
+  restoreValues(map) {
+    const keyOf = (name) => {
+      if (!this.values.has(name)) return name;
+      const value = this.values.get(name);
+      if (typeof value === "symbol") return value;
+      try {
+        return String(value);
+      } catch {
+        throw new TypeError("Cannot convert object to primitive value");
+      }
+    };
+    const groups = new Map();
+    const groupOf = map.sources.map((name, i) => {
+      const key = keyOf(name);
+      let group = groups.get(key);
+      if (group === undefined) {
+        group = { index: groups.size, name, content: map.sourcesContent?.[i] ?? null };
+        groups.set(key, group);
+      }
+      return group;
+    });
+    const restore = (name) => (this.values.has(name) ? this.values.get(name) : name);
+    if (groups.size === map.sources.length) {
+      map.sources = map.sources.map(restore);
+      return map;
+    }
+    return mergeSources(map, groupOf, [...groups.values()], restore);
   }
 
   add(node, depth) {
@@ -280,8 +383,9 @@ const buildTree = (input, loader, importer, importerDepth, upstreams) => {
     );
     const isIgnored = ctx.ignore !== undefined ? ctx.ignore : ignoreList.includes(i);
     if (isIgnored) ignored.add(i);
-    upstreams.noteLeaf(ctx.source, isIgnored);
-    return ctx.source;
+    const name = upstreams.leafName(ctx.source, isIgnored);
+    upstreams.noteLeaf(name, isIgnored);
+    return name;
   });
   return { map, sources, ignored, fields: { sourcesContent, ignoreList: [...ignored] } };
 };
@@ -295,11 +399,13 @@ const restoreStandIns = (json, standIns) => {
 };
 
 // A WASM remap pass resolves one level of keys, so the remap runs once per level.
+// Returns the parsed result map.
 const remapAll = (input, loader) => {
   const maps = (Array.isArray(input) ? input : [input]).map(toRawMap);
   checkTransformationMaps(maps);
   if (maps.length === 0) {
-    return JSON.stringify({ version: 3, sources: [], names: [], mappings: "" });
+    // jridgewell throws a TypeError here too, before it calls the loader.
+    throw new TypeError("remapping needs at least one source map, but got an empty array");
   }
 
   const upstreams = new UpstreamMaps();
@@ -320,7 +426,9 @@ const remapAll = (input, loader) => {
   for (let level = 1; level < upstreams.height; level++) {
     result = wasmRemap(result, lookup);
   }
-  return upstreams.standIns.size > 0 ? restoreStandIns(result, upstreams.standIns) : result;
+  if (upstreams.standIns.size > 0) result = restoreStandIns(result, upstreams.standIns);
+  const map = JSON.parse(result);
+  return upstreams.hasValues() ? upstreams.restoreValues(map) : map;
 };
 
 /**
@@ -341,7 +449,7 @@ const remapping = (input, loader, options) => {
     typeof options === "object" && options !== null
       ? options
       : { excludeContent: !!options, decodedMappings: false };
-  return new SourceMap(JSON.parse(remapAll(input, loader)), opts);
+  return new SourceMap(remapAll(input, loader), opts);
 };
 
 module.exports = remapping;
