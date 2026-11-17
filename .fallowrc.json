@@ -18,7 +18,8 @@
     "@srcmap/sourcemap-win32-x64-msvc",
     "@srcmap/generator-wasm",
     "@srcmap/sourcemap-wasm",
-    "@srcmap/remapping-wasm"
+    "@srcmap/remapping-wasm",
+    "vite"
   ],
   "ignoreUnresolvedImports": [
     "@srcmap/generator-wasm",
