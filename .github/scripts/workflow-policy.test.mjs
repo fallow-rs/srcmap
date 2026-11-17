@@ -6,7 +6,6 @@ import { describe, it } from "node:test";
 const ROOT_URL = new URL("../../", import.meta.url);
 const WORKFLOWS_URL = new URL(".github/workflows/", ROOT_URL);
 const BENCH_WORKFLOW_URL = new URL("bench.yml", WORKFLOWS_URL);
-const BENCH_WALLTIME_WORKFLOW_URL = new URL("bench-walltime.yml", WORKFLOWS_URL);
 const CI_WORKFLOW_URL = new URL("ci.yml", WORKFLOWS_URL);
 const COVERAGE_WORKFLOW_URL = new URL("coverage.yml", WORKFLOWS_URL);
 const RELEASE_WORKFLOW_URL = new URL("release.yml", WORKFLOWS_URL);
@@ -362,15 +361,24 @@ describe("Benchmark runner compatibility", () => {
     assert.ok(!benches.includes("vlq_parallel"), "simulation must not run vlq_parallel");
     assert.ok(!benches.includes("generate_parallel"), "simulation must not run generate_parallel");
 
-    const workflow = await readFile(BENCH_WALLTIME_WORKFLOW_URL, "utf8");
+    const workflow = await readFile(BENCH_WORKFLOW_URL, "utf8");
     const job = workflowJob(workflow, "parallel");
     assert.match(job, /^    runs-on: codspeed-macro-arm64-graviton-ubuntu-22-04$/m);
+    // Macro runner minutes are limited, so the job runs only at night and on
+    // demand.
+    assert.match(
+      job,
+      /^    if: github\.event_name == 'schedule' \|\| github\.event_name == 'workflow_dispatch'$/m,
+    );
+    assert.match(
+      workflowJob(workflow, "benchmark-matrix"),
+      /^    if: github\.event_name != 'schedule'$/m,
+    );
     assert.match(job, /^          mode: walltime$/m);
     assert.match(job, /--bench vlq_parallel/);
     assert.match(job, /--bench generate_parallel/);
-    assert.doesNotMatch(workflow, /^  (?:push|pull_request):/m, "macro runner minutes are limited");
     assert.doesNotMatch(
-      workflow,
+      job,
       /RUSTFLAGS:.*--cfg codspeed/,
       "--cfg codspeed selects the simulation harness, so walltime gets no results",
     );
@@ -385,6 +393,20 @@ describe("Benchmark runner compatibility", () => {
         `${bench} needs the walltime-capable harness`,
       );
     }
+  });
+});
+
+describe("CodSpeed upload source", () => {
+  it("uploads to CodSpeed only from bench.yml", async () => {
+    // CodSpeed takes the results for one commit from one run of one workflow.
+    // A second workflow on the same commit gets "Benchmarks ran in several CI
+    // workflows".
+    const uploaders = [];
+    for (const file of (await readdir(WORKFLOWS_URL)).filter((name) => name.endsWith(".yml"))) {
+      const source = await readFile(new URL(file, WORKFLOWS_URL), "utf8");
+      if (/uses: CodSpeedHQ\/action@/.test(source)) uploaders.push(file);
+    }
+    assert.deepEqual(uploaders, ["bench.yml"]);
   });
 });
 
