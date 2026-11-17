@@ -401,7 +401,14 @@ const isWellFormed = String.prototype.isWellFormed
 // string that crosses the boundary loses it. Such a string goes to the JSON path.
 const isPartsString = (value) => typeof value === "string" && isWellFormed(value);
 
-const isPartsStrings = (values) => values.every(isPartsString);
+// `every` skips a hole, and wasm-bindgen rejects one in a list of strings. This
+// loop reads each index, so a sparse list goes to the JSON path.
+const isPartsStrings = (values) => {
+  for (let i = 0; i < values.length; i++) {
+    if (!isPartsString(values[i])) return false;
+  }
+  return true;
+};
 
 // True for an integer from 0 up to `VLQ_VALUE_LIMIT`. The mask also rejects a
 // fraction, NaN and a value that is not a number.

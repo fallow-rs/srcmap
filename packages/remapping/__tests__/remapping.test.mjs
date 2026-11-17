@@ -529,6 +529,48 @@ describe("parts path and JSON path", () => {
     compare(() => [decodedOuter(decoded), { ...inner(), mappings: "!" }]);
   });
 
+  // The JSON of a hole is null, as in jridgewell. wasm-bindgen rejects a hole in a
+  // list of strings, so a sparse list must go to the JSON path.
+  it("gives the same result for sparse names and sparse sources", () => {
+    const sparse = (first, last) => {
+      const list = [first];
+      list[2] = last;
+      return list;
+    };
+    const names = () => ({
+      version: 3,
+      sources: ["x.js"],
+      names: sparse("a", "b"),
+      mappings: [
+        [
+          [0, 0, 0, 0, 2],
+          [3, 0, 0, 1, 0],
+        ],
+      ],
+    });
+    const sources = () => ({
+      version: 3,
+      sources: sparse("a.js", "b.js"),
+      names: [],
+      mappings: [
+        [
+          [0, 0, 0, 0],
+          [3, 2, 0, 1],
+        ],
+      ],
+    });
+    assert.equal(compare(names), 0);
+    assert.equal(compare(sources), 0);
+    assert.equal(
+      compare(() => [decodedOuter([[[0, 0, 0, 0, 2]]], sparse("a", "b")), inner()]),
+      0,
+    );
+    const named = remapping(names(), () => null);
+    assert.equal(named.mappings, "AAAAA,GAACC");
+    assert.deepEqual(named.names, ["b", "a"]);
+    assert.equal(remapping(sources(), () => null).mappings, "AAAA,GCAC");
+  });
+
   // The VLQ mappings go to WASM as UTF-8 bytes in one shared buffer.
   it("gives the same result for VLQ mappings of each length and with non-ASCII text", () => {
     const outer = () => decodedOuter([[[0, 0, 0, 0]], [[0, 0, 1, 0]]]);
