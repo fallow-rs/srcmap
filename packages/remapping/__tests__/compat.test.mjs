@@ -6,6 +6,7 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import srcmapRemapping from "../src/remapping.mjs";
 import jrRemapping from "@jridgewell/remapping";
+import { TraceMap } from "@jridgewell/trace-mapping";
 
 const compareMaps = (srcmapResult, jrResult, label) => {
   assert.deepEqual(srcmapResult.sources, jrResult.sources, `${label}: sources mismatch`);
@@ -481,6 +482,65 @@ describe("loader calls match @jridgewell/remapping", () => {
           return null;
         }),
       "loader context",
+    );
+  });
+});
+
+describe("review cases match @jridgewell/remapping", () => {
+  const map = (fields) => ({ version: 3, names: [], mappings: "AAAA", ...fields });
+  const sameJson = (run, label) => {
+    assert.equal(JSON.stringify(run(srcmapRemapping)), JSON.stringify(run(jrRemapping)), label);
+  };
+
+  it("makes a segment sourceless when a loaded map has a null source", () => {
+    const loaded = map({ sources: [null] });
+    sameJson(
+      (remapping) =>
+        remapping(map({ sources: ["a.js"] }), (source) => (source === "a.js" ? loaded : null)),
+      "loader",
+    );
+    sameJson((remapping) => remapping([map({ sources: ["a.js"] }), loaded], () => null), "chain");
+  });
+
+  it("accepts a TraceMap as input and as loader result", () => {
+    const top = map({ sources: ["a.js"], mappings: "AAAA,EAAC" });
+    const upstream = map({ sources: ["b.ts"], sourcesContent: ["b"] });
+    sameJson((remapping) => remapping(new TraceMap(top), () => null), "input");
+    sameJson(
+      (remapping) =>
+        remapping(top, (source) => (source === "a.js" ? new TraceMap(upstream) : null)),
+      "loader result",
+    );
+  });
+
+  it("rejects a map without mappings", () => {
+    const invalid = { version: 3, sources: ["a.js"], names: [] };
+    assert.throws(() => jrRemapping(invalid, () => null), /invalid source map/);
+    assert.throws(() => srcmapRemapping(invalid, () => null), /invalid source map/);
+  });
+
+  it("decodes an empty result to an empty array", () => {
+    const empty = map({ sources: [], mappings: "" });
+    sameJson((remapping) => remapping(empty, () => null, { decodedMappings: true }), "empty");
+  });
+
+  it("keeps the content of the last traced segment for sources with one name", () => {
+    const duplicate = map({
+      sources: ["top0.js", "top0.js"],
+      sourcesContent: ["c-top0", "c-top1"],
+      names: ["n0", "n1", "n2", "n3"],
+      mappings: "CAAE,CCAAE;A,C,EDEA;AAAF",
+    });
+    sameJson((remapping) => remapping(duplicate, () => null), "duplicate names");
+  });
+
+  it("lists an ignored null source as jridgewell does", () => {
+    const top = map({ sources: ["a.js", null], ignoreList: [1], mappings: "AAAA,ECAA" });
+    sameJson((remapping) => remapping(top, () => null), "single map");
+    sameJson((remapping) => remapping([map({ sources: ["x.js"] }), top], () => null), "chain");
+    sameJson(
+      (remapping) => remapping(map({ sources: ["x.js"] }), (s) => (s === "x.js" ? top : null)),
+      "loader",
     );
   });
 });

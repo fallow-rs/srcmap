@@ -117,6 +117,7 @@ const decodeSegment = (segment, state) => {
 };
 
 const decodeMappings = (encoded) => {
+  if (encoded === "") return [];
   const state = [0, 0, 0, 0, 0];
   return encoded.split(";").map((line) => {
     state[0] = 0;
@@ -130,10 +131,33 @@ const NO_UPSTREAM = () => null;
 // An indexed map (with `sections`) has no top-level `sources`. A WASM remap without
 // upstream maps flattens it, so the loader can then see each of its sources.
 // @jridgewell/remapping rejects indexed maps.
+// Marks a map whose `sources` are already resolved.
+const RESOLVED = Symbol("resolved sources");
+
+// A `TraceMap` of @jridgewell/trace-mapping keeps its mappings in `_encoded` or
+// `_decoded`, and its resolved sources in `resolvedSources`.
+const fromTraceMap = (traceMap) => ({
+  version: 3,
+  file: traceMap.file,
+  names: traceMap.names,
+  sources: traceMap.resolvedSources,
+  sourcesContent: traceMap.sourcesContent,
+  ignoreList: traceMap.ignoreList,
+  mappings: traceMap._encoded ?? traceMap._decoded,
+  [RESOLVED]: true,
+});
+
 const toRawMap = (input) => {
-  const map = typeof input === "string" ? JSON.parse(input) : input;
-  if (map == null || !Array.isArray(map.sections)) return map;
-  return JSON.parse(wasmRemap(JSON.stringify(map), NO_UPSTREAM));
+  const parsed = typeof input === "string" ? JSON.parse(input) : input;
+  if (parsed == null) return parsed;
+  if (parsed._decodedMemo) return fromTraceMap(parsed);
+  if (Array.isArray(parsed.sections)) {
+    return JSON.parse(wasmRemap(JSON.stringify(parsed), NO_UPSTREAM));
+  }
+  if (typeof parsed.mappings !== "string" && !Array.isArray(parsed.mappings)) {
+    throw new Error(`invalid source map: ${JSON.stringify(parsed)}`);
+  }
+  return parsed;
 };
 
 const stripFilename = (path) => (path ? path.slice(0, path.lastIndexOf("/") + 1) : "");
@@ -141,6 +165,7 @@ const stripFilename = (path) => (path ? path.slice(0, path.lastIndexOf("/") + 1)
 // The same source resolution as the `TraceMap` of @jridgewell/trace-mapping: join
 // `sourceRoot` with a slash, then resolve against the directory of `mapUrl`.
 const resolveSources = (map, mapUrl) => {
+  if (map[RESOLVED]) return map.sources;
   const from = stripFilename(mapUrl);
   const prefix = map.sourceRoot ? map.sourceRoot + "/" : "";
   return (map.sources || []).map((source) => resolveUri(prefix + (source || ""), from));
@@ -183,6 +208,14 @@ class UpstreamMaps {
     this.prefix = `\u0000srcmap-upstream-${Math.random().toString(36).slice(2)}-`;
     this.maps = new Map();
     this.height = 0;
+    this.ignoredEmpty = null;
+  }
+
+  // An ignored empty source gets a stand-in name, so that it stays a real source
+  // through each pass. `restoreIgnoredEmpty` turns it back into `""`.
+  ignoredEmptyName() {
+    this.ignoredEmpty ??= this.prefix + "ignored-empty";
+    return this.ignoredEmpty;
   }
 
   add(json, depth) {
@@ -216,10 +249,19 @@ const buildTree = (input, loader, importer, importerDepth, upstreams) => {
     sourcesContent.push(
       ctx.content !== undefined ? ctx.content : (map.sourcesContent?.[i] ?? null),
     );
-    if (ctx.ignore !== undefined ? ctx.ignore : ignoreList.includes(i)) ignored.push(i);
-    return ctx.source;
+    if (!(ctx.ignore !== undefined ? ctx.ignore : ignoreList.includes(i))) return ctx.source;
+    ignored.push(i);
+    return ctx.source === "" ? upstreams.ignoredEmptyName() : ctx.source;
   });
   return toWasmJson(map, { sources, sourcesContent, ignoreList: ignored });
+};
+
+// jridgewell adds an ignored empty source to `sources` and `ignoreList`, and makes
+// its segments sourceless. A last WASM pass over the empty name does the same.
+const restoreIgnoredEmpty = (json, name) => {
+  const map = JSON.parse(json);
+  map.sources = map.sources.map((source) => (source === name ? "" : source));
+  return wasmRemap(JSON.stringify(map), NO_UPSTREAM);
 };
 
 // A WASM remap pass resolves one level of keys, so the remap runs once per level.
@@ -247,7 +289,7 @@ const remapAll = (input, loader) => {
   for (let level = 1; level < upstreams.height; level++) {
     result = wasmRemap(result, lookup);
   }
-  return result;
+  return upstreams.ignoredEmpty ? restoreIgnoredEmpty(result, upstreams.ignoredEmpty) : result;
 };
 
 /**
