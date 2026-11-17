@@ -1,5 +1,11 @@
 name: Benchmarks
 
+# Every CodSpeed job of the repository lives in this file. CodSpeed takes the
+# results for one commit from one run of one workflow: a second workflow that
+# uploads for the same commit gets the error "Benchmarks ran in several CI
+# workflows". One run may carry simulation and walltime results, and two runs
+# of this workflow on one commit are fine.
+
 on:
   pull_request:
     branches: [main]
@@ -27,10 +33,14 @@ on:
       - 'pnpm-workspace.yaml'
       - '.github/scripts/generate-benchmark-matrix.mjs'
       - '.github/workflows/bench.yml'
+  schedule:
+    - cron: '30 8 * * *'
   workflow_dispatch:
 
+# A scheduled run gets a group of its own. In the group of main it would wait
+# behind a push run, and a newer push would cancel it while it waits.
 concurrency:
-  group: bench-${{ github.ref }}
+  group: bench-${{ github.event_name == 'schedule' && github.run_id || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
@@ -43,6 +53,9 @@ env:
 jobs:
   benchmark-matrix:
     name: Generate benchmark matrix
+    # The nightly run measures only the walltime job. Push runs keep the
+    # simulation baseline of main.
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-26.04
     outputs:
       include: ${{ steps.matrix.outputs.include }}
@@ -138,3 +151,50 @@ jobs:
         with:
           mode: ${{ matrix.mode }}
           run: ${{ matrix.command }}
+
+  # The rayon benchmarks on a CodSpeed Macro Runner, a dedicated bare-metal
+  # ARM64 (Graviton) machine with 16 cores. The CPU simulation runs one thread
+  # and counts the wait for the rayon workers as system call time, so it
+  # cannot show a parallel speedup. The fallow-rs organization shares 600 free
+  # macro runner minutes per month, so this job runs only at night and on
+  # demand.
+  parallel:
+    name: CodSpeed walltime (rayon benchmarks)
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: codspeed-macro-arm64-graviton-ubuntu-22-04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      # No `--cfg codspeed` here: that cfg selects the CPU simulation harness of
+      # codspeed-criterion-compat, and the walltime harness needs it unset.
+      RUSTFLAGS: "-C debuginfo=1 -C strip=none -g"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: $/.github/actions/setup-rust
+
+      - uses: Swatinem/rust-cache@eedcf2fb1c22f010a0eb66b92f378c110977f266 # v2
+        with:
+          key: bench-walltime
+
+      - name: Install cargo-codspeed
+        uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39 # v2.90.3
+        with:
+          tool: cargo-codspeed@4.7.0
+
+      - name: Build the rayon benchmarks
+        run: |
+          cargo codspeed build -m walltime -p srcmap-codec --bench vlq_parallel --features codspeed,parallel
+          cargo codspeed build -m walltime -p srcmap-generator --bench generate_parallel --features codspeed,parallel
+
+      - name: Run the rayon benchmarks
+        uses: CodSpeedHQ/action@af75f77f17a054769abefaa42fe8dc2975469b5f # v5.6.3
+        with:
+          mode: walltime
+          run: |
+            cargo codspeed run -m walltime -p srcmap-codec --bench vlq_parallel
+            cargo codspeed run -m walltime -p srcmap-generator --bench generate_parallel

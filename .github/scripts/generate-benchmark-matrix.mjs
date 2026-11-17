@@ -30,8 +30,8 @@ const jsShard = ({ label, cacheKey, command, fixtures = true }) => ({
 
 // The rayon benchmarks (`vlq_parallel`, `generate_parallel`) are not here.
 // The CPU simulation counts the wait for the rayon workers as system call
-// time and cannot show a parallel speedup, so bench-walltime.yml measures them
-// on a CodSpeed macro runner.
+// time and cannot show a parallel speedup, so the `parallel` job of bench.yml
+// measures them with walltime on a CodSpeed macro runner.
 const SHARDS = {
   codec: rustShard({
     label: "codec vlq",
