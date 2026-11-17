@@ -1,6 +1,6 @@
 use std::hint::black_box;
 
-use criterion::{BatchSize, Criterion, criterion_group, criterion_main};
+use codspeed_criterion_compat::{BatchSize, Criterion, criterion_group, criterion_main};
 use srcmap_generator::SourceMapGenerator;
 
 fn build_generator(lines: u32, cols_per_line: u32, with_content: bool) -> SourceMapGenerator {

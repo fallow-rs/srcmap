@@ -1,0 +1,63 @@
+name: Walltime Benchmarks
+
+# The rayon benchmarks on a CodSpeed Macro Runner, a dedicated bare-metal
+# ARM64 (Graviton) machine with 16 cores. The CPU simulation in bench.yml runs
+# one thread and counts the wait for the rayon workers as system call time, so
+# it cannot show a parallel speedup. Walltime on the same hardware each night
+# can.
+#
+# The fallow-rs organization shares 600 free macro runner minutes per month.
+# To stay inside them, this lane runs once a night on main.
+on:
+  schedule:
+    - cron: '30 8 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+permissions: {}
+
+env:
+  CARGO_TERM_COLOR: always
+  # No `--cfg codspeed` here: that cfg selects the CPU simulation harness of
+  # codspeed-criterion-compat, and the walltime harness needs it unset.
+  RUSTFLAGS: "-C debuginfo=1 -C strip=none -g"
+
+jobs:
+  parallel:
+    name: CodSpeed walltime (rayon benchmarks)
+    runs-on: codspeed-macro-arm64-graviton-ubuntu-22-04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: $/.github/actions/setup-rust
+
+      - uses: Swatinem/rust-cache@eedcf2fb1c22f010a0eb66b92f378c110977f266 # v2
+        with:
+          key: bench-walltime
+
+      - name: Install cargo-codspeed
+        uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39 # v2.90.3
+        with:
+          tool: cargo-codspeed@4.7.0
+
+      - name: Build the rayon benchmarks
+        run: |
+          cargo codspeed build -m walltime -p srcmap-codec --bench vlq_parallel --features codspeed,parallel
+          cargo codspeed build -m walltime -p srcmap-generator --bench generate_parallel --features codspeed,parallel
+
+      - name: Run the rayon benchmarks
+        uses: CodSpeedHQ/action@af75f77f17a054769abefaa42fe8dc2975469b5f # v5.6.3
+        with:
+          mode: walltime
+          run: |
+            cargo codspeed run -m walltime -p srcmap-codec --bench vlq_parallel
+            cargo codspeed run -m walltime -p srcmap-generator --bench generate_parallel

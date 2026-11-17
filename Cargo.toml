@@ -18,6 +18,9 @@ srcmap-remapping = { version = "0.5.0", path = "crates/remapping" }
 srcmap-scopes = { version = "0.5.0", path = "crates/scopes" }
 srcmap-symbolicate = { version = "0.5.0", path = "crates/symbolicate" }
 criterion2 = { version = "3.0.2", default-features = false }
+# Harness for the rayon benchmarks, which CI measures with walltime.
+# criterion2 reports only CPU simulation results to CodSpeed.
+codspeed-criterion-compat = { version = "=4.7.0", default-features = false }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["raw_value"] }
 simd-json = "0.19"

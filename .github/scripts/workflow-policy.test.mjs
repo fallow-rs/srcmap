@@ -6,6 +6,7 @@ import { describe, it } from "node:test";
 const ROOT_URL = new URL("../../", import.meta.url);
 const WORKFLOWS_URL = new URL(".github/workflows/", ROOT_URL);
 const BENCH_WORKFLOW_URL = new URL("bench.yml", WORKFLOWS_URL);
+const BENCH_WALLTIME_WORKFLOW_URL = new URL("bench-walltime.yml", WORKFLOWS_URL);
 const CI_WORKFLOW_URL = new URL("ci.yml", WORKFLOWS_URL);
 const COVERAGE_WORKFLOW_URL = new URL("coverage.yml", WORKFLOWS_URL);
 const RELEASE_WORKFLOW_URL = new URL("release.yml", WORKFLOWS_URL);
@@ -202,7 +203,11 @@ describe("Dependabot policy", () => {
       for (const use of direct) {
         const start = workflow.indexOf(use);
         const step = workflow.slice(start, start + 200);
-        assert.match(step, /steps\.msrv\.outputs\.version/, `${entry.name}: use $/.github/actions/setup-rust`);
+        assert.match(
+          step,
+          /steps\.msrv\.outputs\.version/,
+          `${entry.name}: use $/.github/actions/setup-rust`,
+        );
       }
     }
   });
@@ -221,7 +226,9 @@ describe("Dependabot policy", () => {
     }
 
     const action = await readFile(SETUP_RUST_ACTION_URL, "utf8");
-    const actionUses = action.split("\n").filter((line) => line.includes("dtolnay/rust-toolchain@"));
+    const actionUses = action
+      .split("\n")
+      .filter((line) => line.includes("dtolnay/rust-toolchain@"));
     consumers += actionUses.length;
     for (const use of actionUses) {
       assert.ok(use.includes(RUST_TOOLCHAIN_ACTION), `setup-rust: ${use.trim()}`);
@@ -332,13 +339,52 @@ describe("Benchmark runner compatibility", () => {
     const workflow = await readFile(BENCH_WORKFLOW_URL, "utf8");
     const benchmark = workflowJob(workflow, "benchmark");
     const assertSupportedHost = (job) => {
-      assert.match(job, /^    runs-on: ubuntu-24\.04$/m, "CodSpeed simulation requires Ubuntu 24.04");
+      assert.match(
+        job,
+        /^    runs-on: ubuntu-24\.04$/m,
+        "CodSpeed simulation requires Ubuntu 24.04",
+      );
     };
 
     assert.match(benchmark, /^          mode: \$\{\{ matrix\.mode \}\}$/m);
     assertSupportedHost(benchmark);
     assert.throws(() => assertSupportedHost(benchmark.replace("ubuntu-24.04", "ubuntu-26.04")));
     assert.match(workflowJob(workflow, "benchmark-matrix"), /^    runs-on: ubuntu-26\.04$/m);
+  });
+
+  it("measures the rayon benchmarks only with walltime on the macro runner", async () => {
+    const matrix = execFileSync("node", [".github/scripts/generate-benchmark-matrix.mjs"], {
+      cwd: ROOT_URL,
+      encoding: "utf8",
+      env: { ...process.env, GITHUB_EVENT_NAME: "workflow_dispatch", GITHUB_OUTPUT: "" },
+    });
+    const benches = JSON.parse(matrix).map((shard) => shard.bench);
+    assert.ok(!benches.includes("vlq_parallel"), "simulation must not run vlq_parallel");
+    assert.ok(!benches.includes("generate_parallel"), "simulation must not run generate_parallel");
+
+    const workflow = await readFile(BENCH_WALLTIME_WORKFLOW_URL, "utf8");
+    const job = workflowJob(workflow, "parallel");
+    assert.match(job, /^    runs-on: codspeed-macro-arm64-graviton-ubuntu-22-04$/m);
+    assert.match(job, /^          mode: walltime$/m);
+    assert.match(job, /--bench vlq_parallel/);
+    assert.match(job, /--bench generate_parallel/);
+    assert.doesNotMatch(workflow, /^  (?:push|pull_request):/m, "macro runner minutes are limited");
+    assert.doesNotMatch(
+      workflow,
+      /RUSTFLAGS:.*--cfg codspeed/,
+      "--cfg codspeed selects the simulation harness, so walltime gets no results",
+    );
+    for (const bench of [
+      "crates/codec/benches/vlq_parallel.rs",
+      "crates/generator/benches/generate_parallel.rs",
+    ]) {
+      const source = await readFile(new URL(bench, ROOT_URL), "utf8");
+      assert.match(
+        source,
+        /^use codspeed_criterion_compat::/m,
+        `${bench} needs the walltime-capable harness`,
+      );
+    }
   });
 });
 
@@ -395,7 +441,10 @@ describe("Release supply-chain policy", () => {
   it("lets a started release run finish its publish jobs", async () => {
     const workflow = await readFile(RELEASE_WORKFLOW_URL, "utf8");
 
-    assert.match(workflow, /^concurrency:\n {2}group: release-\$\{\{ github\.ref \}\}\n {2}cancel-in-progress: false$/m);
+    assert.match(
+      workflow,
+      /^concurrency:\n {2}group: release-\$\{\{ github\.ref \}\}\n {2}cancel-in-progress: false$/m,
+    );
   });
 
   it("contains no ad hoc npm installs", async () => {

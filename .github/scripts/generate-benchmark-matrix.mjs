@@ -28,19 +28,16 @@ const jsShard = ({ label, cacheKey, command, fixtures = true }) => ({
   fixtures,
 });
 
+// The rayon benchmarks (`vlq_parallel`, `generate_parallel`) are not here.
+// The CPU simulation counts the wait for the rayon workers as system call
+// time and cannot show a parallel speedup, so bench-walltime.yml measures them
+// on a CodSpeed macro runner.
 const SHARDS = {
   codec: rustShard({
     label: "codec vlq",
     cacheKey: "codec-vlq",
     packageName: "srcmap-codec",
     bench: "vlq",
-  }),
-  codecParallel: rustShard({
-    label: "codec vlq parallel",
-    cacheKey: "codec-vlq-parallel",
-    packageName: "srcmap-codec",
-    bench: "vlq_parallel",
-    features: "codspeed,parallel",
   }),
   sourcemap: rustShard({
     label: "sourcemap parse",
@@ -54,13 +51,6 @@ const SHARDS = {
     cacheKey: "generator",
     packageName: "srcmap-generator",
     bench: "generate",
-  }),
-  generatorParallel: rustShard({
-    label: "generator parallel",
-    cacheKey: "generator-parallel",
-    packageName: "srcmap-generator",
-    bench: "generate_parallel",
-    features: "codspeed,parallel",
   }),
   remapping: rustShard({
     label: "remapping",
@@ -130,15 +120,9 @@ const selectShards = (files) => {
       return ALL_SHARDS;
     }
 
-    if (file.startsWith("crates/codec/")) {
-      selected.add(SHARDS.codec);
-      selected.add(SHARDS.codecParallel);
-    }
+    if (file.startsWith("crates/codec/")) selected.add(SHARDS.codec);
     if (file.startsWith("crates/sourcemap/")) selected.add(SHARDS.sourcemap);
-    if (file.startsWith("crates/generator/")) {
-      selected.add(SHARDS.generator);
-      selected.add(SHARDS.generatorParallel);
-    }
+    if (file.startsWith("crates/generator/")) selected.add(SHARDS.generator);
     if (file.startsWith("crates/remapping/")) selected.add(SHARDS.remapping);
     if (file === "benchmarks/download-fixtures.mjs") {
       selected.add(SHARDS.sourcemap);
