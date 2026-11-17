@@ -4,9 +4,9 @@
 [![CI](https://github.com/fallow-rs/srcmap/actions/workflows/ci.yml/badge.svg)](https://github.com/fallow-rs/srcmap/actions/workflows/ci.yml)
 [![Coverage](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/fallow-rs/srcmap/badges/coverage.json)](https://github.com/fallow-rs/srcmap/actions/workflows/coverage.yml)
 
-High-performance source map parser and consumer powered by Rust via WebAssembly.
+Source map parser and consumer, written in Rust and compiled to WebAssembly.
 
-Parses source map JSON and provides position lookups. Implements [ECMA-426](https://tc39.es/ecma426/) (Source Map v3). The batch API is **faster than [`@jridgewell/trace-mapping`](https://github.com/jridgewell/trace-mapping)** for bulk lookups.
+Parses source map JSON and provides position lookups. Implements [ECMA-426](https://tc39.es/ecma426/) (Source Map v3). With 1000 lookups in one call, the batch API was faster than [`@jridgewell/trace-mapping`](https://github.com/jridgewell/trace-mapping) on a 988 KB map and on a 5 MB map. For a parse or a single lookup, `@jridgewell/trace-mapping` is faster.
 
 ## Install
 
@@ -27,7 +27,7 @@ const sm = new SourceMap(jsonString);
 const loc = sm.originalPositionFor(42, 10);
 // { source: 'src/app.ts', line: 10, column: 4, name: 'handleClick' }
 
-// Batch lookup — recommended for bulk operations
+// Batch lookup: one WASM call for all positions
 const positions = new Int32Array([42, 10, 43, 0, 44, 5]);
 const results = sm.originalPositionsFor(positions);
 // Int32Array [srcIdx, line, col, nameIdx, srcIdx, line, col, nameIdx, ...]
@@ -174,27 +174,23 @@ sm.free();
 
 ### Batch API vs trace-mapping
 
-The batch API (`originalPositionsFor`) returns a flat `Int32Array`, avoiding per-lookup object allocation. This makes it **faster than pure JS** for bulk operations.
+The batch API (`originalPositionsFor`) takes all positions in one call and returns a flat `Int32Array`. It is one call into WASM, and it allocates no object per lookup.
 
-| Operation | @srcmap/sourcemap-wasm | @jridgewell/trace-mapping | Speedup |
-|-----------|----------------------|---------------------------|---------|
-| 1000x lookup (medium map) | 12.9 us | 14.9 us | **1.15x faster** |
-| 1000x lookup (large map) | 14.8 us | 22.0 us | **1.49x faster** |
-| Per lookup (amortized) | 13-15 ns | 15-22 ns | **~1.3x faster** |
+In the [repository benchmarks](https://github.com/fallow-rs/srcmap#performance), 1000 lookups in one call were faster than `@jridgewell/trace-mapping` on the Chart.js and PDF.js maps, and slower on the Preact map. A parse and a single lookup were slower than `@jridgewell/trace-mapping` on all three maps.
 
 ### When to use which
 
 | Use case | Recommended package |
 |----------|-------------------|
-| Batch lookups (error stacks, coverage) | **@srcmap/sourcemap-wasm** (batch API) |
-| Few lookups, fast parse | **@srcmap/sourcemap-wasm** (`LazySourceMap`) |
-| Few individual lookups | `@jridgewell/trace-mapping` (lower per-call overhead) |
+| Batch lookups (error stacks, coverage) | `@srcmap/sourcemap-wasm` (batch API) |
+| A few lookups, without `sourcesContent` | `@srcmap/sourcemap-wasm` (`LazySourceMap`, which decodes mappings on access) |
+| One lookup per call | `@jridgewell/trace-mapping` (a lookup costs less than one WASM call) |
 | Native Node.js addons | `@srcmap/sourcemap` (NAPI) |
-| Browser environments | **@srcmap/sourcemap-wasm** |
+| Browser environments | `@srcmap/sourcemap-wasm` |
 
 ## Part of [srcmap](https://github.com/fallow-rs/srcmap)
 
-High-performance source map tooling written in Rust. See also:
+Source map tooling written in Rust. See also:
 - [`@srcmap/codec`](https://www.npmjs.com/package/@srcmap/codec) - VLQ codec (NAPI)
 - [`@srcmap/sourcemap`](https://www.npmjs.com/package/@srcmap/sourcemap) - Source map parser (NAPI)
 

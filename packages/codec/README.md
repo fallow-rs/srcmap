@@ -4,9 +4,9 @@
 [![CI](https://github.com/fallow-rs/srcmap/actions/workflows/ci.yml/badge.svg)](https://github.com/fallow-rs/srcmap/actions/workflows/ci.yml)
 [![Coverage](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/fallow-rs/srcmap/badges/coverage.json)](https://github.com/fallow-rs/srcmap/actions/workflows/coverage.yml)
 
-High-performance VLQ source map codec powered by Rust via [NAPI](https://napi.rs).
+VLQ source map codec, written in Rust with a [NAPI](https://napi.rs) binding.
 
-Drop-in replacement for [`@jridgewell/sourcemap-codec`](https://github.com/jridgewell/sourcemap-codec). Encodes and decodes source map `mappings` strings as specified in [ECMA-426](https://tc39.es/ecma426/).
+It has the `encode` and `decode` functions of [`@jridgewell/sourcemap-codec`](https://github.com/jridgewell/sourcemap-codec). Encodes and decodes source map `mappings` strings as specified in [ECMA-426](https://tc39.es/ecma426/).
 
 ## Install
 
@@ -54,7 +54,7 @@ Encode decoded mappings back into a VLQ string.
 
 ## Part of [srcmap](https://github.com/fallow-rs/srcmap)
 
-High-performance source map tooling written in Rust. See also:
+Source map tooling written in Rust. See also:
 - [`@srcmap/sourcemap`](https://www.npmjs.com/package/@srcmap/sourcemap) - Source map parser (NAPI)
 - [`@srcmap/sourcemap-wasm`](https://www.npmjs.com/package/@srcmap/sourcemap-wasm) - Source map parser (WASM)
 

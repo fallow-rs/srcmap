@@ -1,7 +1,4 @@
-/**
- * @srcmap/source-map — drop-in replacement for Mozilla's source-map v0.6 API
- * powered by Rust via WebAssembly.
- */
+/** The Mozilla source-map v0.6 API on the srcmap Rust parser and generator, compiled to WebAssembly. */
 
 // ── Constants (match Mozilla source-map v0.6) ───────────────────
 

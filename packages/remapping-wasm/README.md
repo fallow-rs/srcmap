@@ -3,9 +3,9 @@
 [![npm](https://img.shields.io/npm/v/@srcmap/remapping-wasm.svg)](https://www.npmjs.com/package/@srcmap/remapping-wasm)
 [![CI](https://github.com/fallow-rs/srcmap/actions/workflows/ci.yml/badge.svg)](https://github.com/fallow-rs/srcmap/actions/workflows/ci.yml)
 
-High-performance source map concatenation and composition powered by Rust via WebAssembly.
+Source map concatenation and composition, written in Rust and compiled to WebAssembly.
 
-**Concatenation** merges source maps from multiple bundled files into one, adjusting line offsets. **Composition** chains source maps through multiple transforms (e.g. TS -> JS -> minified) into a single map pointing to original sources. Alternative to [`@ampproject/remapping`](https://github.com/nicolo-ribaudo/source-map-js).
+**Concatenation** merges source maps from multiple bundled files into one, adjusting line offsets. **Composition** chains source maps through multiple transforms (e.g. TS -> JS -> minified) into a single map pointing to original sources. Alternative to [`@ampproject/remapping`](https://github.com/7rulnik/source-map-js).
 
 ## Install
 
@@ -76,7 +76,7 @@ Returns the composed source map as a JSON string.
 
 ## Part of [srcmap](https://github.com/fallow-rs/srcmap)
 
-High-performance source map tooling written in Rust. See also:
+Source map tooling written in Rust. See also:
 - [`@srcmap/sourcemap-wasm`](https://www.npmjs.com/package/@srcmap/sourcemap-wasm) - Source map parser (WASM)
 - [`@srcmap/generator-wasm`](https://www.npmjs.com/package/@srcmap/generator-wasm) - Source map generator (WASM)
 - [`@srcmap/symbolicate-wasm`](https://www.npmjs.com/package/@srcmap/symbolicate-wasm) - Stack trace symbolication (WASM)

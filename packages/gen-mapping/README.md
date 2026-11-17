@@ -3,9 +3,11 @@
 [![npm](https://img.shields.io/npm/v/@srcmap/gen-mapping.svg)](https://www.npmjs.com/package/@srcmap/gen-mapping)
 [![CI](https://github.com/fallow-rs/srcmap/actions/workflows/ci.yml/badge.svg)](https://github.com/fallow-rs/srcmap/actions/workflows/ci.yml)
 
-Drop-in replacement for [`@jridgewell/gen-mapping`](https://github.com/jridgewell/gen-mapping) powered by Rust via WebAssembly.
+The API of [`@jridgewell/gen-mapping`](https://github.com/jridgewell/gen-mapping) on the srcmap Rust generator, compiled to WebAssembly.
 
-Same API, same types, same behavior. Swap the import and get source map generation backed by Rust under the hood.
+`GenMapping`, `addMapping`, `toEncodedMap` and the other functions take the arguments of `@jridgewell/gen-mapping`.
+
+The repository has no benchmark that shows a speed gain over `@jridgewell/gen-mapping`. Choose this package when a Rust tool writes its maps with `srcmap-generator` and a Node.js tool must write the same output.
 
 ## Install
 
@@ -44,7 +46,7 @@ All exports from `@jridgewell/gen-mapping` are supported:
 
 | Export | Description |
 |--------|-------------|
-| `GenMapping` | Main class — creates a new source map builder |
+| `GenMapping` | Main class: creates a new source map builder |
 | `addMapping(map, mapping)` | Add a mapping (1-based lines, 0-based columns) |
 | `maybeAddMapping(map, mapping)` | Add only if it differs from the previous mapping on the same line |
 | `setSourceContent(map, source, content)` | Set source content for a source file |
@@ -63,13 +65,13 @@ Follows `@jridgewell/gen-mapping` conventions:
 ## Differences from @jridgewell/gen-mapping
 
 - **WASM memory**: Call `map.free()` when done, or use `using map = new GenMapping(...)` with `Symbol.dispose`
-- **VLQ encoding runs in WASM**: No JS-side encoding overhead
+- **VLQ encoding runs in WASM**, not in JavaScript
 
 ## Part of [srcmap](https://github.com/fallow-rs/srcmap)
 
-High-performance source map tooling written in Rust. See also:
-- [`@srcmap/trace-mapping`](https://www.npmjs.com/package/@srcmap/trace-mapping) - Drop-in for `@jridgewell/trace-mapping` (consumer)
-- [`@srcmap/remapping`](https://www.npmjs.com/package/@srcmap/remapping) - Drop-in for `@ampproject/remapping` (composition)
+Source map tooling written in Rust. See also:
+- [`@srcmap/trace-mapping`](https://www.npmjs.com/package/@srcmap/trace-mapping) - The `@jridgewell/trace-mapping` API (consumer)
+- [`@srcmap/remapping`](https://www.npmjs.com/package/@srcmap/remapping) - The `@ampproject/remapping` API (composition)
 - [`@srcmap/generator-wasm`](https://www.npmjs.com/package/@srcmap/generator-wasm) - Lower-level WASM generator API
 
 ## License

@@ -1,13 +1,12 @@
 {
   "name": "@srcmap/source-map",
   "version": "0.5.0",
-  "description": "Drop-in replacement for Mozilla's source-map v0.6 API, powered by Rust via WebAssembly",
+  "description": "The Mozilla source-map v0.6 API on the srcmap Rust parser and generator, compiled to WebAssembly",
   "keywords": [
     "consumer",
     "drop-in",
     "generator",
     "mozilla",
-    "performance",
     "source-map",
     "sourcemap",
     "wasm",

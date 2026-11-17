@@ -1,7 +1,4 @@
-/**
- * @srcmap/remapping — drop-in replacement for @jridgewell/remapping
- * and @ampproject/remapping powered by Rust via WebAssembly.
- */
+/** The @jridgewell/remapping and @ampproject/remapping API on the srcmap Rust remapping code, compiled to WebAssembly. */
 
 // ── Source map types ────────────────────────────────────────────
 
@@ -61,7 +58,7 @@ export type Loader = (sourcefile: string) => SourceMapInput | null | undefined |
 // ── Main API ────────────────────────────────────────────────────
 
 /**
- * Remap/compose source maps. Drop-in replacement for @jridgewell/remapping.
+ * Remap/compose source maps. Takes the arguments of @jridgewell/remapping.
  *
  * Supports two calling conventions:
  * - `remapping(singleMap, loader)` — remap a single source map through a loader

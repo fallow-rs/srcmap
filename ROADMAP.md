@@ -4,13 +4,13 @@ What's next for srcmap, and why.
 
 ## Function Name Mappings
 
-**Interop work, not part of published ECMA-426 core today** — [bloomberg.github.io/js-blog/post/standardizing-source-maps](https://bloomberg.github.io/js-blog/post/standardizing-source-maps/)
+**Interop work, not part of the published ECMA-426 core.** See [bloomberg.github.io/js-blog/post/standardizing-source-maps](https://bloomberg.github.io/js-blog/post/standardizing-source-maps/)
 
 A `"sourcesFunctionMappings"` array parallel to `"sources"`, where each entry is a VLQ-encoded string mapping generated positions to original function names. Previously the `x_com_bloomberg_sourcesFunctionMappings` extension, and worth tracking for ecosystem interoperability.
 
 Note: this repository tracks it as forward-looking ecosystem interoperability work. It is not currently in the published ECMA-426 core standard or the official `tc39/ecma426` proposal set.
 
-This is a simpler alternative to the full scopes proposal for resolving minified function names in stack traces. Tools that don't need full scope/binding information can use this field alone. For tools that support scopes, `FindOriginalFunctionName` from the scopes proposal supersedes this — but both should be supported for interop, since most source maps in the wild won't have scopes data.
+This is a simpler alternative to the full scopes proposal for resolving minified function names in stack traces. A tool that does not need full scope and binding information can use this field alone. For tools that support scopes, `FindOriginalFunctionName` from the scopes proposal supersedes this. srcmap must support both for interop, because most source maps have no scopes data.
 
 ### What to implement
 
@@ -27,7 +27,7 @@ This is a simpler alternative to the full scopes proposal for resolving minified
 
 ## Scopes Spec Alignment
 
-**ECMA-426 scopes proposal, actively evolving** — srcmap already has `srcmap-scopes`, but the spec is still changing. The scopes proposal is the comprehensive approach to debugging metadata — it supersedes `sourcesFunctionMappings` for function name resolution and adds variable bindings, scope chains, and inlined frame reconstruction.
+**ECMA-426 scopes proposal, still changing.** srcmap already has `srcmap-scopes`. The scopes proposal is the broader approach to debugging metadata. It supersedes `sourcesFunctionMappings` for function name resolution and adds variable bindings, scope chains, and inlined frame reconstruction.
 
 ### Open issues to track
 
@@ -43,9 +43,9 @@ This is a simpler alternative to the full scopes proposal for resolving minified
 
 **Stack frame reconstruction algorithm** ([tc39/ecma426#219](https://github.com/tc39/ecma426/blob/main/proposals/scopes.md)): Three operations being standardized:
 
-1. `FindOriginalFunctionName(position)` — find innermost generated range, walk scope chain outward to find `isStackFrame = true` scope
-2. `SymbolizeStackTrace(rawFrames)` — translate generated stack traces to original, expand inlined frames and collapse outlined frames across different bundles
-3. `BuildScopeChain(position)` — return `OriginalScopeWithValues[]` mapping original variables to concrete JS values
+1. `FindOriginalFunctionName(position)`: find the innermost generated range, then walk the scope chain outward to the first scope with `isStackFrame = true`
+2. `SymbolizeStackTrace(rawFrames)`: translate a generated stack trace to the original one, expand inlined frames, and collapse outlined frames across bundles
+3. `BuildScopeChain(position)`: return `OriginalScopeWithValues[]`, which maps the original variables to concrete JS values
 
 **Hidden scopes** ([tc39/ecma426#113](https://github.com/tc39/ecma426/blob/main/proposals/scopes.md)): A generated range without an `originalScope` reference signals compiler-generated code. Combined with `isFunctionScope`: if `range.isFunctionScope && !range.hasDefinition`, the function frame should be omitted from stack traces.
 
@@ -63,9 +63,9 @@ This is a simpler alternative to the full scopes proposal for resolving minified
 
 ---
 
-## Sources Hash `[Stage 1 — not implementing yet]`
+## Sources Hash `[Stage 1, not implementing yet]`
 
-**ECMA-426 proposal, Stage 1** — [sources-hash proposal](https://github.com/tc39/ecma426/blob/main/proposals/sources-hash.md)
+**ECMA-426 proposal, Stage 1**: [sources-hash proposal](https://github.com/tc39/ecma426/blob/main/proposals/sources-hash.md)
 
 A new `"sourcesHash"` array parallel to `"sources"`, containing content hashes for source file integrity verification.
 
@@ -94,9 +94,9 @@ Hash algorithm is implementation-defined (SHA-256 recommended). Format is a pref
 
 ---
 
-## Debug ID Extraction `[Stage 2 — not implementing yet]`
+## Debug ID Extraction `[Stage 2, not implementing yet]`
 
-**ECMA-426 proposal, Stage 2** — [debug-id proposal](https://github.com/tc39/ecma426/blob/main/proposals/debug-id.md)
+**ECMA-426 proposal, Stage 2**: [debug-id proposal](https://github.com/tc39/ecma426/blob/main/proposals/debug-id.md)
 
 srcmap already parses `debugId` from source map JSON. What's missing is extracting it from generated JavaScript/CSS files via the `//# debugId=<UUID>` comment.
 
@@ -119,9 +119,9 @@ srcmap already parses `debugId` from source map JSON. What's missing is extracti
 
 ---
 
-## Mappings v2 Encoding `[Discussion — not implementing yet]`
+## Mappings v2 Encoding `[Discussion, not implementing yet]`
 
-**ECMA-426 discussion** — [range-mappings proposal](https://github.com/tc39/ecma426/blob/main/proposals/range-mappings.md)
+**ECMA-426 discussion**: [range-mappings proposal](https://github.com/tc39/ecma426/blob/main/proposals/range-mappings.md)
 
 A proposed encoding that eliminates `,` and `;` separators and packs metadata into VLQ bits. Claims ~35-50% raw size reduction.
 
@@ -154,35 +154,52 @@ This is early-stage and may never land. Worth implementing as an experimental en
 
 ---
 
-## Env Metadata `[Stage 1 — not implementing yet]`
+## Env Metadata `[Stage 1, not implementing yet]`
 
-**ECMA-426 proposal, Stage 1** — [env proposal](https://github.com/tc39/ecma426/blob/main/proposals/env.md)
+**ECMA-426 proposal, Stage 1**: [env proposal](https://github.com/tc39/ecma426/blob/main/proposals/env.md)
 
-Environment metadata for source maps. The proposal is minimal at Stage 1 — track for details before implementing.
+Environment metadata for source maps. The proposal is minimal at Stage 1. Track it for details before any implementation.
 
 ---
 
-## Ecosystem Adoption
+## Positioning
 
-### Remaining Rust performance gaps
+srcmap is a source map toolkit for Rust, with Node.js bindings and a CLI. It follows the specification and its draft proposals. It composes, symbolicates and inspects maps, and it reads Hermes maps and scopes.
 
-| Gap | Severity | Impact |
-|-----|----------|--------|
-| Serialization overhead | Medium | Rspack |
-| SIMD VLQ decoding | Medium | All consumers; biggest wins on 1MB+ maps |
+Speed in JavaScript is not a goal. Measurements in November 2026 gave these results:
 
-VLQ encoding and composition have been optimized. Serialization may still have room for improvement — profile against rspack-sources to verify.
+- `@jridgewell/trace-mapping` parses faster and does a single lookup faster than the WASM and NAPI bindings.
+- In four recorded Vite 8 workloads, `combineSourcemaps` took 0.1% to 2.5% of the wall time (see `benchmarks/vite-workload/`).
+- Rolldown composes maps in Rust with `oxc_sourcemap`.
 
-The scalar VLQ decoder is well-tuned (single-char fast path, fully inlined as of 2026-04 — see [perf_findings.md](https://github.com/fallow-rs/srcmap/commit/ebcac6a)) but VLQ decoding is still 35-75% of total parse time on real-world maps (preact 34%, chartjs 73%, pdfjs 61%). A SIMD base64+VLQ implementation could shave another 1.5-2x off that portion. Would need either `base64-simd` + custom VLQ logic, or a from-scratch SIMD VLQ pass. Anti-finding: both `sonic-rs` and `simd-json` were prototyped as JSON parser swaps and proved to be slower (sonic-rs) or significantly slower (simd-json) on srcmap's typical input sizes — JSON parse is not the bottleneck.
+### Next
 
-### Long-term strategic targets
+- [ ] Make the packages that copy an existing API accept real inputs: a decoded map without `version`, and `rangeMappings` as an array
+- [ ] Benchmark parse, compose and lookup against `oxc_sourcemap` and the Sentry `sourcemap` crate
+- [ ] Measure the share of source map work in a Vitest coverage run
 
-| Target | Approach | Stars |
-|--------|----------|-------|
-| Sentry CLI | Contribute improvements upstream to `rust-sourcemap`, or position for symbolicator | 2k |
-| Node.js runtime | Publish benchmarks → contribute algorithm improvements → WASM vendoring proposal | 110k |
-| Webpack | Add streaming API matching `StreamChunksOfCombinedSourceMap` pattern | 65k |
-| Metro | Low priority — needs multiple wrappers for custom source map extensions | 5.2k |
+### Rust performance gaps
+
+These items wait for the benchmark against the other Rust crates.
+
+| Gap | Severity | Affects |
+|-----|----------|---------|
+| Serialization cost | Medium | Rspack |
+| SIMD VLQ decoding | Medium | All Rust users, most on maps of 1 MB and larger |
+
+Profile serialization against rspack-sources before any change.
+
+VLQ decoding takes 34% to 73% of the parse time on real maps (Preact 34%, Chart.js 73%, PDF.js 61%). The scalar decoder already has a single-character fast path and is fully inlined (see [perf_findings.md](https://github.com/fallow-rs/srcmap/commit/ebcac6a)). A SIMD decoder for base64 and VLQ can reduce that part. It needs `base64-simd` with custom VLQ logic, or a new SIMD pass.
+
+A swap of the JSON parser does not help. Prototypes with `sonic-rs` and `simd-json` were slower on the input sizes that srcmap gets, because JSON parsing is not the bottleneck.
+
+### Integration targets
+
+| Target | Approach |
+|--------|----------|
+| Sentry CLI | Contribute improvements to `rust-sourcemap`, or offer srcmap for symbolicator |
+| Webpack | Add a streaming API that matches the `StreamChunksOfCombinedSourceMap` pattern |
+| Metro | Low priority. It needs several wrappers for custom source map extensions |
 
 ---
 
@@ -190,3 +207,4 @@ The scalar VLQ decoder is well-tuned (single-char fast path, fully inlined as of
 
 - Source map v1/v2 format support
 - Tight coupling to any specific bundler or compiler
+- A faster replacement for the `@jridgewell` packages in JavaScript

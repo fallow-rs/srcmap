@@ -4,11 +4,11 @@
 [![CI](https://github.com/fallow-rs/srcmap/actions/workflows/ci.yml/badge.svg)](https://github.com/fallow-rs/srcmap/actions/workflows/ci.yml)
 [![Coverage](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/fallow-rs/srcmap/badges/coverage.json)](https://github.com/fallow-rs/srcmap/actions/workflows/coverage.yml)
 
-High-performance source map parser and consumer powered by Rust via [NAPI](https://napi.rs).
+Source map parser and consumer, written in Rust with a [NAPI](https://napi.rs) binding.
 
 Parses source map JSON and provides position lookups. Implements [ECMA-426](https://tc39.es/ecma426/) (Source Map v3). Alternative to [`@jridgewell/trace-mapping`](https://github.com/jridgewell/trace-mapping).
 
-> For batch lookups in Node.js, consider [`@srcmap/sourcemap-wasm`](https://www.npmjs.com/package/@srcmap/sourcemap-wasm) which avoids NAPI per-call overhead and is faster for bulk operations.
+> For batch lookups in Node.js, use [`@srcmap/sourcemap-wasm`](https://www.npmjs.com/package/@srcmap/sourcemap-wasm) (see [Performance](#performance)).
 
 ## Install
 
@@ -37,7 +37,7 @@ const loc = sm.originalPositionFor(42, 10);
 const pos = sm.generatedPositionFor('src/app.ts', 10, 4);
 // { line: 42, column: 10 }
 
-// Batch lookup — amortizes NAPI overhead
+// Batch lookup: one NAPI call for all positions
 const positions = [42, 10, 43, 0, 44, 5];
 const results = sm.originalPositionsFor(positions);
 // number[] [srcIdx, line, col, nameIdx, ...]
@@ -77,16 +77,13 @@ Parse a source map from a JSON string.
 
 ## Performance
 
-| Operation | @srcmap/sourcemap | @jridgewell/trace-mapping |
-|-----------|-------------------|---------------------------|
-| 1000x batch lookup (large) | 160 us | 15 us |
-| Single lookup | 345 ns | 24 ns |
+Each call into the NAPI binding has a fixed cost. That cost is larger than one lookup in `@jridgewell/trace-mapping`, so for one lookup per call `@jridgewell/trace-mapping` is faster.
 
-NAPI has ~300ns overhead per call. For bulk operations, use the batch API (`originalPositionsFor`) or consider the [WASM package](https://www.npmjs.com/package/@srcmap/sourcemap-wasm) which has lower per-call overhead.
+For many lookups, use `originalPositionsFor`. The batch API of [`@srcmap/sourcemap-wasm`](https://www.npmjs.com/package/@srcmap/sourcemap-wasm) was faster than this package in the [repository benchmarks](https://github.com/fallow-rs/srcmap#performance).
 
 ## Part of [srcmap](https://github.com/fallow-rs/srcmap)
 
-High-performance source map tooling written in Rust. See also:
+Source map tooling written in Rust. See also:
 - [`@srcmap/codec`](https://www.npmjs.com/package/@srcmap/codec) - VLQ codec (NAPI)
 - [`@srcmap/sourcemap-wasm`](https://www.npmjs.com/package/@srcmap/sourcemap-wasm) - Source map parser (WASM, recommended for batch ops)
 

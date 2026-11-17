@@ -7,7 +7,7 @@
 
 Source map concatenation and composition/remapping for Rust.
 
-Merges or chains source maps from multiple build steps into a single map. Drop-in Rust equivalent of [`@ampproject/remapping`](https://github.com/nicolo-ribaudo/amp-remapping).
+Merges or chains source maps from multiple build steps into a single map. It is the Rust counterpart of [`@ampproject/remapping`](https://github.com/ampproject/remapping).
 
 ## Install
 
@@ -51,7 +51,7 @@ let result = remap(&minified_map, |source| {
     if source == "intermediate.js" {
         Some(SourceMap::from_json(ts_to_js_map_json).unwrap())
     } else {
-        None // no upstream map — keep as-is
+        None // no upstream map: keep as-is
     }
 });
 
@@ -74,11 +74,11 @@ let result = remap(&minified_map, |source| {
 | Function | Description |
 |----------|-------------|
 | `remap(outer, loader) -> SourceMap` | Compose through upstream maps resolved by `loader` |
-| `remap_streaming(iter, sources, names, sources_content, ignore_list, file, loader) -> SourceMap` | Streaming variant — avoids materializing the outer map |
+| `remap_streaming(iter, sources, names, sources_content, ignore_list, file, loader) -> SourceMap` | Streaming variant that does not build the outer map in memory |
 
 The `loader` function receives each source filename and returns `Option<SourceMap>`. Return `Some` to trace through an upstream map, or `None` to keep the source as-is.
 
-`remap_streaming` accepts a `MappingsIter` (lazy VLQ iterator) and uses `StreamingGenerator` for on-the-fly encoding — 15-20% faster than `remap` for large maps.
+`remap_streaming` accepts a `MappingsIter` (lazy VLQ iterator) and encodes the output with `StreamingGenerator` as it reads. It does not build the outer map in memory. `cargo bench -p srcmap-remapping` compares it with `remap`.
 
 ## Features
 
@@ -86,7 +86,7 @@ The `loader` function receives each source filename and returns `Option<SourceMa
 - **`sourcesContent` merging** from all inputs
 - **`ignoreList` propagation** through concatenation
 - **Name resolution** prefers upstream names over outer names
-- **Lazy loading** via the `loader` callback — only loads maps that are actually referenced
+- **Lazy loading** via the `loader` callback, which runs only for a source that a mapping references
 - **Range mapping preservation** through both concatenation and composition
 - **Streaming composition** via `remap_streaming` for reduced-allocation pipelines
 
