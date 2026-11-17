@@ -84,12 +84,14 @@ const encodeMappings = (decoded) => {
   return lines.join(";");
 };
 
+// @jridgewell/remapping reads neither `version` nor `rangeMappings`. A decoded map
+// from `MagicString.generateDecodedMap()` has no `version` and holds `rangeMappings`
+// as arrays, so the wrapper sets `version` and drops `rangeMappings`.
 const toJsonString = (input) => {
   if (typeof input === "string") return input;
-  if (input && Array.isArray(input.mappings)) {
-    return JSON.stringify({ ...input, mappings: encodeMappings(input.mappings) });
-  }
-  return JSON.stringify(input);
+  if (input == null || typeof input !== "object") return JSON.stringify(input);
+  const mappings = Array.isArray(input.mappings) ? encodeMappings(input.mappings) : input.mappings;
+  return JSON.stringify({ ...input, version: 3, mappings, rangeMappings: undefined });
 };
 
 const wrapLoader = (loader) => (source) => {
