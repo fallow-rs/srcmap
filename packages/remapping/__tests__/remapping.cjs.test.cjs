@@ -97,3 +97,22 @@ describe("CJS: remapping(decodedMap, loader)", () => {
     assert.equal(result.mappings, "AAKAA;ACCEC;GAAE");
   });
 });
+
+describe("CJS: decoded input maps", () => {
+  it("accepts a map without version and with rangeMappings as arrays", () => {
+    const jrRemapping = require("@jridgewell/remapping");
+    const maps = [
+      {
+        sources: ["intermediate.js"],
+        names: [],
+        mappings: [[[0, 0, 0, 0]], [[0, 0, 1, 0]]],
+        rangeMappings: [[], [0]],
+      },
+      INNER_MAP,
+    ];
+    const result = remapping(maps, () => null);
+    const expected = jrRemapping(maps, () => null);
+    assert.equal(result.mappings, expected.mappings);
+    assert.deepEqual(result.sources, expected.sources);
+  });
+});

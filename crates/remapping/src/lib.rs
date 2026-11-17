@@ -417,22 +417,32 @@ fn resolve_upstream_name<B: RemapBuilder>(
 ///
 /// Falls back to range mapping search when the queried line has no mappings or the
 /// column is before the first mapping on the line — matching `original_position_for`.
+///
+/// A position that lands on a generated-only segment gives `UpstreamTrace::Sourceless`.
+/// The caller then emits a sourceless segment, as jridgewell does: that segment ends
+/// the range of the previous mapping on the line.
 #[inline]
-fn lookup_upstream(upstream_sm: &SourceMap, line: u32, column: u32) -> Option<UpstreamLookup> {
+fn lookup_upstream(upstream_sm: &SourceMap, line: u32, column: u32) -> UpstreamTrace {
     let line_mappings = upstream_sm.mappings_for_line(line);
     if line_mappings.is_empty() {
         return fallback_to_full_lookup(upstream_sm, line, column);
     }
 
+    // On an exact column match, take the first segment at that column, as the
+    // `lowerBound` step of jridgewell's `traceSegment` does. A line can hold
+    // several segments at one column.
     let idx = match line_mappings.binary_search_by_key(&column, |m| m.generated_column) {
-        Ok(i) => i,
+        Ok(i) => line_mappings[..i]
+            .iter()
+            .rposition(|m| m.generated_column != column)
+            .map_or(0, |p| p + 1),
         Err(0) => return fallback_to_full_lookup(upstream_sm, line, column),
         Err(i) => i - 1,
     };
 
     let mapping = &line_mappings[idx];
     if mapping.source == NO_SOURCE {
-        return None;
+        return UpstreamTrace::Sourceless;
     }
 
     let original_column = if mapping.is_range_mapping && column >= mapping.generated_column {
@@ -441,12 +451,22 @@ fn lookup_upstream(upstream_sm: &SourceMap, line: u32, column: u32) -> Option<Up
         mapping.original_column
     };
 
-    Some(UpstreamLookup {
+    UpstreamTrace::Found(UpstreamLookup {
         source: mapping.source,
         original_line: mapping.original_line,
         original_column,
         name: mapping.name,
     })
+}
+
+/// Result of tracing one position through an upstream source map.
+enum UpstreamTrace {
+    /// The position maps to an original location.
+    Found(UpstreamLookup),
+    /// The position lands on a generated-only segment.
+    Sourceless,
+    /// No segment covers the position. The caller drops the outer segment.
+    Missing,
 }
 
 /// Result of looking up a position in an upstream source map.
@@ -463,13 +483,11 @@ struct UpstreamLookup {
 /// resolve (empty line or column before first mapping). This handles range mapping
 /// fallback correctly. Only called on the rare path where the line has no direct
 /// mappings, so the function call overhead is acceptable.
-fn fallback_to_full_lookup(
-    upstream_sm: &SourceMap,
-    line: u32,
-    column: u32,
-) -> Option<UpstreamLookup> {
-    let loc = upstream_sm.original_position_for(line, column)?;
-    Some(UpstreamLookup {
+fn fallback_to_full_lookup(upstream_sm: &SourceMap, line: u32, column: u32) -> UpstreamTrace {
+    let Some(loc) = upstream_sm.original_position_for(line, column) else {
+        return UpstreamTrace::Missing;
+    };
+    UpstreamTrace::Found(UpstreamLookup {
         source: loc.source,
         original_line: loc.line,
         original_column: loc.column,
@@ -731,8 +749,8 @@ fn trace_source_entry<B: RemapBuilder>(
 ) {
     match entry {
         SourceEntry::Upstream { map, cache } => {
-            if let Some(upstream_m) = lookup_upstream(map, m.original_line, m.original_column) {
-                trace_and_emit_upstream(
+            match lookup_upstream(map, m.original_line, m.original_column) {
+                UpstreamTrace::Found(upstream_m) => trace_and_emit_upstream(
                     ctx.builder,
                     ctx.dedup,
                     UpstreamEmitContext {
@@ -747,7 +765,14 @@ fn trace_source_entry<B: RemapBuilder>(
                         ignored_sources: ctx.ignored_sources,
                         is_range: m.is_range_mapping,
                     },
-                );
+                ),
+                UpstreamTrace::Sourceless => trace_and_emit_sourceless(
+                    ctx.builder,
+                    ctx.dedup,
+                    m.generated_line,
+                    m.generated_column,
+                ),
+                UpstreamTrace::Missing => {}
             }
         }
         SourceEntry::Passthrough { builder_src } => {
@@ -2143,5 +2168,40 @@ mod tests {
         let result = streaming_from_sm(&outer, |_| None);
 
         assert_eq!(result.mapping_count(), 1);
+    }
+
+    fn inner_map_loader(json: &'static str) -> impl Fn(&str) -> Option<SourceMap> {
+        move |source| (source == "mid.js").then(|| SourceMap::from_json(json).unwrap())
+    }
+
+    // An outer segment that lands on a generated-only inner segment must stay as a
+    // sourceless segment. Without it, columns 8 and up map to the inner segment at 4.
+    #[test]
+    fn remap_keeps_sourceless_segment_from_upstream() {
+        let outer = SourceMap::from_json(
+            r#"{"version":3,"sources":["mid.js"],"names":[],"mappings":"AAAA,IAAI,IAAI"}"#,
+        )
+        .unwrap();
+        let loader = inner_map_loader(
+            r#"{"version":3,"sources":["a.js"],"names":[],"mappings":"AAAA,IAAI,I"}"#,
+        );
+
+        assert_eq!(remap(&outer, &loader).encode_mappings(), "AAAA,IAAI,I");
+        assert_eq!(streaming_from_sm(&outer, &loader).encode_mappings(), "AAAA,IAAI,I");
+    }
+
+    // With several inner segments at one column, an exact match takes the first one.
+    #[test]
+    fn remap_takes_first_upstream_segment_at_equal_column() {
+        let outer = SourceMap::from_json(
+            r#"{"version":3,"sources":["mid.js"],"names":[],"mappings":"CAAC,MAAM"}"#,
+        )
+        .unwrap();
+        let loader = inner_map_loader(
+            r#"{"version":3,"sources":["a.js"],"names":[],"mappings":"CAAG,AAAC,OAAE"}"#,
+        );
+
+        assert_eq!(remap(&outer, &loader).encode_mappings(), "CAAG,MAAC");
+        assert_eq!(streaming_from_sm(&outer, &loader).encode_mappings(), "CAAG,MAAC");
     }
 }

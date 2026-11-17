@@ -251,3 +251,64 @@ describe("cross-validation with @jridgewell/remapping", () => {
     compareMaps(srcmap, jr, "multi-line chain");
   });
 });
+
+// Vite passes the result of `MagicString.generateDecodedMap()` to `remapping`. That
+// map has no `version`, holds `mappings` as segment arrays, and holds `rangeMappings`
+// as one array per line. @jridgewell/remapping reads neither `version` nor
+// `rangeMappings`.
+describe("Vite input compatibility with @jridgewell/remapping", () => {
+  const innerMap = () => ({
+    version: 3,
+    sources: ["original.ts"],
+    sourcesContent: ["const a = 1;\nconst b = 2;"],
+    names: [],
+    mappings: "AAAA,MAAM,EAAE;AACA,MAAM",
+  });
+
+  const decodedMap = () => ({
+    sources: ["mid.ts"],
+    sourcesContent: ["const a = 1;\nconst b = 2;"],
+    names: [],
+    mappings: [
+      [
+        [0, 0, 0, 0],
+        [6, 0, 0, 6],
+      ],
+      [[0, 0, 1, 0]],
+    ],
+  });
+
+  it("accepts a decoded map without version", () => {
+    const maps = [decodedMap(), innerMap()];
+    const srcmap = srcmapRemapping(maps, () => null);
+    const jr = jrRemapping(maps, () => null);
+    compareMaps(srcmap, jr, "decoded map without version");
+  });
+
+  it("ignores rangeMappings given as one array per line", () => {
+    const maps = [{ version: 3, ...decodedMap(), rangeMappings: [[], [0]] }, innerMap()];
+    const srcmap = srcmapRemapping(maps, () => null);
+    const jr = jrRemapping(maps, () => null);
+    compareMaps(srcmap, jr, "decoded map with rangeMappings array");
+  });
+
+  it("keeps a sourceless segment that an inner map gives", () => {
+    const maps = [
+      { version: 3, sources: ["mid.js"], names: [], mappings: "AAAA,IAAI,IAAI" },
+      { version: 3, sources: ["original.js"], names: [], mappings: "AAAA,IAAI,I" },
+    ];
+    const srcmap = srcmapRemapping(maps, () => null);
+    const jr = jrRemapping(maps, () => null);
+    compareMaps(srcmap, jr, "inner sourceless segment");
+  });
+
+  it("takes the first inner segment when several share one column", () => {
+    const maps = [
+      { version: 3, sources: ["mid.js"], names: [], mappings: "CAAC,MAAM" },
+      { version: 3, sources: ["original.js"], names: [], mappings: "CAAG,AAAC,OAAE" },
+    ];
+    const srcmap = srcmapRemapping(maps, () => null);
+    const jr = jrRemapping(maps, () => null);
+    compareMaps(srcmap, jr, "inner segments at one column");
+  });
+});
