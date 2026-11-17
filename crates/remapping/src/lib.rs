@@ -178,6 +178,32 @@ struct UpstreamCache {
     name_remap: Vec<Option<u32>>,
 }
 
+/// The source content that each builder source got last.
+///
+/// jridgewell sets the content of a source on each traced segment, so when two
+/// sources share a name, the content of the last traced segment wins. The
+/// tracker gives the same result and calls `set_source_content` only when the
+/// content comes from another place than the last time.
+#[derive(Default)]
+struct ContentTracker {
+    last: Vec<*const String>,
+}
+
+impl ContentTracker {
+    #[inline]
+    fn apply<B: RemapBuilder>(&mut self, builder: &mut B, idx: u32, content: Option<&String>) {
+        let Some(content) = content else { return };
+        let i = idx as usize;
+        if i >= self.last.len() {
+            self.last.resize(i + 1, std::ptr::null());
+        }
+        if !std::ptr::eq(self.last[i], content) {
+            builder.set_source_content(idx, content.clone());
+            self.last[i] = content;
+        }
+    }
+}
+
 /// Build lazy index remap tables for an upstream map.
 fn build_upstream_cache(upstream_sm: &SourceMap) -> UpstreamCache {
     UpstreamCache {
@@ -367,7 +393,7 @@ impl RemapBuilder for StreamingGenerator {
 }
 
 /// Resolve an upstream source index to a builder source index, lazily
-/// registering the source (and its content/ignore status) on first use.
+/// registering the source (and its ignore status) on first use.
 #[inline]
 fn resolve_upstream_source<B: RemapBuilder>(
     cache: &mut UpstreamCache,
@@ -381,9 +407,6 @@ fn resolve_upstream_source<B: RemapBuilder>(
         return idx;
     }
     let idx = builder.add_source(&upstream_sm.sources[si]);
-    if let Some(Some(content)) = upstream_sm.sources_content.get(si) {
-        builder.set_source_content(idx, content.clone());
-    }
     if upstream_sm.ignore_list.contains(&upstream_src) && ignored_sources.insert(idx) {
         builder.add_to_ignore_list(idx);
     }
@@ -558,7 +581,8 @@ enum SourceEntry {
     Passthrough { builder_src: u32 },
     /// Empty-string source (from JSON `null`): emit as generated-only.
     /// Matches jridgewell's behavior where `!source` triggers a sourceless segment.
-    EmptySource,
+    /// `ignored` is true when the outer `ignoreList` holds the source.
+    EmptySource { ignored: bool },
     /// Not yet loaded.
     Unloaded,
 }
@@ -688,6 +712,7 @@ where
     let outer_ignore_set: HashSet<u32> = outer.ignore_list.iter().copied().collect();
 
     let mut dedup = DedupeState::new();
+    let mut contents = ContentTracker::default();
 
     for m in outer.all_mappings() {
         if m.source == NO_SOURCE {
@@ -709,7 +734,6 @@ where
             &mut source_entries,
             si,
             &outer.sources,
-            &outer.sources_content,
             SourceEntryLoadContext {
                 builder: &mut builder,
                 outer_ignore_set: &outer_ignore_set,
@@ -724,8 +748,10 @@ where
             TraceContext {
                 builder: &mut builder,
                 dedup: &mut dedup,
+                contents: &mut contents,
                 outer_name_remap: &mut outer_name_remap,
                 names: &outer.names,
+                sources_content: &outer.sources_content,
                 ignored_sources: &mut ignored_sources,
             },
         );
@@ -737,8 +763,10 @@ where
 struct TraceContext<'a, B> {
     builder: &'a mut B,
     dedup: &'a mut DedupeState,
+    contents: &'a mut ContentTracker,
     outer_name_remap: &'a mut [Option<u32>],
     names: &'a [String],
+    sources_content: &'a [Option<String>],
     ignored_sources: &'a mut HashSet<u32>,
 }
 
@@ -754,6 +782,7 @@ fn trace_source_entry<B: RemapBuilder>(
                     ctx.builder,
                     ctx.dedup,
                     UpstreamEmitContext {
+                        contents: ctx.contents,
                         gen_line: m.generated_line,
                         gen_col: m.generated_column,
                         upstream_m,
@@ -780,6 +809,8 @@ fn trace_source_entry<B: RemapBuilder>(
                 ctx.builder,
                 ctx.dedup,
                 PassthroughEmitContext {
+                    contents: ctx.contents,
+                    content: ctx.sources_content.get(m.source as usize).and_then(Option::as_ref),
                     gen_line: m.generated_line,
                     gen_col: m.generated_column,
                     orig_line: m.original_line,
@@ -792,7 +823,10 @@ fn trace_source_entry<B: RemapBuilder>(
                 },
             );
         }
-        SourceEntry::EmptySource => {
+        SourceEntry::EmptySource { ignored } => {
+            if *ignored {
+                ignore_empty_source(ctx.builder, ctx.ignored_sources);
+            }
             trace_and_emit_sourceless(ctx.builder, ctx.dedup, m.generated_line, m.generated_column);
         }
         SourceEntry::Unloaded => unreachable!(),
@@ -811,7 +845,6 @@ fn load_source_entry<B: RemapBuilder, F>(
     source_entries: &mut [SourceEntry],
     si: usize,
     sources: &[String],
-    sources_content: &[Option<String>],
     ctx: SourceEntryLoadContext<'_, B>,
     loader: &F,
 ) where
@@ -822,23 +855,21 @@ fn load_source_entry<B: RemapBuilder, F>(
     }
 
     let source_name = &sources[si];
-    // Empty-string sources (from JSON null) are treated as generated-only,
-    // matching jridgewell's `if (!source)` check in addSegmentInternal.
-    if source_name.is_empty() {
-        source_entries[si] = SourceEntry::EmptySource;
-        return;
-    }
 
+    // jridgewell also calls the loader for an empty source (from `""` or JSON
+    // null). Only when the loader gives no map is the source generated-only,
+    // as in the `if (!source)` check of its `addSegmentInternal`.
     match loader(source_name) {
         Some(upstream_sm) => {
             let cache = build_upstream_cache(&upstream_sm);
             source_entries[si] = SourceEntry::Upstream { map: Box::new(upstream_sm), cache };
         }
+        None if source_name.is_empty() => {
+            let ignored = ctx.outer_ignore_set.contains(&(si as u32));
+            source_entries[si] = SourceEntry::EmptySource { ignored };
+        }
         None => {
             let idx = ctx.builder.add_source(source_name);
-            if let Some(Some(content)) = sources_content.get(si) {
-                ctx.builder.set_source_content(idx, content.clone());
-            }
             if ctx.outer_ignore_set.contains(&(si as u32)) && ctx.ignored_sources.insert(idx) {
                 ctx.builder.add_to_ignore_list(idx);
             }
@@ -959,6 +990,7 @@ where
     let outer_ignore_set: HashSet<u32> = ignore_list.iter().copied().collect();
 
     let mut dedup = DedupeState::new();
+    let mut contents = ContentTracker::default();
 
     for item in mappings_iter {
         let m = match item {
@@ -985,7 +1017,6 @@ where
             &mut source_entries,
             si,
             sources,
-            sources_content,
             SourceEntryLoadContext {
                 builder: &mut builder,
                 outer_ignore_set: &outer_ignore_set,
@@ -1000,8 +1031,10 @@ where
             TraceContext {
                 builder: &mut builder,
                 dedup: &mut dedup,
+                contents: &mut contents,
                 outer_name_remap: &mut outer_name_remap,
                 names,
+                sources_content,
                 ignored_sources: &mut ignored_sources,
             },
         );
@@ -1011,6 +1044,7 @@ where
 }
 
 struct UpstreamEmitContext<'a> {
+    contents: &'a mut ContentTracker,
     gen_line: u32,
     gen_col: u32,
     upstream_m: UpstreamLookup,
@@ -1030,6 +1064,7 @@ fn trace_and_emit_upstream<B: RemapBuilder>(
     ctx: UpstreamEmitContext<'_>,
 ) {
     let UpstreamEmitContext {
+        contents,
         gen_line,
         gen_col,
         upstream_m,
@@ -1041,11 +1076,26 @@ fn trace_and_emit_upstream<B: RemapBuilder>(
         ignored_sources,
         is_range,
     } = ctx;
-    if upstream_m.source as usize >= upstream_map.sources.len() {
+    let si = upstream_m.source as usize;
+    if si >= upstream_map.sources.len() {
+        return;
+    }
+    // An empty upstream source (from `""` or JSON null) gives a sourceless segment,
+    // as the `if (!source)` check of jridgewell's `addSegmentInternal` does.
+    if upstream_map.sources[si].is_empty() {
+        if upstream_map.ignore_list.contains(&upstream_m.source) {
+            ignore_empty_source(builder, ignored_sources);
+        }
+        trace_and_emit_sourceless(builder, dedup, gen_line, gen_col);
         return;
     }
     let builder_src =
         resolve_upstream_source(cache, upstream_map, upstream_m.source, builder, ignored_sources);
+    contents.apply(
+        builder,
+        builder_src,
+        upstream_map.sources_content.get(si).and_then(Option::as_ref),
+    );
 
     let builder_name = if (upstream_m.name as usize) < upstream_map.names.len() {
         Some(resolve_upstream_name(cache, upstream_map, upstream_m.name, builder))
@@ -1081,6 +1131,8 @@ fn trace_and_emit_upstream<B: RemapBuilder>(
 }
 
 struct PassthroughEmitContext<'a> {
+    contents: &'a mut ContentTracker,
+    content: Option<&'a String>,
     gen_line: u32,
     gen_col: u32,
     orig_line: u32,
@@ -1099,6 +1151,8 @@ fn trace_and_emit_passthrough<B: RemapBuilder>(
     ctx: PassthroughEmitContext<'_>,
 ) {
     let PassthroughEmitContext {
+        contents,
+        content,
         gen_line,
         gen_col,
         orig_line,
@@ -1109,6 +1163,7 @@ fn trace_and_emit_passthrough<B: RemapBuilder>(
         names,
         is_range,
     } = ctx;
+    contents.apply(builder, builder_src, content);
     let builder_name = resolve_outer_name_cached(outer_name_remap, outer_name_idx, names, builder);
 
     if !dedup.skip_source(gen_line, builder_src, orig_line, orig_col, builder_name) {
@@ -1124,6 +1179,16 @@ fn trace_and_emit_passthrough<B: RemapBuilder>(
         );
     }
     dedup.record_source(gen_line, builder_src, orig_line, orig_col, builder_name);
+}
+
+/// jridgewell calls `setIgnore` for an ignored source on each traced segment, also
+/// for an empty source. That adds `""` to `sources` and `ignoreList`, although no
+/// segment uses it. This function gives the same result.
+fn ignore_empty_source<B: RemapBuilder>(builder: &mut B, ignored_sources: &mut HashSet<u32>) {
+    let idx = builder.add_source("");
+    if ignored_sources.insert(idx) {
+        builder.add_to_ignore_list(idx);
+    }
 }
 
 #[inline]
@@ -2096,6 +2161,63 @@ mod tests {
         // The segment should be dropped (no source info)
         let loc = result.original_position_for(0, 0);
         assert!(loc.is_none());
+    }
+
+    // jridgewell calls the loader for an empty source too. A map from the loader
+    // replaces the source; without one, the source stays generated-only.
+    #[test]
+    fn remap_loads_upstream_for_empty_source() {
+        let outer =
+            SourceMap::from_json(r#"{"version":3,"sources":[null],"names":[],"mappings":"AAAA"}"#)
+                .unwrap();
+        let loader = |source: &str| {
+            source.is_empty().then(|| {
+                SourceMap::from_json(
+                    r#"{"version":3,"sources":["a.js"],"names":[],"mappings":"AAAA"}"#,
+                )
+                .unwrap()
+            })
+        };
+
+        for result in [remap(&outer, loader), streaming_from_sm(&outer, loader)] {
+            assert_eq!(result.sources, vec!["a.js".to_string()]);
+            assert_eq!(result.encode_mappings(), "AAAA");
+        }
+    }
+
+    // A segment that traces to an empty upstream source is sourceless, as in jridgewell.
+    #[test]
+    fn remap_makes_segment_sourceless_for_empty_upstream_source() {
+        let outer = SourceMap::from_json(
+            r#"{"version":3,"sources":["a.js"],"names":[],"mappings":"AAAA,EAAE"}"#,
+        )
+        .unwrap();
+        let loader = |_: &str| {
+            Some(
+                SourceMap::from_json(
+                    r#"{"version":3,"sources":["b.js",null],"names":[],"mappings":"AAAA,ECAE"}"#,
+                )
+                .unwrap(),
+            )
+        };
+
+        for result in [remap(&outer, loader), streaming_from_sm(&outer, loader)] {
+            assert_eq!(result.sources, vec!["b.js".to_string()]);
+            assert_eq!(result.encode_mappings(), "AAAA,E");
+        }
+    }
+
+    // Two sources with one name: the content of the last traced segment wins.
+    #[test]
+    fn remap_keeps_content_of_last_traced_segment() {
+        let outer = SourceMap::from_json(
+            r#"{"version":3,"sources":["a.js","a.js"],"sourcesContent":["first","second"],"names":[],"mappings":"AAAA,ECAA;ADAA"}"#,
+        )
+        .unwrap();
+
+        for result in [remap(&outer, |_| None), streaming_from_sm(&outer, |_| None)] {
+            assert_eq!(result.sources_content, vec![Some("first".to_string())]);
+        }
     }
 
     #[test]

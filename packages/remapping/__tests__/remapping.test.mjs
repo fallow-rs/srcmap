@@ -111,7 +111,7 @@ describe("remapping(singleMap, loader)", () => {
       mappings: "AAAA",
     };
 
-    const result = remapping(outer, () => inner);
+    const result = remapping(outer, (source) => (source === "compiled.js" ? inner : null));
     assert.deepEqual(result.sourcesContent, ["const x = 1;"]);
   });
 
@@ -129,7 +129,7 @@ describe("remapping(singleMap, loader)", () => {
       mappings: "AAAA",
     };
 
-    const result = remapping(outer, () => inner);
+    const result = remapping(outer, (source) => (source === "compiled.js" ? inner : null));
     assert.ok(result.names.includes("myFunc"));
   });
 
@@ -370,5 +370,32 @@ describe("error handling", () => {
     const result = remapping([], () => null);
     assert.ok(result instanceof SourceMap);
     assert.equal(result.version, 3);
+  });
+});
+
+describe("remapping(indexedMap, loader)", () => {
+  it("calls the loader for each section source, depth first", () => {
+    const indexed = {
+      version: 3,
+      sections: [
+        {
+          offset: { line: 0, column: 0 },
+          map: { version: 3, sources: ["a.js"], names: [], mappings: "AAAA" },
+        },
+        {
+          offset: { line: 1, column: 0 },
+          map: { version: 3, sources: ["b.js"], names: [], mappings: "AAAA" },
+        },
+      ],
+    };
+    const upstream = { version: 3, sources: ["a.ts"], names: [], mappings: "AAAA" };
+    const calls = [];
+    const result = remapping(indexed, (source) => {
+      calls.push(source);
+      return source === "a.js" ? upstream : null;
+    });
+    assert.deepEqual(calls, ["a.js", "a.ts", "b.js"]);
+    assert.deepEqual(result.sources, ["a.ts", "b.js"]);
+    assert.equal(result.mappings, "AAAA;ACAA");
   });
 });
