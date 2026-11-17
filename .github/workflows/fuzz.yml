@@ -1,0 +1,78 @@
+name: Fuzz
+
+on:
+  schedule:
+    - cron: '17 3 * * 1'
+  workflow_dispatch:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'crates/codec/**'
+      - 'crates/sourcemap/**'
+      - 'crates/scopes/**'
+      - 'crates/ram-bundle/**'
+      - 'crates/hermes/**'
+      - 'crates/symbolicate/**'
+      - 'fuzz/**'
+      - '.github/workflows/fuzz.yml'
+
+# Deny all permissions by default; grant per job as needed.
+permissions: {}
+
+concurrency:
+  group: fuzz-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  fuzz:
+    name: Fuzz (${{ matrix.target }})
+    runs-on: ubuntu-26.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - codec_decode
+          - sourcemap_from_json
+          - sourcemap_url
+          - lazy_sourcemap
+          - scopes_decode
+          - ram_bundle
+          - hermes_from_json
+          - symbolicate_parse
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: $/.github/actions/setup-rust
+        with:
+          toolchain: nightly
+      - uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39 # v2.90.3
+        with:
+          tool: cargo-fuzz
+      - uses: Swatinem/rust-cache@eedcf2fb1c22f010a0eb66b92f378c110977f266 # v2
+        with:
+          workspaces: fuzz
+      - name: Run fuzz target
+        env:
+          TARGET: ${{ matrix.target }}
+        # The corpus directory is git-ignored, and libFuzzer needs it to exist.
+        # The per-input timeout makes a hang fail the step, so the crash
+        # inputs upload before the job timeout.
+        run: |
+          mkdir -p "fuzz/corpus/$TARGET"
+          cargo +nightly fuzz run "$TARGET" "fuzz/corpus/$TARGET" "fuzz/seeds/$TARGET" -- -max_total_time=120 -timeout=10
+      - name: Upload crash inputs
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: fuzz-artifacts-${{ matrix.target }}
+          path: fuzz/artifacts/
+          if-no-files-found: ignore

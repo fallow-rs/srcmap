@@ -1,0 +1,9 @@
+{
+  "version": 3,
+  "file": "simple.js",
+  "sourceRoot": "",
+  "sources": ["src/app.ts", "src/util.ts"],
+  "names": ["greet", "name", "log"],
+  "mappings": "AAAA,IAAM,CAAC,GAAG,SAAS,CAAC,IAAI;AACxB,OAAO,CAAC,GAAG,CAAC,CAAC,CAAC",
+  "sourcesContent": ["const greet = (name) => {\n  console.log(name);\n};", null]
+}
