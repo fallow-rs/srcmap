@@ -307,7 +307,7 @@ checksum = "149309498a5f7334b12ddae0cad8aba81ce785fe91755068867e017cf98fee46"
 
 [[package]]
 name = "srcmap-codec"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "memchr",
 ]
@@ -327,7 +327,7 @@ dependencies = [
 
 [[package]]
 name = "srcmap-hermes"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "serde_json",
  "srcmap-codec",
@@ -336,21 +336,21 @@ dependencies = [
 
 [[package]]
 name = "srcmap-ram-bundle"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "srcmap-sourcemap",
 ]
 
 [[package]]
 name = "srcmap-scopes"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "srcmap-codec",
 ]
 
 [[package]]
 name = "srcmap-sourcemap"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "memchr",
  "serde",
@@ -362,7 +362,7 @@ dependencies = [
 
 [[package]]
 name = "srcmap-symbolicate"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "serde_json",
  "srcmap-scopes",

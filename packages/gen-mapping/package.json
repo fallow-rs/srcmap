@@ -1,6 +1,6 @@
 {
   "name": "@srcmap/gen-mapping",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "The @jridgewell/gen-mapping API on the srcmap Rust generator, compiled to WebAssembly",
   "keywords": [
     "builder",
@@ -40,7 +40,7 @@
     "test:coverage": "mkdir -p coverage && node --test --experimental-test-coverage --test-reporter=lcov --test-reporter-destination=coverage/lcov.info --test-reporter=spec --test-reporter-destination=stdout __tests__/gen-mapping.test.mjs"
   },
   "dependencies": {
-    "@srcmap/generator-wasm": "0.5.0",
-    "@srcmap/sourcemap-wasm": "0.5.0"
+    "@srcmap/generator-wasm": "0.6.0",
+    "@srcmap/sourcemap-wasm": "0.6.0"
   }
 }

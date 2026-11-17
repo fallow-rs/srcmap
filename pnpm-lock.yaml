@@ -47,28 +47,28 @@ importers:
     devDependencies:
       '@napi-rs/cli':
         specifier: ^3.10.9
-        version: 3.10.9(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)
+        version: 3.10.9(@emnapi/core@1.11.2)(@emnapi/runtime@1.11.2)
     optionalDependencies:
       '@srcmap/codec-darwin-arm64':
-        specifier: 0.5.0
+        specifier: 0.6.0
         version: link:npm/darwin-arm64
       '@srcmap/codec-darwin-x64':
-        specifier: 0.5.0
+        specifier: 0.6.0
         version: link:npm/darwin-x64
       '@srcmap/codec-linux-arm64-gnu':
-        specifier: 0.5.0
+        specifier: 0.6.0
         version: link:npm/linux-arm64-gnu
       '@srcmap/codec-linux-arm64-musl':
-        specifier: 0.5.0
+        specifier: 0.6.0
         version: link:npm/linux-arm64-musl
       '@srcmap/codec-linux-x64-gnu':
-        specifier: 0.5.0
+        specifier: 0.6.0
         version: link:npm/linux-x64-gnu
       '@srcmap/codec-linux-x64-musl':
-        specifier: 0.5.0
+        specifier: 0.6.0
         version: link:npm/linux-x64-musl
       '@srcmap/codec-win32-x64-msvc':
-        specifier: 0.5.0
+        specifier: 0.6.0
         version: link:npm/win32-x64-msvc
 
   packages/codec/npm/darwin-arm64: {}
@@ -88,10 +88,10 @@ importers:
   packages/gen-mapping:
     dependencies:
       '@srcmap/generator-wasm':
-        specifier: 0.5.0
+        specifier: 0.6.0
         version: link:../generator-wasm
       '@srcmap/sourcemap-wasm':
-        specifier: 0.5.0
+        specifier: 0.6.0
         version: link:../sourcemap-wasm
 
   packages/generator-wasm: {}
@@ -102,7 +102,7 @@ importers:
         specifier: ^3.1.2
         version: 3.1.2
       '@srcmap/remapping-wasm':
-        specifier: 0.5.0
+        specifier: 0.6.0
         version: link:../remapping-wasm
     devDependencies:
       '@jridgewell/remapping':
@@ -117,10 +117,10 @@ importers:
   packages/source-map:
     dependencies:
       '@srcmap/generator-wasm':
-        specifier: 0.5.0
+        specifier: 0.6.0
         version: link:../generator-wasm
       '@srcmap/sourcemap-wasm':
-        specifier: 0.5.0
+        specifier: 0.6.0
         version: link:../sourcemap-wasm
 
   packages/sourcemap:
@@ -134,25 +134,25 @@ importers:
         version: 3.10.9(@emnapi/core@1.11.2)(@emnapi/runtime@1.11.2)
     optionalDependencies:
       '@srcmap/sourcemap-darwin-arm64':
-        specifier: 0.5.0
+        specifier: 0.6.0
         version: link:npm/darwin-arm64
       '@srcmap/sourcemap-darwin-x64':
-        specifier: 0.5.0
+        specifier: 0.6.0
         version: link:npm/darwin-x64
       '@srcmap/sourcemap-linux-arm64-gnu':
-        specifier: 0.5.0
+        specifier: 0.6.0
         version: link:npm/linux-arm64-gnu
       '@srcmap/sourcemap-linux-arm64-musl':
-        specifier: 0.5.0
+        specifier: 0.6.0
         version: link:npm/linux-arm64-musl
       '@srcmap/sourcemap-linux-x64-gnu':
-        specifier: 0.5.0
+        specifier: 0.6.0
         version: link:npm/linux-x64-gnu
       '@srcmap/sourcemap-linux-x64-musl':
-        specifier: 0.5.0
+        specifier: 0.6.0
         version: link:npm/linux-x64-musl
       '@srcmap/sourcemap-win32-x64-msvc':
-        specifier: 0.5.0
+        specifier: 0.6.0
         version: link:npm/win32-x64-msvc
 
   packages/sourcemap-wasm: {}
@@ -179,7 +179,7 @@ importers:
         specifier: ^3.1.2
         version: 3.1.2
       '@srcmap/sourcemap-wasm':
-        specifier: 0.5.0
+        specifier: 0.6.0
         version: link:../sourcemap-wasm
     devDependencies:
       '@jridgewell/sourcemap-codec':
@@ -1533,37 +1533,6 @@ snapshots:
     optionalDependencies:
       '@emnapi/core': 1.11.2
       '@emnapi/runtime': 1.11.2
-    transitivePeerDependencies:
-      - '@napi-rs/cross-toolchain-arm64-target-aarch64'
-      - '@napi-rs/cross-toolchain-arm64-target-armv7'
-      - '@napi-rs/cross-toolchain-arm64-target-ppc64le'
-      - '@napi-rs/cross-toolchain-arm64-target-s390x'
-      - '@napi-rs/cross-toolchain-arm64-target-x86_64'
-      - '@napi-rs/cross-toolchain-x64-target-aarch64'
-      - '@napi-rs/cross-toolchain-x64-target-armv7'
-      - '@napi-rs/cross-toolchain-x64-target-ppc64le'
-      - '@napi-rs/cross-toolchain-x64-target-s390x'
-      - '@napi-rs/cross-toolchain-x64-target-x86_64'
-      - '@types/node'
-      - supports-color
-
-  '@napi-rs/cli@3.10.9(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)':
-    dependencies:
-      '@inquirer/prompts': 8.7.5
-      '@napi-rs/cross-toolchain': 1.0.3
-      '@napi-rs/wasm-tools': 1.1.0
-      '@octokit/rest': 22.0.1
-      clipanion: 4.0.0-rc.4(typanion@3.14.0)
-      colorette: 2.0.20
-      es-toolkit: 1.53.0
-      js-yaml: 5.5.0
-      obug: 3.0.0
-      semver: 7.8.5
-      typanion: 3.14.0
-      typescript: 6.0.3
-    optionalDependencies:
-      '@emnapi/core': 1.9.2
-      '@emnapi/runtime': 1.9.2
     transitivePeerDependencies:
       - '@napi-rs/cross-toolchain-arm64-target-aarch64'
       - '@napi-rs/cross-toolchain-arm64-target-armv7'

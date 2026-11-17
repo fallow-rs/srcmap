@@ -13,7 +13,7 @@ Parses source map JSON and provides O(log n) position lookups. Implements the [E
 
 ```toml
 [dependencies]
-srcmap-sourcemap = "0.5"
+srcmap-sourcemap = "0.6"
 ```
 
 ## Usage
