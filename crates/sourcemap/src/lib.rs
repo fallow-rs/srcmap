@@ -994,6 +994,82 @@ pub struct RawSourceMapLite<'a> {
     pub sections: Option<Vec<serde_json::Value>>,
 }
 
+/// The fields of a regular (non-indexed) source map, before the decode of
+/// `mappings`. The eager parsers build a [`SourceMap`] from it.
+struct RegularFields<'a> {
+    file: Option<String>,
+    source_root: Option<String>,
+    sources: Vec<String>,
+    sources_content: Vec<Option<String>>,
+    names: Vec<String>,
+    mappings: &'a str,
+    ignore_list: Option<Vec<u32>>,
+    x_google_ignore_list: Option<Vec<u32>>,
+    debug_id: Option<String>,
+    scopes: Option<&'a str>,
+    range_mappings: Option<&'a str>,
+    extensions: HashMap<String, serde_json::Value>,
+}
+
+impl<'a> RegularFields<'a> {
+    /// Parse the JSON of a regular source map. Reject an indexed map.
+    fn parse(json: &'a str) -> Result<Self, ParseError> {
+        let raw: RawSourceMap<'a> = serde_json::from_str(json)?;
+        check_version(raw.version)?;
+        if raw.sections.is_some() {
+            return Err(ParseError::NestedIndexMap);
+        }
+        Ok(Self::from_raw(raw))
+    }
+
+    /// Parse the JSON of a regular source map, but skip `sourcesContent`
+    /// and the extension fields. Reject an indexed map.
+    fn parse_lite(json: &'a str) -> Result<Self, ParseError> {
+        let raw: RawSourceMapLite<'a> = serde_json::from_str(json)?;
+        check_version(raw.version)?;
+        if raw.sections.is_some() {
+            return Err(ParseError::NestedIndexMap);
+        }
+        Ok(Self::from_lite(raw))
+    }
+
+    fn from_raw(raw: RawSourceMap<'a>) -> Self {
+        let sources = resolve_sources(&raw.sources, raw.source_root.as_deref().unwrap_or(""));
+        Self {
+            file: raw.file,
+            source_root: raw.source_root,
+            sources,
+            sources_content: raw.sources_content.unwrap_or_default(),
+            names: raw.names,
+            mappings: raw.mappings,
+            ignore_list: raw.ignore_list,
+            x_google_ignore_list: raw.x_google_ignore_list,
+            debug_id: raw.debug_id,
+            scopes: raw.scopes,
+            range_mappings: raw.range_mappings,
+            extensions: filter_extensions(raw.extensions),
+        }
+    }
+
+    fn from_lite(raw: RawSourceMapLite<'a>) -> Self {
+        let sources = resolve_sources(&raw.sources, raw.source_root.as_deref().unwrap_or(""));
+        Self {
+            file: raw.file,
+            source_root: raw.source_root,
+            sources,
+            sources_content: Vec::new(),
+            names: raw.names,
+            mappings: raw.mappings,
+            ignore_list: raw.ignore_list,
+            x_google_ignore_list: raw.x_google_ignore_list,
+            debug_id: raw.debug_id,
+            scopes: raw.scopes,
+            range_mappings: raw.range_mappings,
+            extensions: HashMap::new(),
+        }
+    }
+}
+
 // ── SourceMap ──────────────────────────────────────────────────────
 
 /// A fully-parsed source map with O(log n) position lookups.
@@ -1063,49 +1139,9 @@ impl SourceMap {
     /// The resulting SourceMap has an empty `sources_content` vec.
     /// Indexed source maps are not supported; use [`SourceMap::from_json`] instead.
     pub fn from_json_no_content(json: &str) -> Result<Self, ParseError> {
-        let raw: RawSourceMapLite<'_> = serde_json::from_str(json)?;
-
-        check_version(raw.version)?;
-
-        if raw.sections.is_some() {
-            return Err(ParseError::NestedIndexMap);
-        }
-
-        let source_root = raw.source_root.as_deref().unwrap_or("");
-        let sources = resolve_sources(&raw.sources, source_root);
-        let source_map = build_source_map(&sources);
-        let (mut mappings, line_offsets, checks) =
-            decode_mappings(raw.mappings, sources.len(), raw.names.len())?;
-        let has_range_mappings =
-            decode_range_mappings_field(raw.range_mappings, &mut mappings, &line_offsets)?;
-        sort_unsorted_lines(&mut mappings, &line_offsets, &checks);
-        let scopes = decode_scopes_field(raw.scopes, &raw.names, sources.len())?;
-        let ignore_list = resolve_ignore_list(raw.ignore_list, raw.x_google_ignore_list);
-        check_indices(
-            &mappings,
-            &checks,
-            sources.len(),
-            raw.names.len(),
-            &ignore_list,
-            scopes.as_ref(),
-        )?;
-
-        Ok(Self {
-            file: raw.file,
-            source_root: raw.source_root,
-            sources,
-            sources_content: Vec::new(),
-            names: raw.names,
-            ignore_list,
-            extensions: HashMap::new(),
-            debug_id: raw.debug_id,
-            scopes,
-            mappings,
-            line_offsets,
-            reverse_index: OnceCell::new(),
-            source_map,
-            has_range_mappings,
-        })
+        let fields = RegularFields::parse_lite(json)?;
+        let decoded = decode_mappings(fields.mappings, fields.sources.len(), fields.names.len())?;
+        Self::from_decoded(fields, decoded)
     }
 
     /// Internal parser with control over whether indexed maps (sections) are allowed.
@@ -1133,37 +1169,43 @@ impl SourceMap {
 
     /// Parse a regular (non-indexed) source map.
     fn from_regular(raw: RawSourceMap<'_>) -> Result<Self, ParseError> {
-        let source_root = raw.source_root.as_deref().unwrap_or("");
-        let sources = resolve_sources(&raw.sources, source_root);
-        let sources_content = raw.sources_content.unwrap_or_default();
-        let source_map = build_source_map(&sources);
+        let fields = RegularFields::from_raw(raw);
+        let decoded = decode_mappings(fields.mappings, fields.sources.len(), fields.names.len())?;
+        Self::from_decoded(fields, decoded)
+    }
 
-        let (mut mappings, line_offsets, checks) =
-            decode_mappings(raw.mappings, sources.len(), raw.names.len())?;
+    /// Run the steps that follow the decode of `mappings`, and build the map.
+    ///
+    /// The steps decode `rangeMappings` and `scopes`, sort out-of-order
+    /// segments, and check every source, name and ignore-list index.
+    fn from_decoded(
+        fields: RegularFields<'_>,
+        (mut mappings, line_offsets, checks): (Vec<Mapping>, Vec<u32>, DecodeChecks),
+    ) -> Result<Self, ParseError> {
         let has_range_mappings =
-            decode_range_mappings_field(raw.range_mappings, &mut mappings, &line_offsets)?;
+            decode_range_mappings_field(fields.range_mappings, &mut mappings, &line_offsets)?;
         sort_unsorted_lines(&mut mappings, &line_offsets, &checks);
-        let scopes = decode_scopes_field(raw.scopes, &raw.names, sources.len())?;
-        let ignore_list = resolve_ignore_list(raw.ignore_list, raw.x_google_ignore_list);
+        let scopes = decode_scopes_field(fields.scopes, &fields.names, fields.sources.len())?;
+        let ignore_list = resolve_ignore_list(fields.ignore_list, fields.x_google_ignore_list);
         check_indices(
             &mappings,
             &checks,
-            sources.len(),
-            raw.names.len(),
+            fields.sources.len(),
+            fields.names.len(),
             &ignore_list,
             scopes.as_ref(),
         )?;
-        let extensions = filter_extensions(raw.extensions);
+        let source_map = build_source_map(&fields.sources);
 
         Ok(Self {
-            file: raw.file,
-            source_root: raw.source_root,
-            sources,
-            sources_content,
-            names: raw.names,
+            file: fields.file,
+            source_root: fields.source_root,
+            sources: fields.sources,
+            sources_content: fields.sources_content,
+            names: fields.names,
             ignore_list,
-            extensions,
-            debug_id: raw.debug_id,
+            extensions: fields.extensions,
+            debug_id: fields.debug_id,
             scopes,
             mappings,
             line_offsets,
@@ -1868,56 +1910,10 @@ impl SourceMap {
     /// but `Mapping` structs are only allocated for lines in the requested range.
     /// Indexed source maps are not supported; use [`SourceMap::from_json`] instead.
     pub fn from_json_lines(json: &str, start_line: u32, end_line: u32) -> Result<Self, ParseError> {
-        let raw: RawSourceMap<'_> = serde_json::from_str(json)?;
-
-        check_version(raw.version)?;
-
-        if raw.sections.is_some() {
-            return Err(ParseError::NestedIndexMap);
-        }
-
-        let source_root = raw.source_root.as_deref().unwrap_or("");
-        let sources = resolve_sources(&raw.sources, source_root);
-        let sources_content = raw.sources_content.unwrap_or_default();
-        let source_map = build_source_map(&sources);
-
-        let (mut mappings, line_offsets, checks) = decode_mappings_range(
-            raw.mappings,
-            start_line,
-            end_line,
-            DecodeChecks::new(sources.len(), raw.names.len()),
-        )?;
-        let has_range_mappings =
-            decode_range_mappings_field(raw.range_mappings, &mut mappings, &line_offsets)?;
-        sort_unsorted_lines(&mut mappings, &line_offsets, &checks);
-        let scopes = decode_scopes_field(raw.scopes, &raw.names, sources.len())?;
-        let ignore_list = resolve_ignore_list(raw.ignore_list, raw.x_google_ignore_list);
-        check_indices(
-            &mappings,
-            &checks,
-            sources.len(),
-            raw.names.len(),
-            &ignore_list,
-            scopes.as_ref(),
-        )?;
-        let extensions = filter_extensions(raw.extensions);
-
-        Ok(Self {
-            file: raw.file,
-            source_root: raw.source_root,
-            sources,
-            sources_content,
-            names: raw.names,
-            ignore_list,
-            extensions,
-            debug_id: raw.debug_id,
-            scopes,
-            mappings,
-            line_offsets,
-            reverse_index: OnceCell::new(),
-            source_map,
-            has_range_mappings,
-        })
+        let fields = RegularFields::parse(json)?;
+        let checks = DecodeChecks::new(fields.sources.len(), fields.names.len());
+        let decoded = decode_mappings_range(fields.mappings, start_line, end_line, checks)?;
+        Self::from_decoded(fields, decoded)
     }
 
     /// Encode all mappings back to a VLQ mappings string.
@@ -2250,40 +2246,36 @@ impl LazySourceMap {
     /// VLQ mappings are decoded per-line on demand.
     /// Indexed source maps are not supported; use [`SourceMap::from_json`] instead.
     pub fn from_json(json: &str) -> Result<Self, ParseError> {
-        let raw: RawSourceMap<'_> = serde_json::from_str(json)?;
+        let fields = RegularFields::parse(json)?;
+        let line_info = prescan_mappings(fields.mappings)?;
+        Self::from_fields(fields, line_info, false)
+    }
 
-        check_version(raw.version)?;
-
-        if raw.sections.is_some() {
-            return Err(ParseError::NestedIndexMap);
-        }
-
-        let source_root = raw.source_root.as_deref().unwrap_or("");
-        let sources = resolve_sources(&raw.sources, source_root);
-        let sources_content = raw.sources_content.unwrap_or_default();
-        let source_map = build_source_map(&sources);
-
-        let raw_mappings = raw.mappings.to_string();
-        let line_info = prescan_mappings(&raw_mappings)?;
-        let scopes = decode_scopes_field(raw.scopes, &raw.names, sources.len())?;
-        let ignore_list = resolve_ignore_list(raw.ignore_list, raw.x_google_ignore_list);
-        let extensions = filter_extensions(raw.extensions);
+    /// Decode `scopes`, resolve the ignore list, and build the lazy map.
+    fn from_fields(
+        fields: RegularFields<'_>,
+        line_info: Vec<LineInfo>,
+        fast_scan: bool,
+    ) -> Result<Self, ParseError> {
+        let scopes = decode_scopes_field(fields.scopes, &fields.names, fields.sources.len())?;
+        let ignore_list = resolve_ignore_list(fields.ignore_list, fields.x_google_ignore_list);
+        let source_map = build_source_map(&fields.sources);
 
         Ok(Self::new_inner(
-            raw.file,
-            raw.source_root,
-            sources,
-            sources_content,
-            raw.names,
+            fields.file,
+            fields.source_root,
+            fields.sources,
+            fields.sources_content,
+            fields.names,
             ignore_list,
-            extensions,
-            raw.debug_id,
+            fields.extensions,
+            fields.debug_id,
             scopes,
-            raw_mappings,
-            owned_range_mappings(raw.range_mappings),
+            fields.mappings.to_string(),
+            owned_range_mappings(fields.range_mappings),
             line_info,
             source_map,
-            false,
+            fast_scan,
         ))
     }
 
@@ -2295,39 +2287,9 @@ impl LazySourceMap {
     /// Returns `ParseError::NestedIndexMap` if the JSON contains `sections`
     /// (indexed source maps are not supported by `LazySourceMap`).
     pub fn from_json_no_content(json: &str) -> Result<Self, ParseError> {
-        let raw: RawSourceMapLite<'_> = serde_json::from_str(json)?;
-
-        check_version(raw.version)?;
-
-        if raw.sections.is_some() {
-            return Err(ParseError::NestedIndexMap);
-        }
-
-        let source_root = raw.source_root.as_deref().unwrap_or("");
-        let sources = resolve_sources(&raw.sources, source_root);
-        let source_map = build_source_map(&sources);
-
-        let raw_mappings = raw.mappings.to_string();
-        let line_info = prescan_mappings(&raw_mappings)?;
-        let scopes = decode_scopes_field(raw.scopes, &raw.names, sources.len())?;
-        let ignore_list = resolve_ignore_list(raw.ignore_list, raw.x_google_ignore_list);
-
-        Ok(Self::new_inner(
-            raw.file,
-            raw.source_root,
-            sources,
-            Vec::new(),
-            raw.names,
-            ignore_list,
-            HashMap::new(),
-            raw.debug_id,
-            scopes,
-            raw_mappings,
-            owned_range_mappings(raw.range_mappings),
-            line_info,
-            source_map,
-            false,
-        ))
+        let fields = RegularFields::parse_lite(json)?;
+        let line_info = prescan_mappings(fields.mappings)?;
+        Self::from_fields(fields, line_info, false)
     }
 
     /// Build a lazy source map from pre-parsed components.
@@ -2375,39 +2337,9 @@ impl LazySourceMap {
     /// Returns `ParseError::NestedIndexMap` if the JSON contains `sections`
     /// (indexed source maps are not supported by `LazySourceMap`).
     pub fn from_json_fast(json: &str) -> Result<Self, ParseError> {
-        let raw: RawSourceMapLite<'_> = serde_json::from_str(json)?;
-
-        check_version(raw.version)?;
-
-        if raw.sections.is_some() {
-            return Err(ParseError::NestedIndexMap);
-        }
-
-        let source_root = raw.source_root.as_deref().unwrap_or("");
-        let sources = resolve_sources(&raw.sources, source_root);
-        let source_map = build_source_map(&sources);
-        let raw_mappings = raw.mappings.to_string();
-
-        let line_info = fast_scan_lines(&raw_mappings);
-        let scopes = decode_scopes_field(raw.scopes, &raw.names, sources.len())?;
-        let ignore_list = resolve_ignore_list(raw.ignore_list, raw.x_google_ignore_list);
-
-        Ok(Self::new_inner(
-            raw.file,
-            raw.source_root,
-            sources,
-            Vec::new(),
-            raw.names,
-            ignore_list,
-            HashMap::new(),
-            raw.debug_id,
-            scopes,
-            raw_mappings,
-            owned_range_mappings(raw.range_mappings),
-            line_info,
-            source_map,
-            true,
-        ))
+        let fields = RegularFields::parse_lite(json)?;
+        let line_info = fast_scan_lines(fields.mappings);
+        Self::from_fields(fields, line_info, true)
     }
 
     /// Decode one line's VLQ segment given the VLQ state at its start; returns
@@ -3003,55 +2935,9 @@ const B64: [u8; 256] = {
 /// Most source map VLQ values fit in 1-2 base64 characters.
 #[inline(always)]
 fn vlq_fast(bytes: &[u8], pos: &mut usize) -> Result<i64, DecodeError> {
-    let p = *pos;
-    if p >= bytes.len() {
-        return Err(DecodeError::UnexpectedEof { offset: p });
-    }
-
-    let b0 = bytes[p];
-    let d0 = B64[b0 as usize];
-    if d0 == 0xFF {
-        return Err(DecodeError::InvalidBase64 { byte: b0, offset: p });
-    }
-
-    // Fast path: single character VLQ (values -15..15)
-    if (d0 & 0x20) == 0 {
-        *pos = p + 1;
-        let val = (d0 >> 1) as i64;
-        return Ok(if (d0 & 1) != 0 { -val } else { val });
-    }
-
-    // Multi-character VLQ
-    let mut result: u64 = (d0 & 0x1F) as u64;
-    let mut shift: u32 = 5;
-    let mut i = p + 1;
-
-    loop {
-        if i >= bytes.len() {
-            return Err(DecodeError::UnexpectedEof { offset: i });
-        }
-        let b = bytes[i];
-        let d = B64[b as usize];
-        if d == 0xFF {
-            return Err(DecodeError::InvalidBase64 { byte: b, offset: i });
-        }
-        i += 1;
-
-        if shift >= 60 {
-            return Err(DecodeError::VlqOverflow { offset: p });
-        }
-
-        result += ((d & 0x1F) as u64) << shift;
-        shift += 5;
-
-        if (d & 0x20) == 0 {
-            break;
-        }
-    }
-
-    *pos = i;
-    let value = if (result & 1) == 1 { -((result >> 1) as i64) } else { (result >> 1) as i64 };
-    Ok(value)
+    let raw = vlq_unsigned_fast(bytes, pos)?;
+    let magnitude = (raw >> 1) as i64;
+    Ok(if (raw & 1) != 0 { -magnitude } else { magnitude })
 }
 
 #[inline(always)]
