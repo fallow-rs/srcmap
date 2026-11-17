@@ -57,8 +57,8 @@
 //! ```
 
 use srcmap_generator::{SourceMapGenerator, StreamingGenerator};
-use srcmap_sourcemap::SourceMap;
-use std::collections::HashSet;
+use srcmap_sourcemap::{Mapping, SourceMap};
+use std::collections::{HashMap, HashSet};
 
 const NO_SOURCE: u32 = u32::MAX;
 const NO_NAME: u32 = u32::MAX;
@@ -172,12 +172,35 @@ fn add_concat_sources(builder: &mut SourceMapGenerator, sm: &SourceMap) -> Vec<u
 /// actually references them, matching jridgewell's behavior of not
 /// including unreferenced sources/names in the output.
 struct UpstreamCache {
-    /// upstream source idx → builder source idx (lazily populated)
-    source_remap: Vec<Option<u32>>,
+    /// upstream source idx → what the trace does with it (lazily populated)
+    source_remap: Vec<UpstreamSource>,
     /// upstream name idx → builder name idx (lazily populated)
     name_remap: Vec<Option<u32>>,
     /// Where the last lookup in this upstream map ended.
     cursor: LookupCursor,
+    /// The source of the last traced segment. A run of segments from one
+    /// source needs the source state and the content step one time.
+    last: Option<LastSource>,
+}
+
+/// The upstream source of the last traced segment, and what the trace did with it.
+#[derive(Clone, Copy)]
+struct LastSource {
+    upstream_src: u32,
+    builder_src: u32,
+    /// The value of [`ContentTracker::writes`] after the content step.
+    content_writes: u64,
+}
+
+/// What the trace does with one source of an upstream map.
+#[derive(Clone, Copy)]
+enum UpstreamSource {
+    /// No segment used this source yet.
+    Unresolved,
+    /// The source name is empty (from `""` or JSON null).
+    Empty,
+    /// The index of the source in the builder.
+    Builder(u32),
 }
 
 /// The line and the index in that line of the last lookup hit.
@@ -203,6 +226,10 @@ const CURSOR_SCAN_LIMIT: usize = 8;
 #[derive(Default)]
 struct ContentTracker {
     last: Vec<*const String>,
+    /// How many times `apply` gave a builder source another content. While
+    /// this count is the same, a second `apply` with the same arguments does
+    /// nothing.
+    writes: u64,
 }
 
 impl ContentTracker {
@@ -216,6 +243,7 @@ impl ContentTracker {
         if !std::ptr::eq(self.last[i], content) {
             builder.set_source_content(idx, content.clone());
             self.last[i] = content;
+            self.writes += 1;
         }
     }
 }
@@ -223,9 +251,10 @@ impl ContentTracker {
 /// Build lazy index remap tables for an upstream map.
 fn build_upstream_cache(upstream_sm: &SourceMap) -> UpstreamCache {
     UpstreamCache {
-        source_remap: vec![None; upstream_sm.sources.len()],
+        source_remap: vec![UpstreamSource::Unresolved; upstream_sm.sources.len()],
         name_remap: vec![None; upstream_sm.names.len()],
         cursor: LookupCursor::default(),
+        last: None,
     }
 }
 
@@ -236,104 +265,132 @@ trait RemapBuilder {
     fn add_name(&mut self, name: &str) -> u32;
     fn add_to_ignore_list(&mut self, idx: u32);
     fn add_generated_mapping(&mut self, gen_line: u32, gen_col: u32);
-    fn add_mapping(&mut self, gen_line: u32, gen_col: u32, src: u32, orig_line: u32, orig_col: u32);
-    fn add_named_mapping(
+    /// Adds a segment with a source. `generated` and `original` are
+    /// `(line, column)` pairs.
+    fn add_segment(
         &mut self,
-        gen_line: u32,
-        gen_col: u32,
+        generated: (u32, u32),
         src: u32,
-        orig_line: u32,
-        orig_col: u32,
-        name: u32,
-    );
-    fn add_range_mapping(
-        &mut self,
-        gen_line: u32,
-        gen_col: u32,
-        src: u32,
-        orig_line: u32,
-        orig_col: u32,
-    );
-    fn add_named_range_mapping(
-        &mut self,
-        gen_line: u32,
-        gen_col: u32,
-        src: u32,
-        orig_line: u32,
-        orig_col: u32,
-        name: u32,
+        original: (u32, u32),
+        name: Option<u32>,
+        is_range: bool,
     );
 }
 
-impl RemapBuilder for SourceMapGenerator {
+/// The builder of [`remap`]. It collects the mappings in the layout of
+/// [`SourceMap`], so the result needs no second pass over the mappings and no
+/// copy of the strings.
+struct DecodedBuilder {
+    file: Option<String>,
+    sources: Vec<String>,
+    sources_content: Vec<Option<String>>,
+    source_indices: HashMap<String, u32>,
+    names: Vec<String>,
+    name_indices: HashMap<String, u32>,
+    ignore_list: Vec<u32>,
+    mappings: Vec<Mapping>,
+}
+
+impl DecodedBuilder {
+    fn with_capacity(file: Option<String>, mapping_count: usize) -> Self {
+        Self {
+            file,
+            sources: Vec::new(),
+            sources_content: Vec::new(),
+            source_indices: HashMap::new(),
+            names: Vec::new(),
+            name_indices: HashMap::new(),
+            ignore_list: Vec::new(),
+            mappings: Vec::with_capacity(mapping_count),
+        }
+    }
+
+    /// Builds the source map. The trace adds the mappings in generated order,
+    /// which is the order that [`SourceMap::from_parts`] needs.
+    fn finish(self) -> SourceMap {
+        SourceMap::from_parts(
+            self.file,
+            None,
+            self.sources,
+            self.sources_content,
+            self.names,
+            self.mappings,
+            self.ignore_list,
+            None,
+            None,
+        )
+    }
+
+    #[inline]
+    fn push(
+        &mut self,
+        generated: (u32, u32),
+        source: u32,
+        original: (u32, u32),
+        name: u32,
+        is_range_mapping: bool,
+    ) {
+        self.mappings.push(Mapping {
+            generated_line: generated.0,
+            generated_column: generated.1,
+            source,
+            original_line: original.0,
+            original_column: original.1,
+            name,
+            is_range_mapping,
+        });
+    }
+}
+
+impl RemapBuilder for DecodedBuilder {
     fn add_source(&mut self, source: &str) -> u32 {
-        SourceMapGenerator::add_source(self, source)
+        if let Some(&idx) = self.source_indices.get(source) {
+            return idx;
+        }
+        let idx = self.sources.len() as u32;
+        self.sources.push(source.to_string());
+        self.sources_content.push(None);
+        self.source_indices.insert(source.to_string(), idx);
+        idx
     }
 
     fn set_source_content(&mut self, idx: u32, content: String) {
-        SourceMapGenerator::set_source_content(self, idx, content)
+        if let Some(slot) = self.sources_content.get_mut(idx as usize) {
+            *slot = Some(content);
+        }
     }
 
     fn add_name(&mut self, name: &str) -> u32 {
-        SourceMapGenerator::add_name(self, name)
+        if let Some(&idx) = self.name_indices.get(name) {
+            return idx;
+        }
+        let idx = self.names.len() as u32;
+        self.names.push(name.to_string());
+        self.name_indices.insert(name.to_string(), idx);
+        idx
     }
 
     fn add_to_ignore_list(&mut self, idx: u32) {
-        SourceMapGenerator::add_to_ignore_list(self, idx)
+        if !self.ignore_list.contains(&idx) {
+            self.ignore_list.push(idx);
+        }
     }
 
+    #[inline]
     fn add_generated_mapping(&mut self, gen_line: u32, gen_col: u32) {
-        SourceMapGenerator::add_generated_mapping(self, gen_line, gen_col)
+        self.push((gen_line, gen_col), NO_SOURCE, (0, 0), NO_NAME, false);
     }
 
-    fn add_mapping(
+    #[inline]
+    fn add_segment(
         &mut self,
-        gen_line: u32,
-        gen_col: u32,
+        generated: (u32, u32),
         src: u32,
-        orig_line: u32,
-        orig_col: u32,
+        original: (u32, u32),
+        name: Option<u32>,
+        is_range: bool,
     ) {
-        SourceMapGenerator::add_mapping(self, gen_line, gen_col, src, orig_line, orig_col)
-    }
-
-    fn add_named_mapping(
-        &mut self,
-        gen_line: u32,
-        gen_col: u32,
-        src: u32,
-        orig_line: u32,
-        orig_col: u32,
-        name: u32,
-    ) {
-        SourceMapGenerator::add_named_mapping(
-            self, gen_line, gen_col, src, orig_line, orig_col, name,
-        )
-    }
-
-    fn add_range_mapping(
-        &mut self,
-        gen_line: u32,
-        gen_col: u32,
-        src: u32,
-        orig_line: u32,
-        orig_col: u32,
-    ) {
-        SourceMapGenerator::add_range_mapping(self, gen_line, gen_col, src, orig_line, orig_col)
-    }
-
-    fn add_named_range_mapping(
-        &mut self,
-        gen_line: u32,
-        gen_col: u32,
-        src: u32,
-        orig_line: u32,
-        orig_col: u32,
-        name: u32,
-    ) {
-        SourceMapGenerator::add_named_range_mapping(
-            self, gen_line, gen_col, src, orig_line, orig_col, name,
-        )
+        self.push(generated, src, original, name.unwrap_or(NO_NAME), is_range);
     }
 }
 
@@ -358,77 +415,77 @@ impl RemapBuilder for StreamingGenerator {
         StreamingGenerator::add_generated_mapping(self, gen_line, gen_col)
     }
 
-    fn add_mapping(
+    fn add_segment(
         &mut self,
-        gen_line: u32,
-        gen_col: u32,
+        generated: (u32, u32),
         src: u32,
-        orig_line: u32,
-        orig_col: u32,
+        original: (u32, u32),
+        name: Option<u32>,
+        is_range: bool,
     ) {
-        StreamingGenerator::add_mapping(self, gen_line, gen_col, src, orig_line, orig_col)
-    }
-
-    fn add_named_mapping(
-        &mut self,
-        gen_line: u32,
-        gen_col: u32,
-        src: u32,
-        orig_line: u32,
-        orig_col: u32,
-        name: u32,
-    ) {
-        StreamingGenerator::add_named_mapping(
-            self, gen_line, gen_col, src, orig_line, orig_col, name,
-        )
-    }
-
-    fn add_range_mapping(
-        &mut self,
-        gen_line: u32,
-        gen_col: u32,
-        src: u32,
-        orig_line: u32,
-        orig_col: u32,
-    ) {
-        StreamingGenerator::add_range_mapping(self, gen_line, gen_col, src, orig_line, orig_col)
-    }
-
-    fn add_named_range_mapping(
-        &mut self,
-        gen_line: u32,
-        gen_col: u32,
-        src: u32,
-        orig_line: u32,
-        orig_col: u32,
-        name: u32,
-    ) {
-        StreamingGenerator::add_named_range_mapping(
-            self, gen_line, gen_col, src, orig_line, orig_col, name,
-        )
+        let (gen_line, gen_col) = generated;
+        let (orig_line, orig_col) = original;
+        match (name, is_range) {
+            (Some(n), true) => StreamingGenerator::add_named_range_mapping(
+                self, gen_line, gen_col, src, orig_line, orig_col, n,
+            ),
+            (Some(n), false) => StreamingGenerator::add_named_mapping(
+                self, gen_line, gen_col, src, orig_line, orig_col, n,
+            ),
+            (None, true) => StreamingGenerator::add_range_mapping(
+                self, gen_line, gen_col, src, orig_line, orig_col,
+            ),
+            (None, false) => {
+                StreamingGenerator::add_mapping(self, gen_line, gen_col, src, orig_line, orig_col);
+            }
+        }
     }
 }
 
-/// Resolve an upstream source index to a builder source index, lazily
-/// registering the source (and its ignore status) on first use.
+/// The builder index of an upstream source, or `None` for an empty source name.
+/// `upstream_src` must be an index into the sources of `upstream_sm`.
 #[inline]
+fn resolve_segment_source<B: RemapBuilder>(
+    cache: &mut UpstreamCache,
+    upstream_sm: &SourceMap,
+    upstream_src: u32,
+    builder: &mut B,
+    ignored_sources: &mut HashSet<u32>,
+) -> Option<u32> {
+    let state = match cache.source_remap[upstream_src as usize] {
+        UpstreamSource::Unresolved => {
+            resolve_upstream_source(cache, upstream_sm, upstream_src, builder, ignored_sources)
+        }
+        resolved => resolved,
+    };
+    match state {
+        UpstreamSource::Builder(idx) => Some(idx),
+        UpstreamSource::Empty | UpstreamSource::Unresolved => None,
+    }
+}
+
+/// Registers an upstream source in the builder on its first use, and returns
+/// what the trace does with that source.
+#[cold]
 fn resolve_upstream_source<B: RemapBuilder>(
     cache: &mut UpstreamCache,
     upstream_sm: &SourceMap,
     upstream_src: u32,
     builder: &mut B,
     ignored_sources: &mut HashSet<u32>,
-) -> u32 {
+) -> UpstreamSource {
     let si = upstream_src as usize;
-    if let Some(idx) = cache.source_remap[si] {
-        return idx;
-    }
-    let idx = builder.add_source(&upstream_sm.sources[si]);
-    if upstream_sm.ignore_list.contains(&upstream_src) && ignored_sources.insert(idx) {
-        builder.add_to_ignore_list(idx);
-    }
-    cache.source_remap[si] = Some(idx);
-    idx
+    let state = if upstream_sm.sources[si].is_empty() {
+        UpstreamSource::Empty
+    } else {
+        let idx = builder.add_source(&upstream_sm.sources[si]);
+        if upstream_sm.ignore_list.contains(&upstream_src) && ignored_sources.insert(idx) {
+            builder.add_to_ignore_list(idx);
+        }
+        UpstreamSource::Builder(idx)
+    };
+    cache.source_remap[si] = state;
+    state
 }
 
 /// Resolve an upstream name index to a builder name index, lazily
@@ -614,20 +671,13 @@ fn emit_remapped_mapping<B: RemapBuilder>(
     builder_name: Option<u32>,
     is_range: bool,
 ) {
-    match (builder_name, is_range) {
-        (Some(n), true) => {
-            builder.add_named_range_mapping(gen_line, gen_col, builder_src, orig_line, orig_col, n);
-        }
-        (Some(n), false) => {
-            builder.add_named_mapping(gen_line, gen_col, builder_src, orig_line, orig_col, n);
-        }
-        (None, true) => {
-            builder.add_range_mapping(gen_line, gen_col, builder_src, orig_line, orig_col);
-        }
-        (None, false) => {
-            builder.add_mapping(gen_line, gen_col, builder_src, orig_line, orig_col);
-        }
-    }
+    builder.add_segment(
+        (gen_line, gen_col),
+        builder_src,
+        (orig_line, orig_col),
+        builder_name,
+        is_range,
+    );
 }
 
 /// An upstream map that a loader gave: its own copy, or a reference to a map
@@ -669,39 +719,34 @@ enum SourceEntry<'a> {
 /// State for tracking the last emitted segment per generated line.
 /// Used to implement jridgewell's `skipSourceless` and `skipSource` deduplication.
 struct DedupeState {
-    /// Generated line of the last emitted segment.
-    last_gen_line: u32,
-    /// Index of the last emitted segment on the current generated line (0-based).
-    line_index: u32,
-    /// Whether the last emitted segment was sourceless.
-    last_was_sourceless: bool,
-    /// (source, orig_line, orig_col, name) of the last emitted sourced segment on this line.
-    last_source: Option<(u32, u32, u32, Option<u32>)>,
+    /// Generated line of the last segment, or [`NO_LINE`] before the first one.
+    last_gen_line: u64,
+    /// `[source, original line, original column, name]` of the last segment
+    /// on this line. The source is [`NO_SOURCE`] after a sourceless segment,
+    /// and the name is [`NO_NAME`] for a segment without a name.
+    last: [u32; 4],
 }
+
+/// A line value that no segment has, because a generated line is a `u32`.
+const NO_LINE: u64 = u64::MAX;
+const SOURCELESS: [u32; 4] = [NO_SOURCE, 0, 0, NO_NAME];
 
 impl DedupeState {
     fn new() -> Self {
-        Self {
-            last_gen_line: u32::MAX,
-            line_index: 0,
-            last_was_sourceless: false,
-            last_source: None,
-        }
+        Self { last_gen_line: NO_LINE, last: SOURCELESS }
     }
 
     /// Check if a sourceless segment should be skipped (jridgewell's `skipSourceless`).
     /// Skip if: (1) first segment on the line, or (2) previous segment was also sourceless.
+    #[inline]
     fn skip_sourceless(&self, gen_line: u32) -> bool {
-        if gen_line != self.last_gen_line {
-            // First segment on a new line → skip
-            return true;
-        }
-        // Consecutive sourceless → skip
-        self.last_was_sourceless
+        u64::from(gen_line) != self.last_gen_line || self.last[0] == NO_SOURCE
     }
 
     /// Check if a sourced segment should be skipped (jridgewell's `skipSource`).
     /// Skip if previous segment on the same line has identical (source, line, col, name).
+    /// The first segment on a line and the segment after a sourceless one stay.
+    #[inline]
     fn skip_source(
         &self,
         gen_line: u32,
@@ -710,30 +755,19 @@ impl DedupeState {
         orig_col: u32,
         name: Option<u32>,
     ) -> bool {
-        if gen_line != self.last_gen_line {
-            // First segment on a new line → never skip
-            return false;
-        }
-        if self.last_was_sourceless {
-            // Previous was sourceless → never skip (transition to sourced)
-            return false;
-        }
-        // Skip if identical to the previous sourced segment
-        self.last_source == Some((source, orig_line, orig_col, name))
+        u64::from(gen_line) == self.last_gen_line
+            && self.last == [source, orig_line, orig_col, name.unwrap_or(NO_NAME)]
     }
 
     /// Record that a sourceless segment was emitted.
+    #[inline]
     fn record_sourceless(&mut self, gen_line: u32) {
-        if gen_line != self.last_gen_line {
-            self.last_gen_line = gen_line;
-            self.line_index = 0;
-            self.last_source = None;
-        }
-        self.line_index += 1;
-        self.last_was_sourceless = true;
+        self.last_gen_line = u64::from(gen_line);
+        self.last = SOURCELESS;
     }
 
     /// Record that a sourced segment was emitted.
+    #[inline]
     fn record_source(
         &mut self,
         gen_line: u32,
@@ -742,13 +776,8 @@ impl DedupeState {
         orig_col: u32,
         name: Option<u32>,
     ) {
-        if gen_line != self.last_gen_line {
-            self.last_gen_line = gen_line;
-            self.line_index = 0;
-        }
-        self.line_index += 1;
-        self.last_was_sourceless = false;
-        self.last_source = Some((source, orig_line, orig_col, name));
+        self.last_gen_line = u64::from(gen_line);
+        self.last = [source, orig_line, orig_col, name.unwrap_or(NO_NAME)];
     }
 }
 
@@ -808,9 +837,7 @@ where
 fn remap_with(outer: &SourceMap, loader: UpstreamLoader<'_, '_>) -> SourceMap {
     let mapping_count = outer.mapping_count();
     let source_count = outer.sources.len();
-    let mut builder = SourceMapGenerator::with_capacity(outer.file.clone(), mapping_count);
-    // Mappings are emitted in the same order as outer (already sorted).
-    builder.set_assume_sorted(true);
+    let mut builder = DecodedBuilder::with_capacity(outer.file.clone(), mapping_count);
 
     // Flat Vec indexed by outer source index — avoids HashMap per mapping.
     let mut source_entries: Vec<SourceEntry<'_>> =
@@ -870,7 +897,7 @@ fn remap_with(outer: &SourceMap, loader: UpstreamLoader<'_, '_>) -> SourceMap {
         );
     }
 
-    builder.to_decoded_map()
+    builder.finish()
 }
 
 struct TraceContext<'a, B> {
@@ -1190,26 +1217,49 @@ fn trace_and_emit_upstream<B: RemapBuilder>(
         ignored_sources,
         is_range,
     } = ctx;
-    let si = upstream_m.source as usize;
-    if si >= upstream_map.sources.len() {
-        return;
-    }
-    // An empty upstream source (from `""` or JSON null) gives a sourceless segment,
-    // as the `if (!source)` check of jridgewell's `addSegmentInternal` does.
-    if upstream_map.sources[si].is_empty() {
-        if upstream_map.ignore_list.contains(&upstream_m.source) {
-            ignore_empty_source(builder, ignored_sources);
+    let builder_src = match cache.last {
+        Some(last)
+            if last.upstream_src == upstream_m.source && last.content_writes == contents.writes =>
+        {
+            last.builder_src
         }
-        trace_and_emit_sourceless(builder, dedup, gen_line, gen_col);
-        return;
-    }
-    let builder_src =
-        resolve_upstream_source(cache, upstream_map, upstream_m.source, builder, ignored_sources);
-    contents.apply(
-        builder,
-        builder_src,
-        upstream_map.sources_content.get(si).and_then(Option::as_ref),
-    );
+        _ => {
+            // The cache has one entry for each upstream source. A segment
+            // with a source index outside that list gives no output.
+            if upstream_m.source as usize >= cache.source_remap.len() {
+                return;
+            }
+            let Some(builder_src) = resolve_segment_source(
+                cache,
+                upstream_map,
+                upstream_m.source,
+                builder,
+                ignored_sources,
+            ) else {
+                // An empty upstream source gives a sourceless segment, as the
+                // `if (!source)` check of jridgewell's `addSegmentInternal` does.
+                if upstream_map.ignore_list.contains(&upstream_m.source) {
+                    ignore_empty_source(builder, ignored_sources);
+                }
+                trace_and_emit_sourceless(builder, dedup, gen_line, gen_col);
+                return;
+            };
+            contents.apply(
+                builder,
+                builder_src,
+                upstream_map
+                    .sources_content
+                    .get(upstream_m.source as usize)
+                    .and_then(Option::as_ref),
+            );
+            cache.last = Some(LastSource {
+                upstream_src: upstream_m.source,
+                builder_src,
+                content_writes: contents.writes,
+            });
+            builder_src
+        }
+    };
 
     let builder_name = if (upstream_m.name as usize) < upstream_map.names.len() {
         Some(resolve_upstream_name(cache, upstream_map, upstream_m.name, builder))
@@ -1386,6 +1436,50 @@ mod tests {
                 (expected.line, expected.column),
                 "outer segment {i} to {line}:{column}"
             );
+        }
+    }
+
+    /// An outer map with one segment per entry of `order`, on one line. Entry
+    /// `i` names the source `["a.js", "b.js"][i]`.
+    fn outer_with_source_order(order: &[u32]) -> SourceMap {
+        let mut builder = SourceMapGenerator::new(Some("out.js".to_string()));
+        let a = builder.add_source("a.js");
+        let b = builder.add_source("b.js");
+        for (i, &source) in order.iter().enumerate() {
+            // Each segment goes to another upstream column, so the trace keeps all of them.
+            let column = i as u32;
+            builder.add_mapping(0, column * 2, [a, b][source as usize], 0, column);
+        }
+        SourceMap::from_json(&builder.to_json()).unwrap()
+    }
+
+    #[test]
+    fn content_of_a_shared_source_name_comes_from_the_last_traced_segment() {
+        // Two upstream maps name the same original file with another content.
+        // jridgewell sets the content on each traced segment, so the last one wins.
+        let upstream = |content: &str| {
+            SourceMap::from_json(&format!(
+                r#"{{"version":3,"sources":["x.js"],"sourcesContent":["{content}"],"names":[],"mappings":"AAAA,CAAC,CAAC,CAAC,CAAC,CAAC"}}"#
+            ))
+            .unwrap()
+        };
+        let (from_a, from_b) = (upstream("from a"), upstream("from b"));
+        let loader = |source: &str| Some(if source == "a.js" { &from_a } else { &from_b });
+
+        for (order, expected) in [
+            (&[0, 1][..], "from b"),
+            (&[0, 1, 0][..], "from a"),
+            (&[0, 0, 1, 1, 0, 0][..], "from a"),
+            (&[1, 0, 0, 1][..], "from b"),
+        ] {
+            let composed = remap_ref(&outer_with_source_order(order), loader);
+            assert_eq!(composed.sources, vec!["x.js"], "order {order:?}");
+            assert_eq!(
+                composed.sources_content,
+                vec![Some(expected.to_string())],
+                "order {order:?}"
+            );
+            assert_eq!(composed.mapping_count(), order.len(), "order {order:?}");
         }
     }
 
