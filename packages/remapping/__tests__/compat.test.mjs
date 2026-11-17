@@ -544,3 +544,48 @@ describe("review cases match @jridgewell/remapping", () => {
     );
   });
 });
+
+// jridgewell adds a source to `ignoreList` at the first traced segment from an
+// ignored copy of that source. Two copies of one name can differ in that.
+describe("ignoreList order matches @jridgewell/remapping", () => {
+  const map = (fields) => ({ version: 3, names: [], ...fields });
+  const sameJson = (run, label) => {
+    assert.equal(JSON.stringify(run(srcmapRemapping)), JSON.stringify(run(jrRemapping)), label);
+  };
+  // The copies of `a.js` sit above a branch two levels deep, so the remap needs
+  // more than one pass.
+  const mixed = map({
+    sources: ["a.js", "b.js", "a.js", "x.js"],
+    ignoreList: [1, 2],
+    mappings: "AAAA,ECAA,ECAA,ECAA",
+  });
+  const step = (source) => map({ sources: [source], mappings: "AAAA" });
+  const deep = { "x.js": step("y.js"), "y.js": step("z.js") };
+
+  it("orders entries in a loader tree", () => {
+    sameJson((remapping) => remapping(mixed, (s) => deep[s] ?? null), "loader");
+  });
+
+  it("orders entries in a chain", () => {
+    const outer = map({ sources: ["m.js"], mappings: "AAAA,EAAE,EAAE,EAAE" });
+    sameJson((remapping) => remapping([outer, mixed], (s) => deep[s] ?? null), "chain");
+  });
+
+  it("orders entries with an ignored null source in one map", () => {
+    const single = map({
+      sources: ["top2.js", null, "top2.js"],
+      names: ["n0", "n1", "n2"],
+      sourcesContent: [null, null, "c-top2"],
+      ignoreList: [0, 1],
+      mappings: "EEAA;EDAE,EAAC,GDCH;EADA,EAAEA,EECC",
+    });
+    sameJson((remapping) => remapping(single, () => null), "single map");
+    sameJson(
+      (remapping) =>
+        remapping(map({ sources: ["x.js"], mappings: "AAAA" }), (s) =>
+          s === "x.js" ? single : null,
+        ),
+      "loaded",
+    );
+  });
+});

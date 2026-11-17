@@ -201,27 +201,56 @@ const checkTransformationMaps = (maps) => {
 class UpstreamMaps {
   constructor() {
     this.prefix = `\u0000srcmap-upstream-${Math.random().toString(36).slice(2)}-`;
-    this.maps = new Map();
+    this.nodes = new Map();
+    this.json = new Map();
     this.height = 0;
-    this.ignoredEmpty = null;
+    this.ignoredNames = new Set();
+    this.plainNames = new Set();
+    this.standIns = new Map();
   }
 
-  // An ignored empty source gets a stand-in name, so that it stays a real source
-  // through each pass. `restoreIgnoredEmpty` turns it back into `""`.
-  ignoredEmptyName() {
-    this.ignoredEmpty ??= this.prefix + "ignored-empty";
-    return this.ignoredEmpty;
-  }
-
-  add(json, depth) {
-    const key = this.prefix + this.maps.size;
-    this.maps.set(key, json);
+  add(node, depth) {
+    const key = this.prefix + this.nodes.size;
+    this.nodes.set(key, node);
     this.height = Math.max(this.height, depth);
     return key;
   }
 
+  noteLeaf(name, ignored) {
+    (ignored ? this.ignoredNames : this.plainNames).add(name);
+  }
+
+  // A pass merges the sources that share a name, and the next pass registers an
+  // ignored source at the first segment of the merged source. jridgewell registers
+  // it at the first segment of an ignored copy, and keeps an ignored empty source.
+  // With more than one pass, such a source gets a stand-in name, so that each copy
+  // stays a separate source until `restoreStandIns`.
+  needsStandIn(name) {
+    if (this.height < 2 || !this.ignoredNames.has(name)) return false;
+    return name === "" || this.plainNames.has(name);
+  }
+
+  standIn(name) {
+    const standIn = `${this.prefix}ignored-${name}`;
+    this.standIns.set(standIn, name);
+    return standIn;
+  }
+
+  toJson(node) {
+    const sources = node.sources.map((source, i) =>
+      node.ignored.has(i) && this.needsStandIn(source) ? this.standIn(source) : source,
+    );
+    return toWasmJson(node.map, { ...node.fields, sources });
+  }
+
+  // Call after the whole tree exists, when the pass count is known.
+  serialize(root) {
+    for (const [key, node] of this.nodes) this.json.set(key, this.toJson(node));
+    return this.toJson(root);
+  }
+
   get(key) {
-    return this.maps.get(key) ?? null;
+    return this.json.get(key) ?? null;
   }
 }
 
@@ -233,7 +262,7 @@ const buildTree = (input, loader, importer, importerDepth, upstreams) => {
   const depth = importerDepth + 1;
   const ignoreList = map.ignoreList || map.x_google_ignoreList || [];
   const sourcesContent = [];
-  const ignored = [];
+  const ignored = new Set();
   const sources = resolveSources(map, importer).map((resolved, i) => {
     const ctx = { importer, depth, source: resolved, content: undefined, ignore: undefined };
     const upstream = loader(ctx.source, ctx);
@@ -244,18 +273,19 @@ const buildTree = (input, loader, importer, importerDepth, upstreams) => {
     sourcesContent.push(
       ctx.content !== undefined ? ctx.content : (map.sourcesContent?.[i] ?? null),
     );
-    if (!(ctx.ignore !== undefined ? ctx.ignore : ignoreList.includes(i))) return ctx.source;
-    ignored.push(i);
-    return ctx.source === "" ? upstreams.ignoredEmptyName() : ctx.source;
+    const isIgnored = ctx.ignore !== undefined ? ctx.ignore : ignoreList.includes(i);
+    if (isIgnored) ignored.add(i);
+    upstreams.noteLeaf(ctx.source, isIgnored);
+    return ctx.source;
   });
-  return toWasmJson(map, { sources, sourcesContent, ignoreList: ignored });
+  return { map, sources, ignored, fields: { sourcesContent, ignoreList: [...ignored] } };
 };
 
-// jridgewell adds an ignored empty source to `sources` and `ignoreList`, and makes
-// its segments sourceless. A last WASM pass over the empty name does the same.
-const restoreIgnoredEmpty = (json, name) => {
+// The last pass renames each stand-in back. The copies of one name then merge in
+// segment order, and an empty name becomes a sourceless source, as in jridgewell.
+const restoreStandIns = (json, standIns) => {
   const map = JSON.parse(json);
-  map.sources = map.sources.map((source) => (source === name ? "" : source));
+  map.sources = map.sources.map((source) => standIns.get(source) ?? source);
   return wasmRemap(JSON.stringify(map), NO_UPSTREAM);
 };
 
@@ -272,19 +302,20 @@ const remapAll = (input, loader) => {
   for (let i = maps.length - 2; i >= 0; i--) {
     const key = upstreams.add(current, upstreams.height + 1);
     const outer = maps[i];
-    current = toWasmJson(outer, {
+    current = {
+      map: outer,
       sources: (outer.sources || []).map(() => key),
-      sourcesContent: undefined,
-      ignoreList: undefined,
-    });
+      ignored: new Set(),
+      fields: { sourcesContent: undefined, ignoreList: undefined },
+    };
   }
 
   const lookup = (source) => upstreams.get(source);
-  let result = wasmRemap(current, lookup);
+  let result = wasmRemap(upstreams.serialize(current), lookup);
   for (let level = 1; level < upstreams.height; level++) {
     result = wasmRemap(result, lookup);
   }
-  return upstreams.ignoredEmpty ? restoreIgnoredEmpty(result, upstreams.ignoredEmpty) : result;
+  return upstreams.standIns.size > 0 ? restoreStandIns(result, upstreams.standIns) : result;
 };
 
 /**
