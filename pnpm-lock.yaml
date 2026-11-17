@@ -47,25 +47,25 @@ importers:
         version: 3.10.9(@emnapi/core@1.11.2)(@emnapi/runtime@1.11.2)
     optionalDependencies:
       '@srcmap/codec-darwin-arm64':
-        specifier: 0.4.0
+        specifier: 0.5.0
         version: link:npm/darwin-arm64
       '@srcmap/codec-darwin-x64':
-        specifier: 0.4.0
+        specifier: 0.5.0
         version: link:npm/darwin-x64
       '@srcmap/codec-linux-arm64-gnu':
-        specifier: 0.4.0
+        specifier: 0.5.0
         version: link:npm/linux-arm64-gnu
       '@srcmap/codec-linux-arm64-musl':
-        specifier: 0.4.0
+        specifier: 0.5.0
         version: link:npm/linux-arm64-musl
       '@srcmap/codec-linux-x64-gnu':
-        specifier: 0.4.0
+        specifier: 0.5.0
         version: link:npm/linux-x64-gnu
       '@srcmap/codec-linux-x64-musl':
-        specifier: 0.4.0
+        specifier: 0.5.0
         version: link:npm/linux-x64-musl
       '@srcmap/codec-win32-x64-msvc':
-        specifier: 0.4.0
+        specifier: 0.5.0
         version: link:npm/win32-x64-msvc
 
   packages/codec/npm/darwin-arm64: {}
@@ -85,10 +85,10 @@ importers:
   packages/gen-mapping:
     dependencies:
       '@srcmap/generator-wasm':
-        specifier: 0.4.0
+        specifier: 0.5.0
         version: link:../generator-wasm
       '@srcmap/sourcemap-wasm':
-        specifier: 0.4.0
+        specifier: 0.5.0
         version: link:../sourcemap-wasm
 
   packages/generator-wasm: {}
@@ -96,7 +96,7 @@ importers:
   packages/remapping:
     dependencies:
       '@srcmap/remapping-wasm':
-        specifier: 0.4.0
+        specifier: 0.5.0
         version: link:../remapping-wasm
     devDependencies:
       '@jridgewell/remapping':
@@ -108,10 +108,10 @@ importers:
   packages/source-map:
     dependencies:
       '@srcmap/generator-wasm':
-        specifier: 0.4.0
+        specifier: 0.5.0
         version: link:../generator-wasm
       '@srcmap/sourcemap-wasm':
-        specifier: 0.4.0
+        specifier: 0.5.0
         version: link:../sourcemap-wasm
 
   packages/sourcemap:
@@ -125,25 +125,25 @@ importers:
         version: 3.10.9(@emnapi/core@1.11.2)(@emnapi/runtime@1.11.2)
     optionalDependencies:
       '@srcmap/sourcemap-darwin-arm64':
-        specifier: 0.4.0
+        specifier: 0.5.0
         version: link:npm/darwin-arm64
       '@srcmap/sourcemap-darwin-x64':
-        specifier: 0.4.0
+        specifier: 0.5.0
         version: link:npm/darwin-x64
       '@srcmap/sourcemap-linux-arm64-gnu':
-        specifier: 0.4.0
+        specifier: 0.5.0
         version: link:npm/linux-arm64-gnu
       '@srcmap/sourcemap-linux-arm64-musl':
-        specifier: 0.4.0
+        specifier: 0.5.0
         version: link:npm/linux-arm64-musl
       '@srcmap/sourcemap-linux-x64-gnu':
-        specifier: 0.4.0
+        specifier: 0.5.0
         version: link:npm/linux-x64-gnu
       '@srcmap/sourcemap-linux-x64-musl':
-        specifier: 0.4.0
+        specifier: 0.5.0
         version: link:npm/linux-x64-musl
       '@srcmap/sourcemap-win32-x64-msvc':
-        specifier: 0.4.0
+        specifier: 0.5.0
         version: link:npm/win32-x64-msvc
 
   packages/sourcemap-wasm: {}
@@ -167,7 +167,7 @@ importers:
   packages/trace-mapping:
     dependencies:
       '@srcmap/sourcemap-wasm':
-        specifier: 0.4.0
+        specifier: 0.5.0
         version: link:../sourcemap-wasm
     devDependencies:
       '@jridgewell/sourcemap-codec':
