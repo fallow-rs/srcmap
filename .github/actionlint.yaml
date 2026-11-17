@@ -2,3 +2,5 @@
 self-hosted-runner:
   labels:
     - ubuntu-26.04
+    # CodSpeed Macro Runner (bare-metal Graviton) for walltime benchmarks.
+    - codspeed-macro-arm64-graviton-ubuntu-22-04
