@@ -634,16 +634,18 @@ fn filter_section_source_root(source_root: Option<String>, sources: &[String]) -
 /// A range mapping shifts the original column by the distance from its generated column.
 #[inline]
 fn hit_location(mapping: &Mapping, column: u32) -> Option<OriginalLocation> {
-    let column_delta = if mapping.is_range_mapping && column >= mapping.generated_column {
-        column - mapping.generated_column
+    // Only a range mapping moves the original column, so the common mapping
+    // needs no overflow check.
+    let original_column = if mapping.is_range_mapping {
+        mapping.original_column.checked_add(column.saturating_sub(mapping.generated_column))?
     } else {
-        0
+        mapping.original_column
     };
 
     Some(OriginalLocation {
         source: mapping.source,
         line: mapping.original_line,
-        column: mapping.original_column.checked_add(column_delta)?,
+        column: original_column,
         name: name_index(mapping),
     })
 }
@@ -1435,8 +1437,17 @@ impl SourceMap {
     ///
     /// Both `line` and `column` are 0-based.
     /// Returns `None` if no mapping exists or the mapping has no source.
+    #[inline]
     pub fn original_position_for(&self, line: u32, column: u32) -> Option<OriginalLocation> {
-        self.original_position_for_with_bias(line, column, Bias::GreatestLowerBound)
+        let line_mappings = self.mappings_for_line(line);
+        let Some(idx) = original_position_glb_index(line_mappings, column) else {
+            return self.range_mapping_fallback(line, column);
+        };
+        let mapping = &line_mappings[idx];
+        if mapping.source == NO_SOURCE {
+            return None;
+        }
+        hit_location(mapping, column)
     }
 
     /// Look up the original source position with a search bias.
@@ -1450,35 +1461,20 @@ impl SourceMap {
         column: u32,
         bias: Bias,
     ) -> Option<OriginalLocation> {
-        let line_idx = line as usize;
-        if line_idx + 1 >= self.line_offsets.len() {
-            return self.range_mapping_fallback(line, column);
+        match bias {
+            Bias::GreatestLowerBound => self.original_position_for(line, column),
+            Bias::LeastUpperBound => {
+                let line_mappings = self.mappings_for_line(line);
+                if line_mappings.is_empty() {
+                    return self.range_mapping_fallback(line, column);
+                }
+                let mapping = &line_mappings[original_position_lub_index(line_mappings, column)?];
+                if mapping.source == NO_SOURCE {
+                    return None;
+                }
+                hit_location(mapping, column)
+            }
         }
-
-        let start = self.line_offsets[line_idx] as usize;
-        let end = self.line_offsets[line_idx + 1] as usize;
-
-        if start == end {
-            return self.range_mapping_fallback(line, column);
-        }
-
-        let line_mappings = &self.mappings[start..end];
-
-        let idx = match bias {
-            Bias::GreatestLowerBound => match original_position_glb_index(line_mappings, column) {
-                Some(idx) => idx,
-                None => return self.range_mapping_fallback(line, column),
-            },
-            Bias::LeastUpperBound => original_position_lub_index(line_mappings, column)?,
-        };
-
-        let mapping = &line_mappings[idx];
-
-        if mapping.source == NO_SOURCE {
-            return None;
-        }
-
-        hit_location(mapping, column)
     }
 
     /// Fall back to range mappings when no exact mapping is found for the position.
