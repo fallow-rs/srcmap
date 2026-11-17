@@ -45,6 +45,17 @@ pub use source_view::SourceView;
 const NO_SOURCE: u32 = u32::MAX;
 const NO_NAME: u32 = u32::MAX;
 
+/// The largest encoded segment: one separator and 5 VLQ values.
+const MAX_SEGMENT_BYTES: usize = 1 + 5 * srcmap_codec::MAX_VLQ_BYTES;
+/// A typical encoded segment, with its separator, takes about 6 bytes.
+const ESTIMATED_BYTES_PER_MAPPING: usize = 6;
+/// The fixed keys and punctuation of the JSON output.
+const JSON_FIXED_OVERHEAD: usize = 256;
+/// The quotes and the comma of one JSON string in an array.
+const JSON_STRING_OVERHEAD: usize = 3;
+/// Source text grows by about one sixteenth when its line breaks and quotes get an escape.
+const ESCAPE_SHARE_DIVISOR: usize = 16;
+
 // ── Public types ───────────────────────────────────────────────────
 
 /// A single decoded mapping entry. Compact at 28 bytes (6 × u32 + bool with padding).
@@ -594,20 +605,27 @@ fn range_fallback_location(last: &Mapping, line: u32, column: u32) -> Option<Ori
 }
 
 fn original_position_glb_index(line_mappings: &[Mapping], column: u32) -> Option<usize> {
-    match line_mappings.binary_search_by_key(&column, |m| m.generated_column) {
-        // Exact match: walk back to the earliest segment sharing this column.
-        // `binary_search_by_key` returns an unspecified index among equal keys;
-        // `@jridgewell/trace-mapping` specifies GLB = earliest-equal.
-        Ok(i) => {
-            let mut idx = i;
-            while idx > 0 && line_mappings[idx - 1].generated_column == column {
-                idx -= 1;
-            }
-            Some(idx)
+    // A binary search with no early exit: each step is one compare and one
+    // conditional move, which the CPU does not have to predict.
+    let mut base = 0;
+    let mut size = line_mappings.len();
+    while size > 1 {
+        let half = size / 2;
+        let mid = base + half;
+        if line_mappings[mid].generated_column <= column {
+            base = mid;
         }
-        Err(0) => None,
-        Err(i) => Some(i - 1),
+        size -= half;
     }
+    if line_mappings.get(base)?.generated_column > column {
+        return None;
+    }
+    // `base` is the last mapping at or before `column`. On an exact match,
+    // `@jridgewell/trace-mapping` takes the earliest segment with that column.
+    while base > 0 && line_mappings[base - 1].generated_column == column {
+        base -= 1;
+    }
+    Some(base)
 }
 
 fn original_position_lub_index(line_mappings: &[Mapping], column: u32) -> Option<usize> {
@@ -1589,8 +1607,6 @@ impl SourceMap {
     ///
     /// If `exclude_content` is true, `sourcesContent` is omitted from the output.
     pub fn to_json_with_options(&self, exclude_content: bool) -> String {
-        let mappings = self.encode_mappings();
-
         let scopes_encoded = self.encode_scopes_for_json();
         let names_for_json = match &scopes_encoded {
             Some((_, expanded_names)) => expanded_names,
@@ -1599,7 +1615,7 @@ impl SourceMap {
 
         let source_root_prefix = self.source_root.as_deref().unwrap_or("");
 
-        let mut json = String::with_capacity(256 + mappings.len());
+        let mut json = String::with_capacity(self.json_capacity_estimate(exclude_content));
         json.push_str(r#"{"version":3"#);
 
         if let Some(ref file) = self.file {
@@ -1618,7 +1634,8 @@ impl SourceMap {
 
         // VLQ mappings are pure base64/,/; — no escaping needed
         json.push_str(r#","mappings":""#);
-        json.push_str(&mappings);
+        // SAFETY: `encode_mappings_into` appends ASCII bytes only.
+        self.encode_mappings_into(unsafe { json.as_mut_vec() });
         json.push('"');
 
         if let Some(range_mappings) = self.encode_range_mappings() {
@@ -1655,6 +1672,23 @@ impl SourceMap {
 
         json.push('}');
         json
+    }
+
+    /// Estimates the size of the JSON output, so that `to_json` allocates one time.
+    fn json_capacity_estimate(&self, exclude_content: bool) -> usize {
+        let quoted_len = |text: &String| text.len() + JSON_STRING_OVERHEAD;
+        let content: usize = if exclude_content {
+            0
+        } else {
+            self.sources_content.iter().flatten().map(String::len).sum()
+        };
+        JSON_FIXED_OVERHEAD
+            + self.mappings.len() * ESTIMATED_BYTES_PER_MAPPING
+            + content
+            + content / ESCAPE_SHARE_DIVISOR
+            + self.sources_content.len() * JSON_STRING_OVERHEAD
+            + self.sources.iter().map(quoted_len).sum::<usize>()
+            + self.names.iter().map(quoted_len).sum::<usize>()
     }
 
     fn encode_scopes_for_json(&self) -> Option<(String, Vec<String>)> {
@@ -1918,17 +1952,21 @@ impl SourceMap {
 
     /// Encode all mappings back to a VLQ mappings string.
     pub fn encode_mappings(&self) -> String {
-        if self.mappings.is_empty() {
-            return String::new();
-        }
+        let mut encoded = String::new();
+        // SAFETY: `encode_mappings_into` appends ASCII bytes only.
+        self.encode_mappings_into(unsafe { encoded.as_mut_vec() });
+        encoded
+    }
 
-        let mut out: Vec<u8> = Vec::with_capacity(self.mappings.len() * 6);
+    /// Appends the VLQ `mappings` string to `out`. The bytes are ASCII.
+    fn encode_mappings_into(&self, out: &mut Vec<u8>) {
+        out.reserve(self.mappings.len() * ESTIMATED_BYTES_PER_MAPPING);
 
-        let mut prev_gen_col: i64 = 0;
-        let mut prev_source: i64 = 0;
-        let mut prev_orig_line: i64 = 0;
-        let mut prev_orig_col: i64 = 0;
-        let mut prev_name: i64 = 0;
+        let mut prev_gen_col: u32 = 0;
+        let mut prev_source: u32 = 0;
+        let mut prev_orig_line: u32 = 0;
+        let mut prev_orig_col: u32 = 0;
+        let mut prev_name: u32 = 0;
         let mut prev_gen_line: u32 = 0;
         let mut first_in_line = true;
 
@@ -1940,35 +1978,39 @@ impl SourceMap {
                 first_in_line = true;
             }
 
-            if !first_in_line {
-                out.push(b',');
-            }
-            first_in_line = false;
+            // One capacity check covers the separator and the 5 values of a segment.
+            out.reserve(MAX_SEGMENT_BYTES);
 
-            srcmap_codec::vlq_encode(&mut out, m.generated_column as i64 - prev_gen_col);
-            prev_gen_col = m.generated_column as i64;
+            // SAFETY: the `reserve` above gives room for a separator and 5 VLQ
+            // values, and this block writes at most that much.
+            unsafe {
+                if !first_in_line {
+                    let len = out.len();
+                    out.as_mut_ptr().add(len).write(b',');
+                    out.set_len(len + 1);
+                }
+                first_in_line = false;
 
-            if m.source != NO_SOURCE {
-                srcmap_codec::vlq_encode(&mut out, m.source as i64 - prev_source);
-                prev_source = m.source as i64;
+                encode_delta_unchecked(out, m.generated_column, prev_gen_col);
+                prev_gen_col = m.generated_column;
 
-                srcmap_codec::vlq_encode(&mut out, m.original_line as i64 - prev_orig_line);
-                prev_orig_line = m.original_line as i64;
+                if m.source != NO_SOURCE {
+                    encode_delta_unchecked(out, m.source, prev_source);
+                    prev_source = m.source;
 
-                srcmap_codec::vlq_encode(&mut out, m.original_column as i64 - prev_orig_col);
-                prev_orig_col = m.original_column as i64;
+                    encode_delta_unchecked(out, m.original_line, prev_orig_line);
+                    prev_orig_line = m.original_line;
 
-                if m.name != NO_NAME {
-                    srcmap_codec::vlq_encode(&mut out, m.name as i64 - prev_name);
-                    prev_name = m.name as i64;
+                    encode_delta_unchecked(out, m.original_column, prev_orig_col);
+                    prev_orig_col = m.original_column;
+
+                    if m.name != NO_NAME {
+                        encode_delta_unchecked(out, m.name, prev_name);
+                        prev_name = m.name;
+                    }
                 }
             }
         }
-
-        debug_assert!(out.is_ascii());
-        // SAFETY: vlq_encode only pushes bytes from BASE64_ENCODE (all ASCII),
-        // and we only add b';' and b',' — all valid UTF-8.
-        unsafe { String::from_utf8_unchecked(out) }
     }
 
     pub fn encode_range_mappings(&self) -> Option<String> {
@@ -2875,43 +2917,22 @@ fn write_string_array_field(out: &mut String, field: &str, values: &[String]) {
     out.push(']');
 }
 
+/// Appends the signed VLQ of `value - previous` to `out`. The sign is the low bit.
+///
+/// # Safety
+/// `out` must have at least [`srcmap_codec::MAX_VLQ_BYTES`] bytes of spare capacity.
+#[inline(always)]
+unsafe fn encode_delta_unchecked(out: &mut Vec<u8>, value: u32, previous: u32) {
+    let vlq = (u64::from(value.abs_diff(previous)) << 1) | u64::from(value < previous);
+    // SAFETY: the caller guarantees the spare capacity.
+    unsafe { srcmap_codec::vlq_encode_unsigned_unchecked(out, vlq) };
+}
+
 /// Append a JSON-quoted string to the output buffer.
 fn json_quote_into(out: &mut String, s: &str) {
-    let bytes = s.as_bytes();
-    out.push('"');
-
-    let mut start = 0;
-    for (i, &b) in bytes.iter().enumerate() {
-        let escape = match b {
-            b'"' => "\\\"",
-            b'\\' => "\\\\",
-            b'\n' => "\\n",
-            b'\r' => "\\r",
-            b'\t' => "\\t",
-            // Remaining control chars (excluding \n, \r, \t handled above)
-            0x00..=0x08 | 0x0b | 0x0c | 0x0e..=0x1f => {
-                if start < i {
-                    out.push_str(&s[start..i]);
-                }
-                use std::fmt::Write;
-                let _ = write!(out, "\\u{:04x}", b);
-                start = i + 1;
-                continue;
-            }
-            _ => continue,
-        };
-        if start < i {
-            out.push_str(&s[start..i]);
-        }
-        out.push_str(escape);
-        start = i + 1;
-    }
-
-    if start < bytes.len() {
-        out.push_str(&s[start..]);
-    }
-
-    out.push('"');
+    // SAFETY: `srcmap_codec::json_quote_into` appends the bytes of `s` and
+    // ASCII escapes, so the buffer stays valid UTF-8.
+    srcmap_codec::json_quote_into(unsafe { out.as_mut_vec() }, s);
 }
 
 // ── Internal: decode VLQ mappings directly into flat Mapping vec ───
@@ -3726,6 +3747,41 @@ impl Default for SourceMapBuilder {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The tie-break of `@jridgewell/trace-mapping`: the earliest mapping at
+    /// `column` on an exact match, otherwise the last mapping before `column`.
+    fn linear_glb_index(line_mappings: &[Mapping], column: u32) -> Option<usize> {
+        line_mappings
+            .iter()
+            .position(|m| m.generated_column == column)
+            .or_else(|| line_mappings.iter().rposition(|m| m.generated_column < column))
+    }
+
+    #[test]
+    fn glb_index_matches_a_linear_search_for_every_line_shape() {
+        // Each bit of `shape` says if a column repeats the column before it,
+        // so the lines cover every pattern of equal columns up to 9 segments.
+        for len in 0..=9u32 {
+            for shape in 0..(1u32 << len.saturating_sub(1)) {
+                let mut column = 2;
+                let line: Vec<Mapping> = (0..len)
+                    .map(|i| {
+                        if i > 0 && shape & (1 << (i - 1)) == 0 {
+                            column += 3;
+                        }
+                        generated_only_mapping(0, column)
+                    })
+                    .collect();
+                for query in 0..=column + 2 {
+                    assert_eq!(
+                        original_position_glb_index(&line, query),
+                        linear_glb_index(&line, query),
+                        "len {len}, shape {shape:b}, column {query}"
+                    );
+                }
+            }
+        }
+    }
 
     fn simple_map() -> &'static str {
         r#"{"version":3,"sources":["input.js"],"names":["hello"],"mappings":"AAAA;AACA,EAAA;AACA"}"#

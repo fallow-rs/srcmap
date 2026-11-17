@@ -176,7 +176,23 @@ struct UpstreamCache {
     source_remap: Vec<Option<u32>>,
     /// upstream name idx → builder name idx (lazily populated)
     name_remap: Vec<Option<u32>>,
+    /// Where the last lookup in this upstream map ended.
+    cursor: LookupCursor,
 }
+
+/// The line and the index in that line of the last lookup hit.
+///
+/// The segments of an outer map mostly trace to rising positions in the
+/// upstream map. The next lookup starts at the last hit and looks at a few
+/// segments after it before it does a binary search.
+#[derive(Clone, Copy, Default)]
+struct LookupCursor {
+    line: u32,
+    index: usize,
+}
+
+/// How many segments after the last hit a lookup reads before a binary search.
+const CURSOR_SCAN_LIMIT: usize = 8;
 
 /// The source content that each builder source got last.
 ///
@@ -209,6 +225,7 @@ fn build_upstream_cache(upstream_sm: &SourceMap) -> UpstreamCache {
     UpstreamCache {
         source_remap: vec![None; upstream_sm.sources.len()],
         name_remap: vec![None; upstream_sm.names.len()],
+        cursor: LookupCursor::default(),
     }
 }
 
@@ -445,23 +462,31 @@ fn resolve_upstream_name<B: RemapBuilder>(
 /// The caller then emits a sourceless segment, as jridgewell does: that segment ends
 /// the range of the previous mapping on the line.
 #[inline]
-fn lookup_upstream(upstream_sm: &SourceMap, line: u32, column: u32) -> UpstreamTrace {
+fn lookup_upstream(
+    upstream_sm: &SourceMap,
+    cursor: &mut LookupCursor,
+    line: u32,
+    column: u32,
+) -> UpstreamTrace {
     let line_mappings = upstream_sm.mappings_for_line(line);
     if line_mappings.is_empty() {
         return fallback_to_full_lookup(upstream_sm, line, column);
     }
 
+    let Some(last_at_or_before) = last_at_or_before(line_mappings, cursor, line, column) else {
+        return fallback_to_full_lookup(upstream_sm, line, column);
+    };
+    *cursor = LookupCursor { line, index: last_at_or_before };
+
     // On an exact column match, take the first segment at that column, as the
     // `lowerBound` step of jridgewell's `traceSegment` does. A line can hold
     // several segments at one column.
-    let idx = match line_mappings.binary_search_by_key(&column, |m| m.generated_column) {
-        Ok(i) => line_mappings[..i]
-            .iter()
-            .rposition(|m| m.generated_column != column)
-            .map_or(0, |p| p + 1),
-        Err(0) => return fallback_to_full_lookup(upstream_sm, line, column),
-        Err(i) => i - 1,
-    };
+    let mut idx = last_at_or_before;
+    if line_mappings[idx].generated_column == column {
+        while idx > 0 && line_mappings[idx - 1].generated_column == column {
+            idx -= 1;
+        }
+    }
 
     let mapping = &line_mappings[idx];
     if mapping.source == NO_SOURCE {
@@ -480,6 +505,39 @@ fn lookup_upstream(upstream_sm: &SourceMap, line: u32, column: u32) -> UpstreamT
         original_column,
         name: mapping.name,
     })
+}
+
+/// The index of the last segment in `line_mappings` with a column at or before
+/// `column`, or `None` when the first segment is after `column`.
+///
+/// When the cursor is on this line at or before `column`, the search starts
+/// there. Otherwise it is a binary search of the full line.
+#[inline]
+fn last_at_or_before(
+    line_mappings: &[srcmap_sourcemap::Mapping],
+    cursor: &LookupCursor,
+    line: u32,
+    column: u32,
+) -> Option<usize> {
+    let on_cursor = cursor.line == line
+        && line_mappings.get(cursor.index).is_some_and(|m| m.generated_column <= column);
+    let start = if on_cursor {
+        let last = line_mappings.len() - 1;
+        let scan_end = (cursor.index + CURSOR_SCAN_LIMIT).min(last);
+        let mut index = cursor.index;
+        while index < scan_end && line_mappings[index + 1].generated_column <= column {
+            index += 1;
+        }
+        if index < scan_end || index == last {
+            return Some(index);
+        }
+        // Every segment in the scan is at or before `column`. Search the rest.
+        index
+    } else {
+        0
+    };
+    let after = start + line_mappings[start..].partition_point(|m| m.generated_column <= column);
+    after.checked_sub(1)
 }
 
 /// Result of tracing one position through an upstream source map.
@@ -572,11 +630,32 @@ fn emit_remapped_mapping<B: RemapBuilder>(
     }
 }
 
+/// An upstream map that a loader gave: its own copy, or a reference to a map
+/// of the caller.
+enum UpstreamMap<'a> {
+    Owned(Box<SourceMap>),
+    Borrowed(&'a SourceMap),
+}
+
+impl UpstreamMap<'_> {
+    #[inline]
+    fn get(&self) -> &SourceMap {
+        match self {
+            Self::Owned(map) => map,
+            Self::Borrowed(map) => map,
+        }
+    }
+}
+
+/// A loader for the trace loop. A trait object keeps one copy of that loop in
+/// the binary for all loader types. The loop calls it one time per source.
+type UpstreamLoader<'l, 'a> = &'l dyn Fn(&str) -> Option<UpstreamMap<'a>>;
+
 /// Per-source entry: either an upstream map + cache, or a passthrough.
 /// Using an enum avoids two separate HashMap lookups per mapping.
-enum SourceEntry {
+enum SourceEntry<'a> {
     /// Has an upstream map: trace mappings through it.
-    Upstream { map: Box<SourceMap>, cache: UpstreamCache },
+    Upstream { map: UpstreamMap<'a>, cache: UpstreamCache },
     /// No upstream map: pass through with builder source index.
     Passthrough { builder_src: u32 },
     /// Empty-string source (from JSON `null`): emit as generated-only.
@@ -693,6 +772,40 @@ pub fn remap<F>(outer: &SourceMap, loader: F) -> SourceMap
 where
     F: Fn(&str) -> Option<SourceMap>,
 {
+    remap_with(outer, &|source| loader(source).map(|map| UpstreamMap::Owned(Box::new(map))))
+}
+
+/// Like [`remap`], for upstream maps that the caller already has in memory.
+///
+/// The loader returns a reference, so the function does not copy an upstream
+/// map. Use it when the upstream maps live longer than the call.
+///
+/// # Examples
+///
+/// ```
+/// use srcmap_remapping::remap_ref;
+/// use srcmap_sourcemap::SourceMap;
+///
+/// let outer = SourceMap::from_json(
+///     r#"{"version":3,"sources":["inter.js"],"names":[],"mappings":"AAAA;AACA"}"#,
+/// )
+/// .unwrap();
+/// let inner = SourceMap::from_json(
+///     r#"{"version":3,"sources":["original.js"],"names":[],"mappings":"AAAA;AACA"}"#,
+/// )
+/// .unwrap();
+///
+/// let composed = remap_ref(&outer, |_source| Some(&inner));
+/// assert_eq!(composed.sources, vec!["original.js"]);
+/// ```
+pub fn remap_ref<'a, F>(outer: &SourceMap, loader: F) -> SourceMap
+where
+    F: Fn(&str) -> Option<&'a SourceMap>,
+{
+    remap_with(outer, &|source| loader(source).map(UpstreamMap::Borrowed))
+}
+
+fn remap_with(outer: &SourceMap, loader: UpstreamLoader<'_, '_>) -> SourceMap {
     let mapping_count = outer.mapping_count();
     let source_count = outer.sources.len();
     let mut builder = SourceMapGenerator::with_capacity(outer.file.clone(), mapping_count);
@@ -700,7 +813,7 @@ where
     builder.set_assume_sorted(true);
 
     // Flat Vec indexed by outer source index — avoids HashMap per mapping.
-    let mut source_entries: Vec<SourceEntry> =
+    let mut source_entries: Vec<SourceEntry<'_>> =
         std::iter::repeat_with(|| SourceEntry::Unloaded).take(source_count).collect();
 
     let mut ignored_sources: HashSet<u32> = HashSet::new();
@@ -739,7 +852,7 @@ where
                 outer_ignore_set: &outer_ignore_set,
                 ignored_sources: &mut ignored_sources,
             },
-            &loader,
+            loader,
         );
 
         trace_source_entry(
@@ -771,13 +884,14 @@ struct TraceContext<'a, B> {
 }
 
 fn trace_source_entry<B: RemapBuilder>(
-    entry: &mut SourceEntry,
+    entry: &mut SourceEntry<'_>,
     m: &srcmap_sourcemap::Mapping,
     ctx: TraceContext<'_, B>,
 ) {
     match entry {
         SourceEntry::Upstream { map, cache } => {
-            match lookup_upstream(map, m.original_line, m.original_column) {
+            let map = map.get();
+            match lookup_upstream(map, &mut cache.cursor, m.original_line, m.original_column) {
                 UpstreamTrace::Found(upstream_m) => trace_and_emit_upstream(
                     ctx.builder,
                     ctx.dedup,
@@ -841,15 +955,13 @@ struct SourceEntryLoadContext<'a, B> {
 
 /// Resolve outer source `si` on first use: load its upstream map through
 /// `loader`, or register it in the builder as a passthrough.
-fn load_source_entry<B: RemapBuilder, F>(
-    source_entries: &mut [SourceEntry],
+fn load_source_entry<'a, B: RemapBuilder>(
+    source_entries: &mut [SourceEntry<'a>],
     si: usize,
     sources: &[String],
     ctx: SourceEntryLoadContext<'_, B>,
-    loader: &F,
-) where
-    F: Fn(&str) -> Option<SourceMap>,
-{
+    loader: UpstreamLoader<'_, 'a>,
+) {
     if !matches!(source_entries[si], SourceEntry::Unloaded) {
         return;
     }
@@ -861,8 +973,8 @@ fn load_source_entry<B: RemapBuilder, F>(
     // as in the `if (!source)` check of its `addSegmentInternal`.
     match loader(source_name) {
         Some(upstream_sm) => {
-            let cache = build_upstream_cache(&upstream_sm);
-            source_entries[si] = SourceEntry::Upstream { map: Box::new(upstream_sm), cache };
+            let cache = build_upstream_cache(upstream_sm.get());
+            source_entries[si] = SourceEntry::Upstream { map: upstream_sm, cache };
         }
         None if source_name.is_empty() => {
             let ignored = ctx.outer_ignore_set.contains(&(si as u32));
@@ -942,9 +1054,9 @@ fn compose_pair(outer: &SourceMap, inner: &SourceMap) -> SourceMap {
         None
     };
 
-    remap(outer, |source| {
+    remap_ref(outer, |source| {
         if inner.file.as_deref() == Some(source) || fallback_source.as_deref() == Some(source) {
-            Some(inner.clone())
+            Some(inner)
         } else {
             None
         }
@@ -978,7 +1090,9 @@ where
     let mut builder = StreamingGenerator::with_capacity(file, 4096);
 
     // Flat Vec indexed by outer source index — avoids HashMap per mapping
-    let mut source_entries: Vec<SourceEntry> =
+    let loader: UpstreamLoader<'_, '_> =
+        &|source| loader(source).map(|map| UpstreamMap::Owned(Box::new(map)));
+    let mut source_entries: Vec<SourceEntry<'_>> =
         std::iter::repeat_with(|| SourceEntry::Unloaded).take(sources.len()).collect();
 
     let mut ignored_sources: HashSet<u32> = HashSet::new();
@@ -1022,7 +1136,7 @@ where
                 outer_ignore_set: &outer_ignore_set,
                 ignored_sources: &mut ignored_sources,
             },
-            &loader,
+            loader,
         );
 
         trace_source_entry(
@@ -1209,6 +1323,87 @@ fn trace_and_emit_sourceless<B: RemapBuilder>(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ── Upstream lookup tests ────────────────────────────────────
+
+    fn segment_at(column: u32) -> srcmap_sourcemap::Mapping {
+        srcmap_sourcemap::Mapping {
+            generated_line: 0,
+            generated_column: column,
+            source: 0,
+            original_line: 0,
+            original_column: 0,
+            name: NO_NAME,
+            is_range_mapping: false,
+        }
+    }
+
+    #[test]
+    fn cursor_search_matches_a_linear_search_from_every_cursor() {
+        // 30 segments, more than the scan limit, with repeated columns.
+        let mut sorted: Vec<u32> = (0..30).map(|i| 4 + (i / 2) * 5 + (i % 3)).collect();
+        sorted.sort_unstable();
+        let line: Vec<_> = sorted.iter().map(|&c| segment_at(c)).collect();
+        let last_column = *sorted.last().unwrap();
+
+        for cursor_line in [0, 1] {
+            for cursor_index in 0..=line.len() + 1 {
+                let cursor = LookupCursor { line: cursor_line, index: cursor_index };
+                for column in 0..=last_column + 3 {
+                    let expected = line.iter().rposition(|m| m.generated_column <= column);
+                    assert_eq!(
+                        last_at_or_before(&line, &cursor, 0, column),
+                        expected,
+                        "cursor {cursor_line}:{cursor_index}, column {column}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn remap_gives_the_same_map_for_any_order_of_outer_segments() {
+        // The outer segments trace to falling, rising and repeated upstream
+        // columns, so the lookup cursor is before, at and after each target.
+        let inner = SourceMap::from_json(
+            r#"{"version":3,"file":"inter.js","sources":["a.js"],"names":[],"mappings":"AAAA,CAAC,EAAE,GAAG,IAAI,KAAK,MAAM,OAAO,QAAQ,SAAS;AACV,CAAC,EAAE"}"#,
+        )
+        .unwrap();
+        let mut builder = SourceMapGenerator::new(Some("out.js".to_string()));
+        let source = builder.add_source("inter.js");
+        let targets = [(0, 40), (0, 3), (0, 3), (0, 0), (1, 2), (0, 44), (0, 12), (1, 0), (0, 13)];
+        for (i, (line, column)) in targets.iter().enumerate() {
+            builder.add_mapping(0, i as u32 * 2, source, *line, *column);
+        }
+        let outer = SourceMap::from_json(&builder.to_json()).unwrap();
+
+        let composed = remap_ref(&outer, |_| Some(&inner));
+        for (i, (line, column)) in targets.iter().enumerate() {
+            let expected = inner.original_position_for(*line, *column).unwrap();
+            let actual = composed.original_position_for(0, i as u32 * 2).unwrap();
+            assert_eq!(
+                (actual.line, actual.column),
+                (expected.line, expected.column),
+                "outer segment {i} to {line}:{column}"
+            );
+        }
+    }
+
+    #[test]
+    fn remap_ref_gives_the_same_map_as_remap() {
+        let outer = SourceMap::from_json(
+            r#"{"version":3,"file":"out.js","sources":["inter.js","other.js"],"sourcesContent":["a","b"],"names":["x"],"mappings":"AAAAA,EAAE;ACAA,GDCA"}"#,
+        )
+        .unwrap();
+        let inner = SourceMap::from_json(
+            r#"{"version":3,"file":"inter.js","sources":["a.ts"],"sourcesContent":["source"],"names":["y"],"mappings":"AAAAA,CAAC;AACA"}"#,
+        )
+        .unwrap();
+        let owned = remap(&outer, |source| (source == "inter.js").then(|| inner.clone()));
+        let borrowed = remap_ref(&outer, |source| (source == "inter.js").then_some(&inner));
+        assert_eq!(borrowed.to_json(), owned.to_json());
+        assert_eq!(borrowed.sources, vec!["a.ts", "other.js"]);
+    }
 
     // ── Concatenation tests ──────────────────────────────────────
 

@@ -74,6 +74,7 @@ let result = remap(&minified_map, |source| {
 | Function | Description |
 |----------|-------------|
 | `remap(outer, loader) -> SourceMap` | Compose through upstream maps resolved by `loader` |
+| `remap_ref(outer, loader) -> SourceMap` | Like `remap`, with a loader that returns `Option<&SourceMap>`. It does not copy the upstream map. |
 | `remap_streaming(iter, sources, names, sources_content, ignore_list, file, loader) -> SourceMap` | Streaming variant that does not build the outer map in memory |
 
 The `loader` function receives each source filename and returns `Option<SourceMap>`. Return `Some` to trace through an upstream map, or `None` to keep the source as-is.

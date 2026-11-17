@@ -615,12 +615,12 @@ impl SourceMapGenerator {
 
         if let Some(ref file) = self.file {
             json.extend_from_slice(br#","file":"#);
-            json_quote_into(&mut json, file);
+            srcmap_codec::json_quote_into(&mut json, file);
         }
 
         if let Some(ref root) = self.source_root {
             json.extend_from_slice(br#","sourceRoot":"#);
-            json_quote_into(&mut json, root);
+            srcmap_codec::json_quote_into(&mut json, root);
         }
 
         json.extend_from_slice(br#","sources":["#);
@@ -649,12 +649,12 @@ impl SourceMapGenerator {
 
         if let Some(ref id) = self.debug_id {
             json.extend_from_slice(br#","debugId":"#);
-            json_quote_into(&mut json, id);
+            srcmap_codec::json_quote_into(&mut json, id);
         }
 
         if let Some(ref s) = scopes_str {
             json.extend_from_slice(br#","scopes":"#);
-            json_quote_into(&mut json, s);
+            srcmap_codec::json_quote_into(&mut json, s);
         }
 
         json.push(b'}');
@@ -1194,12 +1194,12 @@ impl StreamingGenerator {
 
         if let Some(ref file) = self.file {
             json.extend_from_slice(br#","file":"#);
-            json_quote_into(&mut json, file);
+            srcmap_codec::json_quote_into(&mut json, file);
         }
 
         if let Some(ref root) = self.source_root {
             json.extend_from_slice(br#","sourceRoot":"#);
-            json_quote_into(&mut json, root);
+            srcmap_codec::json_quote_into(&mut json, root);
         }
 
         json.extend_from_slice(br#","sources":["#);
@@ -1227,7 +1227,7 @@ impl StreamingGenerator {
 
         if let Some(ref id) = self.debug_id {
             json.extend_from_slice(br#","debugId":"#);
-            json_quote_into(&mut json, id);
+            srcmap_codec::json_quote_into(&mut json, id);
         }
 
         json.push(b'}');
@@ -1462,50 +1462,12 @@ fn encode_mapping_slice(
     buf
 }
 
-/// JSON-quote a string directly into a byte buffer (avoids UTF-8 validation overhead).
-fn json_quote_into(out: &mut Vec<u8>, s: &str) {
-    let bytes = s.as_bytes();
-    out.push(b'"');
-
-    let mut start = 0;
-    for (i, &b) in bytes.iter().enumerate() {
-        let escape: &[u8] = match b {
-            b'"' => b"\\\"",
-            b'\\' => b"\\\\",
-            b'\n' => b"\\n",
-            b'\r' => b"\\r",
-            b'\t' => b"\\t",
-            0x00..=0x1f => {
-                out.extend_from_slice(&bytes[start..i]);
-                let hex = b"0123456789abcdef";
-                out.extend_from_slice(&[
-                    b'\\',
-                    b'u',
-                    b'0',
-                    b'0',
-                    hex[(b >> 4) as usize],
-                    hex[(b & 0xf) as usize],
-                ]);
-                start = i + 1;
-                continue;
-            }
-            _ => continue,
-        };
-        out.extend_from_slice(&bytes[start..i]);
-        out.extend_from_slice(escape);
-        start = i + 1;
-    }
-
-    out.extend_from_slice(&bytes[start..]);
-    out.push(b'"');
-}
-
 fn write_json_string_array(out: &mut Vec<u8>, items: &[String]) {
     for (i, item) in items.iter().enumerate() {
         if i > 0 {
             out.push(b',');
         }
-        json_quote_into(out, item);
+        srcmap_codec::json_quote_into(out, item);
     }
 }
 
@@ -1534,7 +1496,7 @@ fn write_sources_content_json(json: &mut Vec<u8>, contents: &[Option<String>]) {
             json.push(b',');
         }
         match c {
-            Some(content) => json_quote_into(json, content),
+            Some(content) => srcmap_codec::json_quote_into(json, content),
             None => json.extend_from_slice(b"null"),
         }
     }
@@ -1604,7 +1566,7 @@ fn write_ignore_list_to_writer(writer: &mut impl io::Write, ignore_list: &[u32])
 #[cfg(feature = "parallel")]
 fn json_quote(s: &str) -> String {
     let mut out = Vec::with_capacity(s.len() + 2);
-    json_quote_into(&mut out, s);
+    srcmap_codec::json_quote_into(&mut out, s);
     // SAFETY: json_quote_into only writes valid UTF-8 (ASCII escapes + original UTF-8 content).
     unsafe { String::from_utf8_unchecked(out) }
 }
@@ -1612,7 +1574,7 @@ fn json_quote(s: &str) -> String {
 /// JSON-quote a string directly into a writer.
 fn write_json_quoted(writer: &mut impl io::Write, s: &str) -> io::Result<()> {
     let mut buf = Vec::with_capacity(s.len() + 2);
-    json_quote_into(&mut buf, s);
+    srcmap_codec::json_quote_into(&mut buf, s);
     writer.write_all(&buf)
 }
 
