@@ -29,6 +29,7 @@ rayon = { workspace = true, optional = true }
 rustc-hash = { workspace = true }
 
 [dev-dependencies]
+codspeed-criterion-compat = { workspace = true }
 serde_json = { workspace = true }
 criterion2 = { workspace = true }
 

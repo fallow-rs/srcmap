@@ -26,6 +26,7 @@ memchr = { workspace = true }
 rayon = { workspace = true, optional = true }
 
 [dev-dependencies]
+codspeed-criterion-compat = { workspace = true }
 criterion2 = { workspace = true }
 
 [[bench]]

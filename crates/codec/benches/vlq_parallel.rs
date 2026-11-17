@@ -1,6 +1,6 @@
 use std::hint::black_box;
 
-use criterion::{BatchSize, Criterion, criterion_group, criterion_main};
+use codspeed_criterion_compat::{BatchSize, Criterion, criterion_group, criterion_main};
 use srcmap_codec::{Segment, SourceMapMappings, encode, encode_parallel};
 
 /// Realistic mappings with varied deltas; `lines` rows of

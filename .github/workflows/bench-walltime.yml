@@ -21,7 +21,9 @@ permissions: {}
 
 env:
   CARGO_TERM_COLOR: always
-  RUSTFLAGS: "-C debuginfo=1 -C strip=none -g --cfg codspeed"
+  # No `--cfg codspeed` here: that cfg selects the CPU simulation harness of
+  # codspeed-criterion-compat, and the walltime harness needs it unset.
+  RUSTFLAGS: "-C debuginfo=1 -C strip=none -g"
 
 jobs:
   parallel:
@@ -37,6 +39,10 @@ jobs:
           persist-credentials: false
 
       - uses: ./.github/actions/setup-rust
+
+      - uses: Swatinem/rust-cache@eedcf2fb1c22f010a0eb66b92f378c110977f266 # v2
+        with:
+          key: bench-walltime
 
       - name: Install cargo-codspeed
         uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39 # v2.90.3
