@@ -193,6 +193,48 @@ const checkTransformationMaps = (maps) => {
   }
 };
 
+const NO_NAME_INDEX = -1;
+
+// The same check as `skipSource` of @jridgewell/gen-mapping: a segment that repeats
+// the previous segment on its line adds nothing.
+const repeatsPrevious = (line, segment) => {
+  const prev = line.at(-1);
+  if (prev === undefined || prev.length === 1) return false;
+  return (
+    prev[1] === segment[1] &&
+    prev[2] === segment[2] &&
+    prev[3] === segment[3] &&
+    (prev[4] ?? NO_NAME_INDEX) === (segment[4] ?? NO_NAME_INDEX)
+  );
+};
+
+// Gives each source of `map` the index of its group. As in jridgewell, the content
+// of a group is the last content that a segment of the group sets.
+const mergeSources = (map, groupOf, groups, restore) => {
+  const contents = map.sourcesContent;
+  const lines = decodeMappings(map.mappings).map((line) => {
+    const merged = [];
+    for (const segment of line) {
+      if (segment.length === 1) {
+        merged.push(segment);
+        continue;
+      }
+      const group = groupOf[segment[1]];
+      if (contents?.[segment[1]] != null) group.content = contents[segment[1]];
+      const next = [segment[0], group.index, ...segment.slice(2)];
+      if (!repeatsPrevious(merged, next)) merged.push(next);
+    }
+    return merged;
+  });
+  map.mappings = encodeMappings(lines);
+  map.sources = groups.map((group) => restore(group.name));
+  if (contents) map.sourcesContent = groups.map((group) => group.content);
+  if (map.ignoreList) {
+    map.ignoreList = [...new Set(map.ignoreList.map((i) => groupOf[i].index))];
+  }
+  return map;
+};
+
 /**
  * The maps of one `remapping` call. Each map that the loader gives, and each outer
  * map of a chain, gets a unique key. The key is the source name of that map in the
@@ -207,52 +249,67 @@ class UpstreamMaps {
     this.ignoredNames = new Set();
     this.plainNames = new Set();
     this.standIns = new Map();
-    this.stringNames = new Set();
+    // The value of each name that `leafName` gives for a source that is not a string.
     this.values = new Map();
     this.valueNames = new Map();
-    this.invalidNames = new Set();
   }
 
   // jridgewell keeps a `ctx.source` that is not a string, and finds a source by its
-  // property key. Thus values with the same string form share one source. A falsy
-  // value gives sourceless segments, and an ignored one stays in `sources`.
+  // property key. A falsy value gives sourceless segments, and an ignored one stays
+  // in `sources`. The WASM remap has one empty source, so the first ignored falsy
+  // value in loader order gives its value. Each other value gets a unique name, so
+  // that the WASM remap keeps it apart from a string with the same string form.
+  // `restoreValues` merges them after the last pass.
   leafName(source, ignored) {
-    if (!source && !ignored) return "";
-    const name = this.nameOf(source);
-    if (typeof source === "string") this.stringNames.add(name);
-    else if (!this.values.has(name) && !this.stringNames.has(name)) this.values.set(name, source);
-    return name;
-  }
-
-  nameOf(source) {
-    if (typeof source === "string") return source;
-    if (!source) return "";
-    if (typeof source !== "symbol") {
-      try {
-        return String(source);
-      } catch {
-        // jridgewell throws only when a segment uses this source.
-      }
+    if (!source) {
+      if (ignored && !this.values.has("")) this.values.set("", source);
+      return "";
     }
+    if (typeof source === "string") return source;
     let name = this.valueNames.get(source);
     if (name === undefined) {
       name = `${this.prefix}value-${this.valueNames.size}`;
       this.valueNames.set(source, name);
-      if (typeof source !== "symbol") this.invalidNames.add(name);
+      this.values.set(name, source);
     }
     return name;
   }
 
-  // Puts each value from `leafName` back in the result `sources`. jridgewell keeps
-  // the value of the first segment for a name. Here the first leaf in loader order
-  // gives the value.
-  restoreValues(sources) {
-    return sources.map((name) => {
-      if (this.invalidNames.has(name)) {
+  hasValues() {
+    return this.values.size > 1 || (this.values.size === 1 && this.values.get("") !== "");
+  }
+
+  // Merges the sources that share a property key, as `put` of jridgewell does. The
+  // first source in the result is the first that a segment registered, so it gives
+  // the value. jridgewell throws for a value without a string form only when a
+  // segment uses it.
+  restoreValues(map) {
+    const keyOf = (name) => {
+      if (!this.values.has(name)) return name;
+      const value = this.values.get(name);
+      if (typeof value === "symbol") return value;
+      try {
+        return String(value);
+      } catch {
         throw new TypeError("Cannot convert object to primitive value");
       }
-      return this.values.has(name) ? this.values.get(name) : name;
+    };
+    const groups = new Map();
+    const groupOf = map.sources.map((name, i) => {
+      const key = keyOf(name);
+      let group = groups.get(key);
+      if (group === undefined) {
+        group = { index: groups.size, name, content: map.sourcesContent?.[i] ?? null };
+        groups.set(key, group);
+      }
+      return group;
     });
+    const restore = (name) => (this.values.has(name) ? this.values.get(name) : name);
+    if (groups.size === map.sources.length) {
+      map.sources = map.sources.map(restore);
+      return map;
+    }
+    return mergeSources(map, groupOf, [...groups.values()], restore);
   }
 
   add(node, depth) {
@@ -366,8 +423,7 @@ const remapAll = (input, loader) => {
   }
   if (upstreams.standIns.size > 0) result = restoreStandIns(result, upstreams.standIns);
   const map = JSON.parse(result);
-  if (upstreams.values.size > 0) map.sources = upstreams.restoreValues(map.sources);
-  return map;
+  return upstreams.hasValues() ? upstreams.restoreValues(map) : map;
 };
 
 /**
