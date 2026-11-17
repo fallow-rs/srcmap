@@ -148,3 +148,56 @@ describe("source index outside sources", () => {
     assert.throws(() => srcmapRemapping(clone(input), loaderFor(upstreams)));
   });
 });
+
+describe("names entries that are not strings, compared with @jridgewell/remapping", () => {
+  // jridgewell adds a name only when `names[index]` is truthy, so null, false
+  // and 0 give no name. A truthy value that is not a string is a known difference.
+  it("gives no name for a null entry", () => {
+    const result = compare(map({ names: [null], mappings: "AAAAA" }));
+    assert.equal(result.mappings, "AAAA");
+  });
+
+  it("gives no name for a false or 0 entry", () => {
+    compare(map({ names: [false], mappings: "AAAAA" }));
+    compare(map({ names: [0], mappings: "AAAAA" }));
+  });
+
+  it("accepts a null entry that no segment uses", () => {
+    compare(map({ names: [null], mappings: "AAAA" }));
+  });
+
+  it("keeps valid names next to a null entry", () => {
+    const result = compare(map({ names: [null, "x"], mappings: "AAAAA,CAAAC" }));
+    assert.deepEqual(result.names, ["x"]);
+    compare(map({ names: [null, false, 0, "x"], mappings: "AAAAA,CAACC,CAACC,CAACC" }));
+  });
+
+  it("does not use the outer name when the upstream entry is null", () => {
+    const result = compare(map({ names: ["outer"], mappings: "AAAAA" }), {
+      "a.js": map({ sources: ["orig.js"], names: [null], mappings: "AAAAA" }),
+    });
+    assert.deepEqual(result.names, []);
+  });
+
+  it("throws for a truthy entry that is not a string", () => {
+    assert.throws(() => srcmapRemapping(map({ names: [1], mappings: "AAAAA" }), () => null));
+  });
+});
+
+describe("names that is not an array, compared with @jridgewell/remapping", () => {
+  it("gives no name when names is null", () => {
+    compare(map({ names: null, mappings: "AAAAA" }));
+  });
+
+  it("gives no name when names is a number, a boolean or an empty string", () => {
+    compare(map({ names: 5, mappings: "AAAAA" }));
+    compare(map({ names: true, mappings: "AAAAA" }));
+    compare(map({ names: "", mappings: "AAAAA" }));
+  });
+
+  it("gives no name when the upstream names is null", () => {
+    compare(map({ names: ["outer"], mappings: "AAAAA" }), {
+      "a.js": map({ sources: ["orig.js"], names: null, mappings: "AAAAA" }),
+    });
+  });
+});

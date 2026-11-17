@@ -260,3 +260,36 @@ describe("remap names outside names", () => {
     );
   });
 });
+
+describe("remap names entries that are not strings", () => {
+  const json = (fields) =>
+    JSON.stringify({ version: 3, sources: ["a.js"], names: [], mappings: "AAAA", ...fields });
+
+  it("gives no name for a null, false or 0 entry", () => {
+    const outer = json({ names: [null, false, 0, "x"], mappings: "AAAAA,CAACC,CAACC,CAACC" });
+    const result = JSON.parse(remap(outer, () => null));
+    assert.equal(result.mappings, "AAAA,CAAC,CAAC,CAACA");
+    assert.deepEqual(result.names, ["x"]);
+  });
+
+  it("gives no name when names is null in the outer or the upstream map", () => {
+    const outer = json({ names: null, mappings: "AAAAA" });
+    assert.equal(JSON.parse(remap(outer, () => null)).mappings, "AAAA");
+    const named = json({ names: ["outer"], mappings: "AAAAA" });
+    const inner = json({ sources: ["orig.js"], names: null, mappings: "AAAAA" });
+    const result = JSON.parse(remap(named, () => inner));
+    assert.equal(result.mappings, "AAAA");
+    assert.deepEqual(result.names, []);
+  });
+
+  it("still throws for a truthy entry that is not a string", () => {
+    assert.throws(
+      () => remap(json({ names: [1], mappings: "AAAAA" }), () => null),
+      /JSON parse error/,
+    );
+  });
+
+  it("still throws for invalid JSON", () => {
+    assert.throws(() => remap("{", () => null), /JSON parse error/);
+  });
+});

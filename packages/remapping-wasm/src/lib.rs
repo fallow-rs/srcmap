@@ -46,12 +46,15 @@ impl ConcatBuilder {
 ///
 /// A name index outside `names` and an empty name give a segment without a
 /// name, as in `@jridgewell/remapping`, which adds a name only when
-/// `names[index]` is truthy.
+/// `names[index]` is truthy. A `names` entry or value that is falsy also gives
+/// no name (see [`ParseOptions::lenient_names`]).
 #[wasm_bindgen]
 pub fn remap(outer_json: &str, loader: &js_sys::Function) -> Result<String, JsValue> {
     let placeholder = unnamed_placeholder();
-    let options =
-        ParseOptions { out_of_range_names: OutOfRangeNames::Placeholder(placeholder.clone()) };
+    let options = ParseOptions {
+        out_of_range_names: OutOfRangeNames::Placeholder(placeholder.clone()),
+        lenient_names: true,
+    };
     let outer = SourceMap::from_json_with_options(outer_json, &options)
         .map_err(|e| JsError::new(&e.to_string()))?;
 

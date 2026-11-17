@@ -179,6 +179,14 @@ pub enum IndexKind {
 pub struct ParseOptions {
     /// What the parser does with a mapping name index outside `names`.
     pub out_of_range_names: OutOfRangeNames,
+    /// Accept the `names` values that JavaScript reads as no name.
+    ///
+    /// When this is true, an entry of `names` that is `null`, `false` or `0`
+    /// becomes `""`. A top-level `names` value that is `null`, a boolean, a
+    /// number or `""` becomes `[]`. Other entries that are not strings stay
+    /// invalid. The parser does this only after the first parse fails, so a
+    /// valid map parses once. Section maps do not get this check.
+    pub lenient_names: bool,
 }
 
 /// What the parser does with a mapping name index outside `names`.
@@ -966,6 +974,43 @@ fn remap_generated_range(
 
 // ── Raw JSON structure ─────────────────────────────────────────────
 
+/// Return a copy of `json` with the changes of [`ParseOptions::lenient_names`],
+/// or `None` when `json` is not an object or has no `names` value to change.
+fn lenient_names_json(json: &str) -> Option<String> {
+    use serde_json::Value;
+
+    let mut map: Value = serde_json::from_str(json).ok()?;
+    let names = map.as_object_mut()?.get_mut("names")?;
+    match names {
+        Value::Array(entries) => {
+            let mut changed = false;
+            for entry in entries.iter_mut().filter(|entry| is_falsy_non_string(entry)) {
+                *entry = Value::String(String::new());
+                changed = true;
+            }
+            if !changed {
+                return None;
+            }
+        }
+        Value::Null | Value::Bool(_) | Value::Number(_) => *names = Value::Array(Vec::new()),
+        Value::String(s) if s.is_empty() => *names = Value::Array(Vec::new()),
+        Value::String(_) | Value::Object(_) => return None,
+    }
+    serde_json::to_string(&map).ok()
+}
+
+/// True when `value` is not a string and JavaScript reads it as falsy.
+fn is_falsy_non_string(value: &serde_json::Value) -> bool {
+    match value {
+        serde_json::Value::Null => true,
+        serde_json::Value::Bool(b) => !b,
+        serde_json::Value::Number(n) => n.as_f64() == Some(0.0),
+        serde_json::Value::String(_)
+        | serde_json::Value::Array(_)
+        | serde_json::Value::Object(_) => false,
+    }
+}
+
 #[derive(Deserialize)]
 struct RawSourceMap<'a> {
     version: u32,
@@ -1205,12 +1250,21 @@ impl SourceMap {
     /// let json = r#"{"version":3,"sources":["a.js"],"names":[],"mappings":"AAAAA"}"#;
     /// assert!(SourceMap::from_json(json).is_err());
     ///
-    /// let options = ParseOptions { out_of_range_names: OutOfRangeNames::Unnamed };
+    /// let options =
+    ///     ParseOptions { out_of_range_names: OutOfRangeNames::Unnamed, ..Default::default() };
     /// let sm = SourceMap::from_json_with_options(json, &options).unwrap();
     /// assert_eq!(sm.original_position_for(0, 0).unwrap().name, None);
     /// ```
     pub fn from_json_with_options(json: &str, options: &ParseOptions) -> Result<Self, ParseError> {
-        Self::from_json_inner(json, true, options)
+        match Self::from_json_inner(json, true, options) {
+            Err(error @ ParseError::Json(_)) if options.lenient_names => {
+                match lenient_names_json(json) {
+                    Some(fixed) => Self::from_json_inner(&fixed, true, options),
+                    None => Err(error),
+                }
+            }
+            result => result,
+        }
     }
 
     /// Parse a source map from JSON, skipping sourcesContent allocation.
@@ -4565,7 +4619,56 @@ mod tests {
     }
 
     fn names_options(mode: OutOfRangeNames) -> ParseOptions {
-        ParseOptions { out_of_range_names: mode }
+        ParseOptions { out_of_range_names: mode, ..Default::default() }
+    }
+
+    fn lenient_options() -> ParseOptions {
+        ParseOptions { lenient_names: true, ..names_options(OutOfRangeNames::Unnamed) }
+    }
+
+    #[test]
+    fn default_options_reject_null_names_entry() {
+        let json = r#"{"version":3,"sources":["a.js"],"names":[null],"mappings":"AAAA"}"#;
+        let err = SourceMap::from_json_with_options(json, &ParseOptions::default()).unwrap_err();
+        assert!(matches!(err, ParseError::Json(_)), "{err:?}");
+    }
+
+    #[test]
+    fn lenient_names_reads_falsy_entries_as_empty_names() {
+        let json = r#"{"version":3,"sources":["a.js"],"names":[null,false,0,-0.0,"x"],"mappings":"AAAAA,CAAAC,CAAAC,CAAAC,CAAAC"}"#;
+        let sm = SourceMap::from_json_with_options(json, &lenient_options()).unwrap();
+        assert_eq!(sm.names, ["", "", "", "", "x"]);
+        assert_eq!(mapping_names(&sm), [Some(""), Some(""), Some(""), Some(""), Some("x")]);
+    }
+
+    #[test]
+    fn lenient_names_reads_falsy_or_scalar_names_as_no_names() {
+        for names in ["null", "false", "true", "0", "5", r#""""#] {
+            let json =
+                format!(r#"{{"version":3,"sources":["a.js"],"names":{names},"mappings":"AAAAA"}}"#);
+            let sm = SourceMap::from_json_with_options(&json, &lenient_options()).unwrap();
+            assert!(sm.names.is_empty(), "{names}");
+            assert_eq!(mapping_names(&sm), [None], "{names}");
+        }
+    }
+
+    #[test]
+    fn lenient_names_keeps_other_invalid_names_as_errors() {
+        for names in ["[1]", "[true]", "[{}]", "[[]]", r#""ab""#, "{}"] {
+            let json =
+                format!(r#"{{"version":3,"sources":["a.js"],"names":{names},"mappings":"AAAA"}}"#);
+            let err = SourceMap::from_json_with_options(&json, &lenient_options()).unwrap_err();
+            assert!(matches!(err, ParseError::Json(_)), "{names}: {err:?}");
+        }
+    }
+
+    #[test]
+    fn lenient_names_keeps_other_json_errors() {
+        let err = SourceMap::from_json_with_options("{", &lenient_options()).unwrap_err();
+        assert!(matches!(err, ParseError::Json(_)), "{err:?}");
+        let json = r#"{"version":3,"sources":[null,1],"names":[null],"mappings":"AAAA"}"#;
+        let err = SourceMap::from_json_with_options(json, &lenient_options()).unwrap_err();
+        assert!(err.to_string().contains("integer `1`"), "{err}");
     }
 
     fn mapping_names(sm: &SourceMap) -> Vec<Option<&str>> {
