@@ -69,6 +69,7 @@ let encoded = encode_parallel(&mappings);
 | `vlq_encode(buf, value)` | Encode a single signed VLQ value and append to buffer |
 | `vlq_decode_unsigned(bytes, offset) -> Result<(u64, usize)>` | Decode a single unsigned VLQ value at the given byte offset |
 | `vlq_encode_unsigned(buf, value)` | Encode a single unsigned VLQ value and append to buffer |
+| `json_quote_into(buf, text)` | Append `text` to the buffer as a JSON string, with the escapes that JSON needs |
 
 ### Types
 
