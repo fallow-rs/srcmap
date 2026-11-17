@@ -7,9 +7,11 @@ The API of [`@jridgewell/remapping`](https://github.com/jridgewell/remapping) an
 
 `remapping(maps, loader)` takes the arguments of `@jridgewell/remapping` and returns a `SourceMap` with the same fields.
 
-Each call writes the input maps to JSON, calls into WASM, and parses the result. For a small map, those three steps cost more than the composition. This package is not the faster choice in a build tool. `benchmarks/vite-workload.mjs` in the repository compares it with `@jridgewell/remapping` on the maps of a recorded Vite run.
+On the maps of four recorded Vite 8 runs, it gives the same output as `@jridgewell/remapping`. On the three larger runs it is 1.3 to 1.7 times faster on the first pass, and 1.5 to 1.9 times faster on later passes. `benchmarks/vite-workload.mjs` in the repository reproduces this result.
 
-It fits a Node.js tool that must compose maps the same way as a Rust tool with `srcmap-remapping`.
+The wrapper gives each map to WASM as parts, not as JSON. A map that it cannot take that way with certainty (for example a map with an unknown key, or a string with a lone surrogate) takes a slower JSON path, with the same result.
+
+It also fits a Node.js tool that must compose maps the same way as a Rust tool with `srcmap-remapping`.
 
 ## Install
 
