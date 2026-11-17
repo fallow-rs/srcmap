@@ -404,7 +404,7 @@ const isPartsStrings = (values) => {
   return true;
 };
 
-// True for an integer from 0 up to `VLQ_VALUE_LIMIT`. The mask also rejects a
+// True for an integer from 0 up to `VLQ_VALUE_MASK` (below 2^30). The mask also rejects a
 // fraction, NaN and a value that is not a number.
 const isVlqValue = (value) => typeof value === "number" && (value & VLQ_VALUE_MASK) === value;
 
