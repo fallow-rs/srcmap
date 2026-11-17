@@ -37,8 +37,10 @@ on:
     - cron: '30 8 * * *'
   workflow_dispatch:
 
+# A scheduled run gets a group of its own. In the group of main it would wait
+# behind a push run, and a newer push would cancel it while it waits.
 concurrency:
-  group: bench-${{ github.ref }}
+  group: bench-${{ github.event_name == 'schedule' && github.run_id || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
