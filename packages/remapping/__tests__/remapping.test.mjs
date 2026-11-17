@@ -1,6 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import remapping, { SourceMap } from "../src/remapping.mjs";
 
@@ -379,6 +380,170 @@ describe("error handling", () => {
       { name: "TypeError", message: /at least one source map/ },
     );
     assert.equal(calls, 0);
+  });
+});
+
+// Object maps go to the WASM remap as parts, other maps as JSON. A key that the
+// parts path does not know sends the call to the JSON path, so each case runs on
+// both paths and must give the same result or the same error.
+describe("parts path and JSON path", () => {
+  const require = createRequire(import.meta.url);
+  const { RemapTree } = require("@srcmap/remapping-wasm");
+
+  const outcome = (run) => {
+    try {
+      return { result: run().toJSON() };
+    } catch (error) {
+      // The extra key of the JSON path moves the error position in the JSON.
+      const message = error.message.replace(/ at line \d+ column \d+$/, "");
+      return { error: `${error.constructor.name}: ${message}` };
+    }
+  };
+
+  // Runs `make()` on both paths. Returns the number of parts-path remaps.
+  const compare = (make, loader = () => null) => {
+    const remap = RemapTree.prototype.remap;
+    let partsRemaps = 0;
+    RemapTree.prototype.remap = function (passes) {
+      partsRemaps++;
+      return remap.call(this, passes);
+    };
+    let parts;
+    try {
+      parts = outcome(() => remapping(make(), loader));
+    } finally {
+      RemapTree.prototype.remap = remap;
+    }
+    const forceJson = (input) =>
+      Array.isArray(input)
+        ? input.map((map, i) => (i === 0 ? { ...map, x_json_path: true } : map))
+        : { ...input, x_json_path: true };
+    const json = outcome(() => remapping(forceJson(make()), loader));
+    assert.deepEqual(parts, json);
+    return partsRemaps;
+  };
+
+  const inner = () => ({
+    version: 3,
+    file: "inner.js",
+    sources: ["a.ts", "b.ts"],
+    sourcesContent: ["a content", null],
+    names: ["n", "m"],
+    mappings: "AAAAA,EAAE,ECAAC;AACA",
+    ignoreList: [1],
+  });
+
+  const decodedOuter = (mappings, names = ["outer"]) => ({
+    file: "out.js",
+    sources: ["inner.js"],
+    sourcesContent: ["inner content"],
+    names,
+    mappings,
+  });
+
+  it("gives the same result for a decoded outer map and an encoded inner map", () => {
+    const mappings = [[[0, 0, 0, 0], [2, 0, 0, 2, 0], [3], [4, 0, 0, 4]], [], [[0, 0, 1, 0]]];
+    assert.equal(
+      compare(() => [decodedOuter(mappings), inner()]),
+      1,
+    );
+  });
+
+  it("gives the same result for names outside names and a name index of -1", () => {
+    const mappings = [
+      [
+        [0, 0, 0, 0, 7],
+        [2, 0, 0, 2, -1],
+        [4, 0, 0, 4, 0],
+      ],
+    ];
+    compare(() => [decodedOuter(mappings), inner()]);
+    compare(() => [decodedOuter([[[0, 0, 0, 0]]]), { ...inner(), mappings: "AAAAK" }]);
+    // In an upstream map, a name outside `names` must not take the outer name.
+    const named = { version: 3, sources: ["mid.js"], names: ["outer"], mappings: "AAAAA,EAAEA" };
+    const unnamed = () => ({ ...inner(), names: [], mappings: "AAAA,EAAE" });
+    for (const name of [-1, 9]) {
+      const middle = { sources: ["inner.js"], names: ["m"], mappings: [[[0, 0, 0, 0, name]]] };
+      assert.equal(
+        compare(() => [named, middle, unnamed()]),
+        name === -1 ? 0 : 1,
+      );
+      assert.deepEqual(remapping([named, middle, unnamed()], () => null).names, []);
+    }
+  });
+
+  it("gives the same result for an unsorted decoded line", () => {
+    const mappings = [
+      [
+        [4, 0, 0, 4],
+        [0, 0, 0, 0],
+        [4, 0, 0, 2],
+      ],
+    ];
+    assert.equal(
+      compare(() => [decodedOuter(mappings), inner()]),
+      1,
+    );
+  });
+
+  it("gives the same result for a chain of three maps and for a loader", () => {
+    const middle = () => ({
+      version: 3,
+      sources: ["inner.js"],
+      names: ["mid"],
+      mappings: [
+        [
+          [0, 0, 0, 0, 0],
+          [3, 0, 0, 2],
+        ],
+        [[0, 0, 1, 0]],
+      ],
+    });
+    const outer = () =>
+      decodedOuter([
+        [
+          [0, 0, 0, 0],
+          [1, 0, 0, 3],
+        ],
+        [[0, 0, 1, 0]],
+      ]);
+    assert.equal(
+      compare(() => [outer(), middle(), inner()]),
+      1,
+    );
+    const loader = (file) => (file === "inner.js" ? inner() : null);
+    compare(() => decodedOuter([[[0, 0, 0, 0]]]), loader);
+  });
+
+  it("gives the same errors for maps that the parts path does not take", () => {
+    const decoded = [[[0, 0, 0, 0, 0]]];
+    compare(() => [decodedOuter(decoded, ["\ud800"]), inner()]);
+    compare(() => [decodedOuter(decoded), { ...inner(), sourcesContent: ["\udc00", null] }]);
+    compare(() => [{ ...decodedOuter(decoded), file: 5 }, inner()]);
+    compare(() => [decodedOuter([[[0, 1, 0, 0]]]), inner()]);
+    compare(() => [decodedOuter([[[0, 0]]]), inner()]);
+    compare(() => [decodedOuter([[["0", 0, 0, 0]]]), inner()]);
+    compare(() => [decodedOuter([[[0.5, 0, 0, 0]]]), inner()]);
+    compare(() => [decodedOuter([[[2 ** 30, 0, 0, 0]]]), inner()]);
+    compare(() => [decodedOuter(decoded, [null]), inner()]);
+    compare(() => [decodedOuter(decoded), { ...inner(), mappings: "!" }]);
+  });
+
+  // The VLQ mappings go to WASM as UTF-8 bytes in one shared buffer.
+  it("gives the same result for VLQ mappings of each length and with non-ASCII text", () => {
+    const outer = () => decodedOuter([[[0, 0, 0, 0]], [[0, 0, 1, 0]]]);
+    // Longer than the first buffer, so the buffer grows. The short map after
+    // it must not read the old bytes after its own.
+    const long = Array.from({ length: 40_000 }, () => "AAAA").join(";") + ";AACA";
+    assert.equal(
+      compare(() => [outer(), { ...inner(), mappings: long }]),
+      1,
+    );
+    compare(() => [outer(), inner()]);
+    // A character outside ASCII takes more bytes than its string length.
+    compare(() => [outer(), { ...inner(), mappings: "AAAA,é" }]);
+    compare(() => [outer(), { ...inner(), mappings: "AAAA;" + "€".repeat(200_000) }]);
+    compare(() => [outer(), inner()]);
   });
 });
 

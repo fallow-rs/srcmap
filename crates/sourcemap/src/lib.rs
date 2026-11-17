@@ -1327,7 +1327,11 @@ impl SourceMap {
 
     /// Parse a regular (non-indexed) source map.
     fn from_regular(raw: RawSourceMap<'_>, options: &ParseOptions) -> Result<Self, ParseError> {
-        let fields = RegularFields::from_raw(raw);
+        Self::from_fields(RegularFields::from_raw(raw), options)
+    }
+
+    /// Decode the `mappings` of `fields` with the name mode of `options`, and build the map.
+    fn from_fields(fields: RegularFields<'_>, options: &ParseOptions) -> Result<Self, ParseError> {
         let checks = DecodeChecks::with_names_mode(
             fields.sources.len(),
             fields.names.len(),
@@ -2053,6 +2057,60 @@ impl SourceMap {
             source_map,
             has_range_mappings,
         })
+    }
+
+    /// Build a source map from pre-parsed parts and a VLQ mappings string, with
+    /// the parse options of [`SourceMap::from_json_with_options`].
+    ///
+    /// The result and the errors are the same as when `from_json_with_options`
+    /// parses a JSON map with these fields and no `sourceRoot`. The parts are
+    /// already values, so [`ParseOptions::lenient_names`] has no effect.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use srcmap_sourcemap::{OutOfRangeNames, ParseOptions, SourceMap};
+    ///
+    /// let options = ParseOptions {
+    ///     out_of_range_names: OutOfRangeNames::Placeholder("?".to_string()),
+    ///     ..Default::default()
+    /// };
+    /// let sm = SourceMap::from_vlq_with_options(
+    ///     "AAAAC",
+    ///     vec!["a.js".to_string()],
+    ///     Vec::new(),
+    ///     None,
+    ///     Vec::new(),
+    ///     Vec::new(),
+    ///     &options,
+    /// )
+    /// .unwrap();
+    /// assert_eq!(sm.names, vec!["?"]);
+    /// ```
+    pub fn from_vlq_with_options(
+        mappings_str: &str,
+        sources: Vec<String>,
+        names: Vec<String>,
+        file: Option<String>,
+        sources_content: Vec<Option<String>>,
+        ignore_list: Vec<u32>,
+        options: &ParseOptions,
+    ) -> Result<Self, ParseError> {
+        let fields = RegularFields {
+            file,
+            source_root: None,
+            sources,
+            sources_content,
+            names,
+            mappings: mappings_str,
+            ignore_list: Some(ignore_list),
+            x_google_ignore_list: None,
+            debug_id: None,
+            scopes: None,
+            range_mappings: None,
+            extensions: HashMap::new(),
+        };
+        Self::from_fields(fields, options)
     }
 
     /// Create a builder for incrementally constructing a `SourceMap`.
@@ -4788,6 +4846,64 @@ mod tests {
         let valid = r#"{"version":3,"sources":["a.js"],"names":["x"],"mappings":"AAAAA"}"#;
         let sm = SourceMap::from_json_with_options(valid, &names_options(mode)).unwrap();
         assert_eq!(sm.names, ["x"]);
+    }
+
+    #[test]
+    fn from_vlq_with_options_matches_json_parse() {
+        let mode = OutOfRangeNames::Placeholder("?".to_owned());
+        let options = names_options(mode);
+        // An out-of-range name, an unsorted line, a sourceless segment and an empty last line.
+        let mappings = "EAAAC,AAAAA,C;AACA;";
+        let json = format!(
+            r#"{{"version":3,"file":"out.js","sources":["a.js",""],"sourcesContent":["x",null],"names":["n"],"mappings":"{mappings}","ignoreList":[1]}}"#
+        );
+        let expected = SourceMap::from_json_with_options(&json, &options).unwrap();
+        let sm = SourceMap::from_vlq_with_options(
+            mappings,
+            vec!["a.js".to_owned(), String::new()],
+            vec!["n".to_owned()],
+            Some("out.js".to_owned()),
+            vec![Some("x".to_owned()), None],
+            vec![1],
+            &options,
+        )
+        .unwrap();
+        assert_eq!(sm.to_json(), expected.to_json());
+        assert_eq!(sm.names, ["n", "?"]);
+        assert_eq!(sm.line_count(), expected.line_count());
+    }
+
+    #[test]
+    fn from_vlq_with_options_gives_the_json_parse_errors() {
+        let options = ParseOptions::default();
+        let parse = |mappings: &str, ignore_list: Vec<u32>| {
+            SourceMap::from_vlq_with_options(
+                mappings,
+                vec!["a.js".to_owned()],
+                Vec::new(),
+                None,
+                Vec::new(),
+                ignore_list,
+                &options,
+            )
+            .unwrap_err()
+            .to_string()
+        };
+        let json_error = |json: &str| SourceMap::from_json(json).unwrap_err().to_string();
+        assert_eq!(
+            parse("ACAA", Vec::new()),
+            json_error(r#"{"version":3,"sources":["a.js"],"names":[],"mappings":"ACAA"}"#)
+        );
+        assert_eq!(
+            parse("!", Vec::new()),
+            json_error(r#"{"version":3,"sources":["a.js"],"names":[],"mappings":"!"}"#)
+        );
+        assert_eq!(
+            parse("AAAA", vec![3]),
+            json_error(
+                r#"{"version":3,"sources":["a.js"],"names":[],"mappings":"AAAA","ignoreList":[3]}"#
+            )
+        );
     }
 
     #[test]

@@ -1,7 +1,7 @@
 import { createRequire } from "node:module";
 
 const require = createRequire(import.meta.url);
-const { remap: wasmRemap } = require("@srcmap/remapping-wasm");
+const { remap: wasmRemap, RemapTree } = require("@srcmap/remapping-wasm");
 const resolveUri = require("@jridgewell/resolve-uri");
 
 /**
@@ -339,11 +339,15 @@ class UpstreamMaps {
     return standIn;
   }
 
-  toJson(node) {
-    const sources = node.sources.map((source, i) =>
+  // The source names of `node` for the WASM remap.
+  sourcesOf(node) {
+    return node.sources.map((source, i) =>
       node.ignored.has(i) && this.needsStandIn(source) ? this.standIn(source) : source,
     );
-    return toWasmJson(node.map, { ...node.fields, sources });
+  }
+
+  toJson(node) {
+    return toWasmJson(node.map, { ...node.fields, sources: this.sourcesOf(node) });
   }
 
   // Call after the whole tree exists, when the pass count is known.
@@ -356,6 +360,213 @@ class UpstreamMaps {
     return this.json.get(key) ?? null;
   }
 }
+
+// The parts path: `RemapTree` of the WASM package takes each map as parts, so
+// that no JSON of a whole map crosses the boundary. It must give the result of
+// the JSON path, so each map that it takes must give the same JSON parse result
+// in Rust. A map that it cannot take with certainty goes to the JSON path.
+
+// The WASM remap reads these keys of a map. Its JSON sets `version`, `sources`,
+// `sourcesContent` and `ignoreList`, and drops the other keys of this list.
+const PARTS_KEYS = new Set([
+  "version",
+  "file",
+  "names",
+  "mappings",
+  "sources",
+  "sourcesContent",
+  "ignoreList",
+  "sourceRoot",
+  "rangeMappings",
+  "x_google_ignoreList",
+]);
+
+// Values per segment in the decoded mappings for `RemapTree.addDecoded`.
+const SEGMENT_STRIDE = 6;
+const NO_INDEX = -1;
+// `encodeVlq` gives the right VLQ only for values below 2^30.
+const VLQ_VALUE_MASK = 0x3fffffff;
+
+const isWellFormed = String.prototype.isWellFormed
+  ? (text) => text.isWellFormed()
+  : (text) => !/\p{Surrogate}/u.test(text);
+
+// The JSON of a string with a lone surrogate does not parse in Rust, and a
+// string that crosses the boundary loses it. Such a string goes to the JSON path.
+const isPartsString = (value) => typeof value === "string" && isWellFormed(value);
+
+const isPartsStrings = (values) => values.every(isPartsString);
+
+// True for an integer from 0 up to `VLQ_VALUE_LIMIT`. The mask also rejects a
+// fraction, NaN and a value that is not a number.
+const isVlqValue = (value) => typeof value === "number" && (value & VLQ_VALUE_MASK) === value;
+
+// The segments go to one buffer for all calls, so that a call allocates no array.
+let segmentBuffer = new Int32Array(SEGMENT_STRIDE * 1024);
+
+const growSegmentBuffer = (size) => {
+  const grown = new Int32Array(Math.max(size, segmentBuffer.length * 2));
+  grown.set(segmentBuffer);
+  segmentBuffer = grown;
+};
+
+// True for a segment with a source that the parts path can take. The JSON path
+// rejects a source index outside `sources`, so this path does not take one.
+const isSourcedSegment = (segment, sourceCount) => {
+  const fields = segment.length;
+  if (fields !== 4 && fields !== 5) return false;
+  // A name index of -1 in the JSON path is a name outside `names`, not "no name".
+  if (fields === 5 && !isVlqValue(segment[4])) return false;
+  const source = segment[1];
+  return (
+    isVlqValue(source) && source < sourceCount && isVlqValue(segment[2]) && isVlqValue(segment[3])
+  );
+};
+
+// Writes `segment` at `at` of `flat`. Returns false when the JSON path must take it.
+const writeSegment = (flat, at, lineIndex, segment, sourceCount) => {
+  if (!Array.isArray(segment) || !isVlqValue(segment[0])) return false;
+  flat[at] = lineIndex;
+  flat[at + 1] = segment[0];
+  if (segment.length === 1) {
+    flat[at + 2] = NO_INDEX;
+    flat[at + 5] = NO_INDEX;
+    return true;
+  }
+  if (!isSourcedSegment(segment, sourceCount)) return false;
+  flat[at + 2] = segment[1];
+  flat[at + 3] = segment[2];
+  flat[at + 4] = segment[3];
+  flat[at + 5] = segment.length === 5 ? segment[4] : NO_INDEX;
+  return true;
+};
+
+// The segments of decoded `mappings` for `RemapTree.addDecoded`, or null when the
+// JSON path must take them. The result is a view of `segmentBuffer`, valid up to
+// the next call.
+const flattenDecoded = (lines, sourceCount) => {
+  let at = 0;
+  for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
+    const line = lines[lineIndex];
+    if (!Array.isArray(line)) return null;
+    const end = at + line.length * SEGMENT_STRIDE;
+    if (end > segmentBuffer.length) growSegmentBuffer(end);
+    for (let i = 0; i < line.length; i++, at += SEGMENT_STRIDE) {
+      if (!writeSegment(segmentBuffer, at, lineIndex, line[i], sourceCount)) return null;
+    }
+  }
+  return segmentBuffer.subarray(0, at);
+};
+
+// True when the parts path can take the fields of `map` other than `mappings`.
+const isPartsMap = (map, names, sources) => {
+  for (const key of Object.keys(map)) {
+    if (!PARTS_KEYS.has(key) && map[key] !== undefined) return false;
+  }
+  if (map.file != null && !isPartsString(map.file)) return false;
+  return Array.isArray(names) && isPartsStrings(names) && isPartsStrings(sources);
+};
+
+// The content tokens for `RemapTree`, or null when the JSON path must take the
+// contents. Each content goes to `contents`, and the token is its index.
+const contentTokens = (contentList, contents) => {
+  const tokens = new Int32Array(contentList.length);
+  for (let i = 0; i < contentList.length; i++) {
+    const content = contentList[i];
+    if (content === null) {
+      tokens[i] = NO_INDEX;
+    } else if (isPartsString(content)) {
+      tokens[i] = contents.push(content) - 1;
+    } else {
+      return null;
+    }
+  }
+  return tokens;
+};
+
+const utf8 = new TextEncoder();
+let mappingBytes = new Uint8Array(64 * 1024);
+
+// The UTF-8 bytes of `text`, as a view of `mappingBytes` that is valid up to the
+// next call. The WASM glue copies a string one character at a time, and
+// `encodeInto` copies it in native code, which is faster for a long VLQ string.
+const toUtf8 = (text) => {
+  if (mappingBytes.length < text.length) mappingBytes = new Uint8Array(text.length * 2);
+  let { read, written } = utf8.encodeInto(text, mappingBytes);
+  if (read < text.length) {
+    // A character outside ASCII takes up to 3 bytes.
+    mappingBytes = new Uint8Array(text.length * 3);
+    ({ written } = utf8.encodeInto(text, mappingBytes));
+  }
+  return mappingBytes.subarray(0, written);
+};
+
+// Adds a map with the other fields in `args` and `mappings` to `tree`. Returns
+// false when the JSON path must take the mappings.
+const addMappings = (tree, args, mappings, sourceCount) => {
+  if (!Array.isArray(mappings)) {
+    if (!isPartsString(mappings)) return false;
+    tree.addEncoded(...args, toUtf8(mappings));
+    return true;
+  }
+  const segments = flattenDecoded(mappings, sourceCount);
+  if (segments === null) return false;
+  tree.addDecoded(...args, segments);
+  return true;
+};
+
+// Adds `node` to `tree` with `RemapTree.addEncoded` or `addDecoded`. Returns false
+// when the JSON path must take the node.
+const addNode = (tree, key, node, sources, contents) => {
+  const { map, fields } = node;
+  const names = map.names ?? [];
+  if (!isPartsMap(map, names, sources)) return false;
+  const tokens = contentTokens(fields.sourcesContent ?? [], contents);
+  if (tokens === null) return false;
+  const args = [key, map.file ?? undefined, sources, tokens, names, fields.ignoreList ?? []];
+  return addMappings(tree, args, map.mappings, sources.length);
+};
+
+// Reads the result of `tree` as the JSON path reads the result JSON.
+const readResult = (tree, contents) => {
+  const map = {
+    version: 3,
+    file: tree.resultFile(),
+    sources: tree.resultSources(),
+    names: tree.resultNames(),
+    mappings: tree.resultMappings(),
+    ignoreList: Array.from(tree.resultIgnoreList()),
+  };
+  const tokens = tree.resultContents();
+  if (tokens.some((token) => token !== NO_INDEX)) {
+    map.sourcesContent = Array.from(tokens, (token) =>
+      token === NO_INDEX ? null : contents[token],
+    );
+  }
+  return map;
+};
+
+// Runs the remap of `remapAll` with `RemapTree`. Returns the result map, or null
+// when the JSON path must do the remap.
+const remapParts = (root, upstreams) => {
+  if (upstreams.hasValues()) return null;
+  const nodes = [...upstreams.nodes, [undefined, root]];
+  const sourceLists = nodes.map(([, node]) => upstreams.sourcesOf(node));
+  if (upstreams.standIns.size > 0) return null;
+
+  const contents = [];
+  const tree = new RemapTree();
+  try {
+    for (let i = 0; i < nodes.length; i++) {
+      const [key, node] = nodes[i];
+      if (!addNode(tree, key, node, sourceLists[i], contents)) return null;
+    }
+    tree.remap(Math.max(1, upstreams.height));
+    return readResult(tree, contents);
+  } finally {
+    tree.free();
+  }
+};
 
 // Calls the loader for each source in the order of @jridgewell/remapping: by source
 // index, depth first. The loader can change `ctx.source`, `ctx.content` and
@@ -415,6 +626,9 @@ const remapAll = (input, loader) => {
       fields: { sourcesContent: undefined, ignoreList: undefined },
     };
   }
+
+  const parts = remapParts(current, upstreams);
+  if (parts !== null) return parts;
 
   const lookup = (source) => upstreams.get(source);
   let result = wasmRemap(upstreams.serialize(current), lookup);
