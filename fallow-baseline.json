@@ -22,11 +22,6 @@
     {
       "check": "dupes",
       "rule": "code-duplication",
-      "id": "dup:0df52127"
-    },
-    {
-      "check": "dupes",
-      "rule": "code-duplication",
       "id": "dup:1165af3c"
     },
     {
@@ -47,11 +42,6 @@
     {
       "check": "dupes",
       "rule": "code-duplication",
-      "id": "dup:24719fa3"
-    },
-    {
-      "check": "dupes",
-      "rule": "code-duplication",
       "id": "dup:28ac78a3"
     },
     {
@@ -67,11 +57,6 @@
     {
       "check": "dupes",
       "rule": "code-duplication",
-      "id": "dup:34d5676a"
-    },
-    {
-      "check": "dupes",
-      "rule": "code-duplication",
       "id": "dup:384b2251"
     },
     {
@@ -83,11 +68,6 @@
       "check": "dupes",
       "rule": "code-duplication",
       "id": "dup:3acf886a"
-    },
-    {
-      "check": "dupes",
-      "rule": "code-duplication",
-      "id": "dup:3bf95ee4"
     },
     {
       "check": "dupes",
@@ -118,6 +98,11 @@
       "check": "dupes",
       "rule": "code-duplication",
       "id": "dup:6028dad7"
+    },
+    {
+      "check": "dupes",
+      "rule": "code-duplication",
+      "id": "dup:6460188a"
     },
     {
       "check": "dupes",
@@ -172,11 +157,6 @@
     {
       "check": "dupes",
       "rule": "code-duplication",
-      "id": "dup:796f7a42"
-    },
-    {
-      "check": "dupes",
-      "rule": "code-duplication",
       "id": "dup:8258c0de"
     },
     {
@@ -202,11 +182,6 @@
     {
       "check": "dupes",
       "rule": "code-duplication",
-      "id": "dup:975754bc"
-    },
-    {
-      "check": "dupes",
-      "rule": "code-duplication",
       "id": "dup:97872d4b"
     },
     {
@@ -222,22 +197,7 @@
     {
       "check": "dupes",
       "rule": "code-duplication",
-      "id": "dup:aac3db9a"
-    },
-    {
-      "check": "dupes",
-      "rule": "code-duplication",
       "id": "dup:abef3d55"
-    },
-    {
-      "check": "dupes",
-      "rule": "code-duplication",
-      "id": "dup:ac2a326a"
-    },
-    {
-      "check": "dupes",
-      "rule": "code-duplication",
-      "id": "dup:ac5a873d"
     },
     {
       "check": "dupes",
@@ -282,17 +242,7 @@
     {
       "check": "dupes",
       "rule": "code-duplication",
-      "id": "dup:d7699927"
-    },
-    {
-      "check": "dupes",
-      "rule": "code-duplication",
       "id": "dup:d88ef3a2"
-    },
-    {
-      "check": "dupes",
-      "rule": "code-duplication",
-      "id": "dup:dd1f4d89"
     },
     {
       "check": "dupes",
