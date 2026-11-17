@@ -9,7 +9,6 @@ edition = "2024"
 rust-version = "1.88"
 license = "MIT"
 repository = "https://github.com/fallow-rs/srcmap"
-homepage = "https://github.com/fallow-rs/srcmap"
 
 [workspace.dependencies]
 srcmap-codec = { version = "0.5.0", path = "crates/codec" }
