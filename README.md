@@ -42,7 +42,7 @@ srcmap-remapping = "0.5"    # if you compose/concatenate source maps
 - **Many lookups on one map.** A symbolication or coverage service can send positions in batches (see [Performance](#performance)).
 - **Inspection from the shell.** The CLI validates, decodes, composes and symbolicates, with JSON output.
 
-srcmap is not a faster `@jridgewell/trace-mapping`. In Node.js, the jridgewell packages parse faster and do a single lookup faster. If your JavaScript code does one lookup per call, keep them.
+srcmap is not a faster `@jridgewell/trace-mapping`. In Node.js, that package parses faster and does a single lookup faster. If your JavaScript code does one lookup per call, keep it. `@srcmap/remapping` is the exception: it is faster than `@jridgewell/remapping` on recorded Vite maps (see [Performance](#performance)).
 
 ## How it compares
 
@@ -182,7 +182,7 @@ corepack pnpm --dir benchmarks run download-fixtures
 corepack pnpm --dir benchmarks run bench:real-world
 ```
 
-`benchmarks/vite-workload.mjs` replays the maps that a real Vite run combines. [benchmarks/vite-workload/README.md](benchmarks/vite-workload/README.md) describes how to record them.
+`benchmarks/vite-workload.mjs` replays the maps that a real Vite run combines. On three of four recorded Vite 8 runs, `@srcmap/remapping` is 1.3 to 1.7 times faster than `@jridgewell/remapping` on the first pass, with the same output. The fourth run has too few maps to compare. [benchmarks/vite-workload/README.md](benchmarks/vite-workload/README.md) describes how to record a run.
 
 ## Node.js bindings
 
@@ -199,7 +199,7 @@ srcmap has WASM and NAPI bindings for Node.js. They fit a symbolication service,
 | Uses the `@jridgewell/remapping` or `@ampproject/remapping` API | [`@srcmap/remapping`](https://www.npmjs.com/package/@srcmap/remapping) |
 | Uses the Mozilla `source-map` v0.6 API | [`@srcmap/source-map`](https://www.npmjs.com/package/@srcmap/source-map) |
 
-The last four packages copy the API of an existing package. Use them when a Node.js tool and a Rust tool must give the same results. Do not choose them for speed. No benchmark in this repository shows that one of them is faster than the package it copies.
+The last four packages copy the API of an existing package. Use them when a Node.js tool and a Rust tool must give the same results. Only `@srcmap/remapping` is also faster than the package it copies. Do not choose the other three for speed.
 
 ### Quick start (Node.js)
 
