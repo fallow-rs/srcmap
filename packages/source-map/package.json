@@ -4,7 +4,6 @@
   "description": "The Mozilla source-map v0.6 API on the srcmap Rust parser and generator, compiled to WebAssembly",
   "keywords": [
     "consumer",
-    "drop-in",
     "generator",
     "mozilla",
     "source-map",
