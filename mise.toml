@@ -22,4 +22,4 @@ node = "26"
 "github:Boshen/cargo-shear" = "1.14.0"
 
 # Same version as the cargo-fallow install in the CI `fallow` job.
-"github:fallow-rs/cargo-fallow" = "0.3.0"
+"github:fallow-rs/cargo-fallow" = "0.4.0"
