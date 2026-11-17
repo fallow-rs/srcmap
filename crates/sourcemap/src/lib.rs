@@ -174,6 +174,34 @@ pub enum IndexKind {
     CallSiteSource,
 }
 
+/// Options for [`SourceMap::from_json_with_options`].
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ParseOptions {
+    /// What the parser does with a mapping name index outside `names`.
+    pub out_of_range_names: OutOfRangeNames,
+}
+
+/// What the parser does with a mapping name index outside `names`.
+///
+/// A negative name index is also outside `names`. Source indices, `ignoreList`
+/// entries and scopes references stay strict in each mode.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub enum OutOfRangeNames {
+    /// Fail with [`ParseError::IndexOutOfRange`]. [`SourceMap::from_json`] does this.
+    #[default]
+    Reject,
+    /// Give the mapping no name, as `@jridgewell/trace-mapping` does when
+    /// `names[index]` is `undefined`.
+    Unnamed,
+    /// Give the mapping the name at index `names.len()` of the input, and add
+    /// this string to the end of `names`. The parser adds the string only when
+    /// a mapping needs it.
+    ///
+    /// A caller that composes maps can use this mode to tell a 5-field segment
+    /// with an invalid name from a 4-field segment, and remove the string later.
+    Placeholder(String),
+}
+
 impl IndexKind {
     const fn label(self) -> &'static str {
         match self {
@@ -293,6 +321,11 @@ struct DecodeChecks {
     index_out_of_range: bool,
     /// True when a line has a segment with a lower column than the segment before it.
     unsorted: bool,
+    /// The name index for a name index outside `names`, or `None` to report it
+    /// with `index_out_of_range` (see [`OutOfRangeNames`]).
+    out_of_range_name: Option<u32>,
+    /// True when a mapping got `out_of_range_name`.
+    used_out_of_range_name: bool,
 }
 
 impl DecodeChecks {
@@ -303,7 +336,25 @@ impl DecodeChecks {
             name_limit: (names_len as u64).min(POSITION_END),
             index_out_of_range: false,
             unsorted: false,
+            out_of_range_name: None,
+            used_out_of_range_name: false,
         }
+    }
+
+    /// Checks like [`DecodeChecks::new`] that apply `mode` to name indices outside `names`.
+    fn with_names_mode(sources_len: usize, names_len: usize, mode: &OutOfRangeNames) -> Self {
+        let out_of_range_name = match mode {
+            OutOfRangeNames::Reject => None,
+            OutOfRangeNames::Unnamed => Some(NO_NAME),
+            // A placeholder index at or above `POSITION_END` cannot be a name index.
+            OutOfRangeNames::Placeholder(_) => Some(
+                u32::try_from(names_len)
+                    .ok()
+                    .filter(|&i| u64::from(i) < POSITION_END)
+                    .unwrap_or(NO_NAME),
+            ),
+        };
+        Self { out_of_range_name, ..Self::new(sources_len, names_len) }
     }
 
     /// Checks that only find unsorted lines, for a decode that does not check indices.
@@ -313,6 +364,8 @@ impl DecodeChecks {
             name_limit: POSITION_END,
             index_out_of_range: false,
             unsorted: false,
+            out_of_range_name: None,
+            used_out_of_range_name: false,
         }
     }
 }
@@ -494,9 +547,13 @@ impl SectionMergeState {
         }
     }
 
-    fn append_section(&mut self, section: &RawSection) -> Result<(), ParseError> {
+    fn append_section(
+        &mut self,
+        section: &RawSection,
+        options: &ParseOptions,
+    ) -> Result<(), ParseError> {
         // Section maps must not be indexed maps themselves (ECMA-426)
-        let sub = SourceMap::from_json_inner(section.map.get(), false)?;
+        let sub = SourceMap::from_json_inner(section.map.get(), false, options)?;
 
         let line_offset = section.offset.line;
         let col_offset = section.offset.column;
@@ -1131,7 +1188,29 @@ impl SourceMap {
     /// Parse a source map from a JSON string.
     /// Supports both regular and indexed (sectioned) source maps.
     pub fn from_json(json: &str) -> Result<Self, ParseError> {
-        Self::from_json_inner(json, true)
+        Self::from_json_inner(json, true, &ParseOptions::default())
+    }
+
+    /// Parse a source map from a JSON string like [`SourceMap::from_json`], with `options`.
+    ///
+    /// With [`OutOfRangeNames::Unnamed`], a mapping name index outside `names`
+    /// gives a mapping without a name. The default options give the result of
+    /// [`SourceMap::from_json`].
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use srcmap_sourcemap::{OutOfRangeNames, ParseOptions, SourceMap};
+    ///
+    /// let json = r#"{"version":3,"sources":["a.js"],"names":[],"mappings":"AAAAA"}"#;
+    /// assert!(SourceMap::from_json(json).is_err());
+    ///
+    /// let options = ParseOptions { out_of_range_names: OutOfRangeNames::Unnamed };
+    /// let sm = SourceMap::from_json_with_options(json, &options).unwrap();
+    /// assert_eq!(sm.original_position_for(0, 0).unwrap().name, None);
+    /// ```
+    pub fn from_json_with_options(json: &str, options: &ParseOptions) -> Result<Self, ParseError> {
+        Self::from_json_inner(json, true, options)
     }
 
     /// Parse a source map from JSON, skipping sourcesContent allocation.
@@ -1141,11 +1220,15 @@ impl SourceMap {
     pub fn from_json_no_content(json: &str) -> Result<Self, ParseError> {
         let fields = RegularFields::parse_lite(json)?;
         let decoded = decode_mappings(fields.mappings, fields.sources.len(), fields.names.len())?;
-        Self::from_decoded(fields, decoded)
+        Self::from_decoded(fields, decoded, &OutOfRangeNames::Reject)
     }
 
     /// Internal parser with control over whether indexed maps (sections) are allowed.
-    fn from_json_inner(json: &str, allow_sections: bool) -> Result<Self, ParseError> {
+    fn from_json_inner(
+        json: &str,
+        allow_sections: bool,
+        options: &ParseOptions,
+    ) -> Result<Self, ParseError> {
         let raw: RawSourceMap<'_> = serde_json::from_str(json)?;
 
         check_version(raw.version)?;
@@ -1161,31 +1244,45 @@ impl SourceMap {
                 raw.debug_id,
                 filter_extensions(raw.extensions),
                 sections,
+                options,
             );
         }
 
-        Self::from_regular(raw)
+        Self::from_regular(raw, options)
     }
 
     /// Parse a regular (non-indexed) source map.
-    fn from_regular(raw: RawSourceMap<'_>) -> Result<Self, ParseError> {
+    fn from_regular(raw: RawSourceMap<'_>, options: &ParseOptions) -> Result<Self, ParseError> {
         let fields = RegularFields::from_raw(raw);
-        let decoded = decode_mappings(fields.mappings, fields.sources.len(), fields.names.len())?;
-        Self::from_decoded(fields, decoded)
+        let checks = DecodeChecks::with_names_mode(
+            fields.sources.len(),
+            fields.names.len(),
+            &options.out_of_range_names,
+        );
+        let decoded = decode_mappings_with(fields.mappings, checks)?;
+        Self::from_decoded(fields, decoded, &options.out_of_range_names)
     }
 
     /// Run the steps that follow the decode of `mappings`, and build the map.
     ///
     /// The steps decode `rangeMappings` and `scopes`, sort out-of-order
     /// segments, and check every source, name and ignore-list index.
+    /// `names_mode` must be the mode that the decode of `mappings` used.
     fn from_decoded(
-        fields: RegularFields<'_>,
+        mut fields: RegularFields<'_>,
         (mut mappings, line_offsets, checks): (Vec<Mapping>, Vec<u32>, DecodeChecks),
+        names_mode: &OutOfRangeNames,
     ) -> Result<Self, ParseError> {
         let has_range_mappings =
             decode_range_mappings_field(fields.range_mappings, &mut mappings, &line_offsets)?;
         sort_unsorted_lines(&mut mappings, &line_offsets, &checks);
         let scopes = decode_scopes_field(fields.scopes, &fields.names, fields.sources.len())?;
+        // Add the placeholder after the scopes decode, so that scopes cannot refer to it.
+        if checks.used_out_of_range_name
+            && let OutOfRangeNames::Placeholder(placeholder) = names_mode
+        {
+            fields.names.push(placeholder.clone());
+        }
         let ignore_list = resolve_ignore_list(fields.ignore_list, fields.x_google_ignore_list);
         check_indices(
             &mappings,
@@ -1222,12 +1319,13 @@ impl SourceMap {
         debug_id: Option<String>,
         extensions: HashMap<String, serde_json::Value>,
         sections: Vec<RawSection>,
+        options: &ParseOptions,
     ) -> Result<Self, ParseError> {
         validate_section_order(&sections)?;
 
         let mut state = SectionMergeState::new();
         for section in &sections {
-            state.append_section(section)?;
+            state.append_section(section, options)?;
         }
 
         merge_section_scopes_and_ranges(
@@ -1913,7 +2011,7 @@ impl SourceMap {
         let fields = RegularFields::parse(json)?;
         let checks = DecodeChecks::new(fields.sources.len(), fields.names.len());
         let decoded = decode_mappings_range(fields.mappings, start_line, end_line, checks)?;
-        Self::from_decoded(fields, decoded)
+        Self::from_decoded(fields, decoded, &OutOfRangeNames::Reject)
     }
 
     /// Encode all mappings back to a VLQ mappings string.
@@ -3046,19 +3144,24 @@ fn column_outside_order(
     }
 }
 
-/// Read one source or name index like [`add_vlq`], and compare it with `limit`.
+/// Read one source or name index like [`add_vlq`], and compare it with the
+/// `checks` limit for `kind` ([`IndexKind::Source`] or [`IndexKind::Name`]).
 ///
-/// `limit` is at most `POSITION_END`. An index from `limit` up that is still a
-/// valid position sets `checks.index_out_of_range` and decodes as usual, so a
-/// later decode error still takes precedence.
+/// The limit is at most `POSITION_END`. An index from the limit up that is still
+/// a valid position sets `checks.index_out_of_range` and decodes as usual, so a
+/// later decode error still takes precedence. When `checks.out_of_range_name`
+/// is set, a name index outside `names` gives that value. The accumulated name
+/// index can then leave `0..POSITION_END`.
 #[inline(always)]
 fn add_vlq_index(
     acc: &mut i64,
     bytes: &[u8],
     pos: &mut usize,
-    limit: u64,
+    kind: IndexKind,
     checks: &mut DecodeChecks,
 ) -> Result<u32, DecodeError> {
+    let limit =
+        if matches!(kind, IndexKind::Name) { checks.name_limit } else { checks.source_limit };
     let start = *pos;
     let delta = vlq_fast(bytes, pos)?;
     *acc = acc.wrapping_add(delta);
@@ -3066,7 +3169,7 @@ fn add_vlq_index(
     if (*acc as u64) < limit {
         Ok(*acc as u32)
     } else {
-        index_at_or_above_limit(*acc, start, checks)
+        index_at_or_above_limit(*acc, start, kind, checks)
     }
 }
 
@@ -3075,8 +3178,15 @@ fn add_vlq_index(
 fn index_at_or_above_limit(
     value: i64,
     offset: usize,
+    kind: IndexKind,
     checks: &mut DecodeChecks,
 ) -> Result<u32, DecodeError> {
+    if matches!(kind, IndexKind::Name)
+        && let Some(name) = checks.out_of_range_name
+    {
+        checks.used_out_of_range_name = true;
+        return Ok(name);
+    }
     if (value as u64) < POSITION_END {
         checks.index_out_of_range = true;
         Ok(value as u32)
@@ -3161,7 +3271,7 @@ fn decode_mapping_segment(
         return Ok(generated_only_mapping(generated_line, column));
     }
 
-    let source = add_vlq_index(&mut state.source_index, bytes, pos, checks.source_limit, checks)?;
+    let source = add_vlq_index(&mut state.source_index, bytes, pos, IndexKind::Source, checks)?;
 
     // Reject 2-field segments (only 1, 4, or 5 are valid per ECMA-426)
     if at_segment_delimiter(bytes, *pos) {
@@ -3180,7 +3290,7 @@ fn decode_mapping_segment(
     let name = if at_segment_delimiter(bytes, *pos) {
         NO_NAME
     } else {
-        let name = add_vlq_index(&mut state.name_index, bytes, pos, checks.name_limit, checks)?;
+        let name = add_vlq_index(&mut state.name_index, bytes, pos, IndexKind::Name, checks)?;
         // Reject 6-field segments (only 1, 4, or 5 are valid per ECMA-426)
         if !at_segment_delimiter(bytes, *pos) {
             return Err(DecodeError::InvalidSegmentLength { fields: 6, offset: *pos });
@@ -3261,7 +3371,14 @@ fn decode_mappings(
     sources_len: usize,
     names_len: usize,
 ) -> Result<(Vec<Mapping>, Vec<u32>, DecodeChecks), DecodeError> {
-    let mut checks = DecodeChecks::new(sources_len, names_len);
+    decode_mappings_with(input, DecodeChecks::new(sources_len, names_len))
+}
+
+/// Decode all mappings like [`decode_mappings`], with the limits and modes of `checks`.
+fn decode_mappings_with(
+    input: &str,
+    mut checks: DecodeChecks,
+) -> Result<(Vec<Mapping>, Vec<u32>, DecodeChecks), DecodeError> {
     if input.is_empty() {
         return Ok((Vec::new(), vec![0], checks));
     }
@@ -4301,6 +4418,13 @@ mod tests {
     }
 
     #[test]
+    fn mappings_iter_keeps_name_index_without_names_check() {
+        // `remap_streaming` reads names through this iterator and looks each one up.
+        let mappings: Vec<_> = MappingsIter::new("AAAAE").collect::<Result<_, _>>().unwrap();
+        assert_eq!(mappings[0].name, 2);
+    }
+
+    #[test]
     fn mappings_iter_rejects_six_fields() {
         let result: Result<Vec<_>, _> = MappingsIter::new("AAAAAA").collect();
         assert!(
@@ -4438,6 +4562,98 @@ mod tests {
         assert_eq!(sm.original_position_for(1, 0).unwrap().source, 0);
         let err = SourceMap::from_json_lines(json, 0, 2).unwrap_err();
         assert!(matches!(err, ParseError::IndexOutOfRange { kind: IndexKind::Source, .. }));
+    }
+
+    fn names_options(mode: OutOfRangeNames) -> ParseOptions {
+        ParseOptions { out_of_range_names: mode }
+    }
+
+    fn mapping_names(sm: &SourceMap) -> Vec<Option<&str>> {
+        sm.all_mappings()
+            .iter()
+            .map(|m| (m.name != NO_NAME).then(|| sm.names[m.name as usize].as_str()))
+            .collect()
+    }
+
+    #[test]
+    fn default_options_reject_name_index_out_of_range() {
+        let json = r#"{"version":3,"sources":["a.js"],"names":[],"mappings":"AAAAA"}"#;
+        let err = SourceMap::from_json_with_options(json, &ParseOptions::default()).unwrap_err();
+        assert!(matches!(
+            err,
+            ParseError::IndexOutOfRange { kind: IndexKind::Name, index: 0, len: 0 }
+        ));
+    }
+
+    #[test]
+    fn unnamed_mode_drops_name_index_out_of_range() {
+        // Name indices: 0 (valid), 2 (past the end), 1 (valid), -1 (negative), 0 (valid).
+        let json = r#"{"version":3,"sources":["a.js"],"names":["x","y"],"mappings":"AAAAA,CAAAE,CAAAD,CAAAF,CAAAC"}"#;
+        let sm = SourceMap::from_json_with_options(json, &names_options(OutOfRangeNames::Unnamed))
+            .unwrap();
+        assert_eq!(mapping_names(&sm), [Some("x"), None, Some("y"), None, Some("x")]);
+        assert_eq!(sm.names, ["x", "y"]);
+        assert_eq!(sm.original_position_for(0, 1).unwrap().name, None);
+    }
+
+    #[test]
+    fn unnamed_mode_accepts_missing_names_field() {
+        let json = r#"{"version":3,"sources":["a.js"],"mappings":"AAAAA"}"#;
+        let sm = SourceMap::from_json_with_options(json, &names_options(OutOfRangeNames::Unnamed))
+            .unwrap();
+        assert_eq!(mapping_names(&sm), [None]);
+    }
+
+    #[test]
+    fn unnamed_mode_keeps_source_index_check() {
+        let json = r#"{"version":3,"sources":["a.js"],"names":[],"mappings":"ACAAA"}"#;
+        let err = SourceMap::from_json_with_options(json, &names_options(OutOfRangeNames::Unnamed))
+            .unwrap_err();
+        assert!(matches!(err, ParseError::IndexOutOfRange { kind: IndexKind::Source, .. }));
+    }
+
+    #[test]
+    fn unnamed_mode_applies_to_sections() {
+        let json = r#"{"version":3,"sections":[{"offset":{"line":0,"column":0},"map":{"version":3,"sources":["a.js"],"names":["x"],"mappings":"AAAAA,CAAAC"}}]}"#;
+        assert!(SourceMap::from_json(json).is_err());
+        let sm = SourceMap::from_json_with_options(json, &names_options(OutOfRangeNames::Unnamed))
+            .unwrap();
+        assert_eq!(mapping_names(&sm), [Some("x"), None]);
+    }
+
+    #[test]
+    fn placeholder_mode_adds_placeholder_only_when_used() {
+        let mode = OutOfRangeNames::Placeholder("?".to_owned());
+        let json =
+            r#"{"version":3,"sources":["a.js"],"names":["x"],"mappings":"AAAAA,CAAAC,CAAAF"}"#;
+        let sm = SourceMap::from_json_with_options(json, &names_options(mode.clone())).unwrap();
+        assert_eq!(sm.names, ["x", "?"]);
+        assert_eq!(mapping_names(&sm), [Some("x"), Some("?"), Some("?")]);
+
+        let valid = r#"{"version":3,"sources":["a.js"],"names":["x"],"mappings":"AAAAA"}"#;
+        let sm = SourceMap::from_json_with_options(valid, &names_options(mode)).unwrap();
+        assert_eq!(sm.names, ["x"]);
+    }
+
+    #[test]
+    fn placeholder_mode_does_not_resolve_scopes_names() {
+        // The placeholder goes into `names` after the scopes decode.
+        // A scope name with index 0 and no names: the placeholder must not become that name.
+        let mut info = one_scope_info(base_range());
+        if let Some(Some(scope)) = info.scopes.first_mut() {
+            scope.name = Some("f".to_owned());
+        }
+        let mut scope_names = vec![];
+        let scopes_str = srcmap_scopes::encode_scopes(&info, &mut scope_names);
+        assert_eq!(scope_names, ["f"]);
+        let json = format!(
+            r#"{{"version":3,"sources":["a.js"],"names":[],"mappings":"AAAAA","scopes":"{scopes_str}"}}"#
+        );
+        let mode = OutOfRangeNames::Placeholder("?".to_owned());
+        let err = SourceMap::from_json_with_options(&json, &names_options(mode)).unwrap_err();
+        assert!(matches!(err, ParseError::Scopes(_)), "{err:?}");
+        let with_name = json.replace(r#""names":[]"#, r#""names":["f"]"#);
+        assert!(SourceMap::from_json(&with_name).is_ok());
     }
 
     #[test]
