@@ -392,6 +392,12 @@ describe("Release supply-chain policy", () => {
     assert.doesNotMatch(workflowJob(workflow, "prepare-npm"), /id-token: write|contents: write/);
   });
 
+  it("lets a started release run finish its publish jobs", async () => {
+    const workflow = await readFile(RELEASE_WORKFLOW_URL, "utf8");
+
+    assert.match(workflow, /^concurrency:\n {2}group: release-\$\{\{ github\.ref \}\}\n {2}cancel-in-progress: false$/m);
+  });
+
   it("contains no ad hoc npm installs", async () => {
     const workflow = await readFile(RELEASE_WORKFLOW_URL, "utf8");
 
