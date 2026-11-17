@@ -23,6 +23,9 @@ importers:
       '@codspeed/tinybench-plugin':
         specifier: ^6.1.0
         version: 6.1.0(tinybench@6.2.2)
+      '@jridgewell/remapping':
+        specifier: ^2.3.5
+        version: 2.3.5
       '@jridgewell/sourcemap-codec':
         specifier: ^1.6.0
         version: 1.6.0
@@ -44,7 +47,7 @@ importers:
     devDependencies:
       '@napi-rs/cli':
         specifier: ^3.10.9
-        version: 3.10.9(@emnapi/core@1.11.2)(@emnapi/runtime@1.11.2)
+        version: 3.10.9(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)
     optionalDependencies:
       '@srcmap/codec-darwin-arm64':
         specifier: 0.5.0
@@ -1521,6 +1524,37 @@ snapshots:
     optionalDependencies:
       '@emnapi/core': 1.11.2
       '@emnapi/runtime': 1.11.2
+    transitivePeerDependencies:
+      - '@napi-rs/cross-toolchain-arm64-target-aarch64'
+      - '@napi-rs/cross-toolchain-arm64-target-armv7'
+      - '@napi-rs/cross-toolchain-arm64-target-ppc64le'
+      - '@napi-rs/cross-toolchain-arm64-target-s390x'
+      - '@napi-rs/cross-toolchain-arm64-target-x86_64'
+      - '@napi-rs/cross-toolchain-x64-target-aarch64'
+      - '@napi-rs/cross-toolchain-x64-target-armv7'
+      - '@napi-rs/cross-toolchain-x64-target-ppc64le'
+      - '@napi-rs/cross-toolchain-x64-target-s390x'
+      - '@napi-rs/cross-toolchain-x64-target-x86_64'
+      - '@types/node'
+      - supports-color
+
+  '@napi-rs/cli@3.10.9(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)':
+    dependencies:
+      '@inquirer/prompts': 8.7.5
+      '@napi-rs/cross-toolchain': 1.0.3
+      '@napi-rs/wasm-tools': 1.1.0
+      '@octokit/rest': 22.0.1
+      clipanion: 4.0.0-rc.4(typanion@3.14.0)
+      colorette: 2.0.20
+      es-toolkit: 1.53.0
+      js-yaml: 5.5.0
+      obug: 3.0.0
+      semver: 7.8.5
+      typanion: 3.14.0
+      typescript: 6.0.3
+    optionalDependencies:
+      '@emnapi/core': 1.9.2
+      '@emnapi/runtime': 1.9.2
     transitivePeerDependencies:
       - '@napi-rs/cross-toolchain-arm64-target-aarch64'
       - '@napi-rs/cross-toolchain-arm64-target-armv7'
