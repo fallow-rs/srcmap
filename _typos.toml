@@ -1,6 +1,7 @@
 [files]
 extend-exclude = [
     ".fallow/",
+    "fallow-baseline.json",
     "coverage/",
     "target/",
     "benchmarks/node_modules/",

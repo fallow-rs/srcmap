@@ -1,0 +1,268 @@
+{
+  "schema_version": 1,
+  "kind": "check",
+  "language": "rust",
+  "identity": "cargo-fallow-finding-id-v1",
+  "findings": [
+    {
+      "check": "dupes",
+      "rule": "code-duplication",
+      "id": "dup:043b5277"
+    },
+    {
+      "check": "dupes",
+      "rule": "code-duplication",
+      "id": "dup:06de7357"
+    },
+    {
+      "check": "dupes",
+      "rule": "code-duplication",
+      "id": "dup:0c328c5b"
+    },
+    {
+      "check": "dupes",
+      "rule": "code-duplication",
+      "id": "dup:1165af3c"
+    },
+    {
+      "check": "dupes",
+      "rule": "code-duplication",
+      "id": "dup:12df578a"
+    },
+    {
+      "check": "dupes",
+      "rule": "code-duplication",
+      "id": "dup:1e71f13d"
+    },
+    {
+      "check": "dupes",
+      "rule": "code-duplication",
+      "id": "dup:229760ee"
+    },
+    {
+      "check": "dupes",
+      "rule": "code-duplication",
+      "id": "dup:28ac78a3"
+    },
+    {
+      "check": "dupes",
+      "rule": "code-duplication",
+      "id": "dup:294cc583"
+    },
+    {
+      "check": "dupes",
+      "rule": "code-duplication",
+      "id": "dup:2db9192c"
+    },
+    {
+      "check": "dupes",
+      "rule": "code-duplication",
+      "id": "dup:384b2251"
+    },
+    {
+      "check": "dupes",
+      "rule": "code-duplication",
+      "id": "dup:38fa2c74"
+    },
+    {
+      "check": "dupes",
+      "rule": "code-duplication",
+      "id": "dup:3acf886a"
+    },
+    {
+      "check": "dupes",
+      "rule": "code-duplication",
+      "id": "dup:4076239c"
+    },
+    {
+      "check": "dupes",
+      "rule": "code-duplication",
+      "id": "dup:538b962e"
+    },
+    {
+      "check": "dupes",
+      "rule": "code-duplication",
+      "id": "dup:58f599dc"
+    },
+    {
+      "check": "dupes",
+      "rule": "code-duplication",
+      "id": "dup:5d00fe0b"
+    },
+    {
+      "check": "dupes",
+      "rule": "code-duplication",
+      "id": "dup:5f6d4349"
+    },
+    {
+      "check": "dupes",
+      "rule": "code-duplication",
+      "id": "dup:6028dad7"
+    },
+    {
+      "check": "dupes",
+      "rule": "code-duplication",
+      "id": "dup:6460188a"
+    },
+    {
+      "check": "dupes",
+      "rule": "code-duplication",
+      "id": "dup:67c31250"
+    },
+    {
+      "check": "dupes",
+      "rule": "code-duplication",
+      "id": "dup:682cfb43"
+    },
+    {
+      "check": "dupes",
+      "rule": "code-duplication",
+      "id": "dup:6b4cee06"
+    },
+    {
+      "check": "dupes",
+      "rule": "code-duplication",
+      "id": "dup:6ebfd9ad"
+    },
+    {
+      "check": "dupes",
+      "rule": "code-duplication",
+      "id": "dup:70320154"
+    },
+    {
+      "check": "dupes",
+      "rule": "code-duplication",
+      "id": "dup:72e508e9"
+    },
+    {
+      "check": "dupes",
+      "rule": "code-duplication",
+      "id": "dup:737a0aaf"
+    },
+    {
+      "check": "dupes",
+      "rule": "code-duplication",
+      "id": "dup:73d342fc"
+    },
+    {
+      "check": "dupes",
+      "rule": "code-duplication",
+      "id": "dup:76edbc63"
+    },
+    {
+      "check": "dupes",
+      "rule": "code-duplication",
+      "id": "dup:772ede2e"
+    },
+    {
+      "check": "dupes",
+      "rule": "code-duplication",
+      "id": "dup:8258c0de"
+    },
+    {
+      "check": "dupes",
+      "rule": "code-duplication",
+      "id": "dup:847486c8"
+    },
+    {
+      "check": "dupes",
+      "rule": "code-duplication",
+      "id": "dup:8aaa92d5"
+    },
+    {
+      "check": "dupes",
+      "rule": "code-duplication",
+      "id": "dup:9112595d"
+    },
+    {
+      "check": "dupes",
+      "rule": "code-duplication",
+      "id": "dup:9266e80d"
+    },
+    {
+      "check": "dupes",
+      "rule": "code-duplication",
+      "id": "dup:97872d4b"
+    },
+    {
+      "check": "dupes",
+      "rule": "code-duplication",
+      "id": "dup:9931df15"
+    },
+    {
+      "check": "dupes",
+      "rule": "code-duplication",
+      "id": "dup:a78bff54"
+    },
+    {
+      "check": "dupes",
+      "rule": "code-duplication",
+      "id": "dup:abef3d55"
+    },
+    {
+      "check": "dupes",
+      "rule": "code-duplication",
+      "id": "dup:b548cdb1"
+    },
+    {
+      "check": "dupes",
+      "rule": "code-duplication",
+      "id": "dup:b8b0995f"
+    },
+    {
+      "check": "dupes",
+      "rule": "code-duplication",
+      "id": "dup:b9fc55b4"
+    },
+    {
+      "check": "dupes",
+      "rule": "code-duplication",
+      "id": "dup:bc55f0ec"
+    },
+    {
+      "check": "dupes",
+      "rule": "code-duplication",
+      "id": "dup:be96d10c"
+    },
+    {
+      "check": "dupes",
+      "rule": "code-duplication",
+      "id": "dup:bf8aa60c"
+    },
+    {
+      "check": "dupes",
+      "rule": "code-duplication",
+      "id": "dup:cdabd221"
+    },
+    {
+      "check": "dupes",
+      "rule": "code-duplication",
+      "id": "dup:d508e0e5"
+    },
+    {
+      "check": "dupes",
+      "rule": "code-duplication",
+      "id": "dup:d88ef3a2"
+    },
+    {
+      "check": "dupes",
+      "rule": "code-duplication",
+      "id": "dup:e07a2b2c"
+    },
+    {
+      "check": "dupes",
+      "rule": "code-duplication",
+      "id": "dup:ef0a7339"
+    },
+    {
+      "check": "dupes",
+      "rule": "code-duplication",
+      "id": "dup:f9fc7cef"
+    },
+    {
+      "check": "dupes",
+      "rule": "code-duplication",
+      "id": "dup:ff8d532e"
+    }
+  ]
+}

@@ -20,3 +20,6 @@ node = "26"
 
 # CI installs cargo-shear without a version, so this file pins a release.
 "github:Boshen/cargo-shear" = "1.14.0"
+
+# Same version as the cargo-fallow install in the CI `fallow` job.
+"github:fallow-rs/cargo-fallow" = "0.3.0"

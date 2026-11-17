@@ -74,6 +74,11 @@ hooks {
       ["cargo-shear"] {
         check = "if command -v cargo-shear >/dev/null 2>&1; then cargo shear; else sh scripts/hook-tool-hint.sh cargo-shear; fi"
       }
+      // Same command as the CI "Cargo Fallow" job. The Cargo.toml table sets
+      // the limits and the baseline.
+      ["cargo-fallow"] {
+        check = "if command -v cargo-fallow >/dev/null 2>&1; then cargo fallow check --locked --fail-on-issues --quiet; else sh scripts/hook-tool-hint.sh cargo-fallow; fi"
+      }
       // Same flags as the CI "Cargo Deny" job. The advisories check needs the
       // network, so it stays in CI and a push also works offline.
       ["cargo-deny"] {

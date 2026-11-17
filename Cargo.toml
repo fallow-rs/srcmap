@@ -120,6 +120,17 @@ non_ascii_idents = "warn"
 unit_bindings = "warn"
 tail_expr_drop_order = "warn"
 
+[workspace.metadata.fallow]
+baseline = "fallow-baseline.json"
+
+[workspace.metadata.fallow.dupes]
+production = true
+threshold = 10.5
+
+[workspace.metadata.fallow.complexity]
+max-cyclomatic = 21
+max-cognitive = 33
+
 [profile.release]
 lto = true
 codegen-units = 1

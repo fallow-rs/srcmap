@@ -119,11 +119,12 @@ step runs a command that CI also runs:
   is staged, the comment quality check (`scripts/check-comment-quality.mjs`),
   `typos`, and oxfmt and oxlint when a JavaScript package file is staged.
 - `pre-push`: `cargo fmt --check`, Clippy, `cargo doc`, `cargo shear`,
+  `cargo fallow check`,
   `cargo deny` (bans, licenses and sources; CI also checks advisories) and
   `fallow dead-code`.
 
 Without mise, install `hk` and `pkl` at the versions in `mise.toml` and run
-`hk install`. The typos, cargo-shear and cargo-deny steps skip with a hint when
+`hk install`. The typos, cargo-shear, cargo-fallow and cargo-deny steps skip with a hint when
 the tool is missing. The JavaScript steps skip when `node_modules` is missing.
 The hooks check the working tree, not only the staged content. The
 pre-commit hook only checks. Run `hk fix` to apply `cargo fmt` and oxfmt.
