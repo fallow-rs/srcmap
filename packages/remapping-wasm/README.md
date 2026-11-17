@@ -74,6 +74,22 @@ Compose source maps through a transform chain.
 
 Returns the composed source map as a JSON string.
 
+### `new RemapTree()`
+
+Compose source maps that you have as parts, not as JSON. `@srcmap/remapping` uses it for maps that it gets as objects. The result is the same as for `remap` with the same maps as JSON.
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `addEncoded(key, file, sources, contents, names, ignoreList, mappings)` | `void` | Add a map with VLQ `mappings` as UTF-8 bytes (`Uint8Array`) |
+| `addDecoded(key, file, sources, contents, names, ignoreList, segments)` | `void` | Add a map with decoded `segments` (`Int32Array`) |
+| `remap(passes)` | `void` | Remap the root map, with one remap pass for each level of upstream maps |
+| `resultMappings()`, `resultSources()`, `resultNames()`, `resultContents()`, `resultIgnoreList()`, `resultFile()` | | Read the result |
+| `free()` | `void` | Release the WASM memory of the tree |
+
+- `key` is the source name of the map in another map. Without `key`, the map is the root map.
+- `contents` holds a content token for each source: an index into an array that you keep in JavaScript, or `-1` for no content. `resultContents()` gives the tokens of the result.
+- `segments` holds 6 values for each segment: the generated line, the generated column, the source index, the original line, the original column and the name index. A source index or a name index of `-1` gives a segment without a source or without a name.
+
 ## Part of [srcmap](https://github.com/fallow-rs/srcmap)
 
 Source map tooling written in Rust. See also:
