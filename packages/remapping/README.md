@@ -55,7 +55,9 @@ const composed = remapping([minifiedMap, intermediateMap], (sourcefile) => {
 | `remapping(inputs[], loader, options?)` | Compose an array of source maps |
 | `SourceMap` | Result class with `version`, `file`, `mappings`, `sources`, `sourcesContent`, `names`, `ignoreList` |
 
-The `loader` function receives a source filename and should return the upstream source map (as a JSON string, parsed object, or decoded source map), or `null` if no upstream map exists.
+The `loader` function receives a source filename and a `LoaderContext`, and should return the upstream source map (as a JSON string, parsed object, or decoded source map), or `null` if no upstream map exists. As in `@jridgewell/remapping`, the loader is called again for the sources of each map that it returns, and it can set `ctx.source`, `ctx.content` and `ctx.ignore` for a source without an upstream map.
+
+`options` takes `excludeContent` and `decodedMappings`. `true` means `{ excludeContent: true }`.
 
 ### SourceMap result
 
@@ -63,11 +65,11 @@ The `loader` function receives a source filename and should return the upstream 
 |--------|------|-------------|
 | `version` | `number` | Source map version (always 3) |
 | `file` | `string \| undefined` | Output filename |
-| `mappings` | `string` | VLQ-encoded mappings |
+| `mappings` | `string \| number[][][]` | VLQ-encoded mappings, or decoded segments with `decodedMappings` |
 | `sources` | `(string \| null)[]` | Source filenames |
-| `sourcesContent` | `(string \| null)[] \| undefined` | Inline source contents |
+| `sourcesContent` | `(string \| null)[] \| undefined` | Inline source contents, left out with `excludeContent` |
 | `names` | `string[]` | Name strings |
-| `ignoreList` | `number[] \| undefined` | Indices of ignored sources |
+| `ignoreList` | `number[]` | Indices of ignored sources |
 | `toString()` | `string` | Serialize as JSON string |
 | `toJSON()` | `RawSourceMap` | Return as parsed object |
 

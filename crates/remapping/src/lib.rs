@@ -822,17 +822,17 @@ fn load_source_entry<B: RemapBuilder, F>(
     }
 
     let source_name = &sources[si];
-    // Empty-string sources (from JSON null) are treated as generated-only,
-    // matching jridgewell's `if (!source)` check in addSegmentInternal.
-    if source_name.is_empty() {
-        source_entries[si] = SourceEntry::EmptySource;
-        return;
-    }
 
+    // jridgewell also calls the loader for an empty source (from `""` or JSON
+    // null). Only when the loader gives no map is the source generated-only,
+    // as in the `if (!source)` check of its `addSegmentInternal`.
     match loader(source_name) {
         Some(upstream_sm) => {
             let cache = build_upstream_cache(&upstream_sm);
             source_entries[si] = SourceEntry::Upstream { map: Box::new(upstream_sm), cache };
+        }
+        None if source_name.is_empty() => {
+            source_entries[si] = SourceEntry::EmptySource;
         }
         None => {
             let idx = ctx.builder.add_source(source_name);
@@ -2096,6 +2096,28 @@ mod tests {
         // The segment should be dropped (no source info)
         let loc = result.original_position_for(0, 0);
         assert!(loc.is_none());
+    }
+
+    // jridgewell calls the loader for an empty source too. A map from the loader
+    // replaces the source; without one, the source stays generated-only.
+    #[test]
+    fn remap_loads_upstream_for_empty_source() {
+        let outer =
+            SourceMap::from_json(r#"{"version":3,"sources":[null],"names":[],"mappings":"AAAA"}"#)
+                .unwrap();
+        let loader = |source: &str| {
+            source.is_empty().then(|| {
+                SourceMap::from_json(
+                    r#"{"version":3,"sources":["a.js"],"names":[],"mappings":"AAAA"}"#,
+                )
+                .unwrap()
+            })
+        };
+
+        for result in [remap(&outer, loader), streaming_from_sm(&outer, loader)] {
+            assert_eq!(result.sources, vec!["a.js".to_string()]);
+            assert_eq!(result.encode_mappings(), "AAAA");
+        }
     }
 
     #[test]

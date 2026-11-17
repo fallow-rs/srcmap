@@ -201,4 +201,21 @@ describe("remap", () => {
   it("throws on invalid outer map", () => {
     assert.throws(() => remap("not json", () => null));
   });
+
+  it("rethrows an error that the loader throws", () => {
+    const outer = JSON.stringify({ version: 3, sources: ["a.js"], names: [], mappings: "AAAA" });
+    assert.throws(
+      () =>
+        remap(outer, () => {
+          throw new Error("loader failed");
+        }),
+      /loader failed/,
+    );
+  });
+
+  it("throws when the loader gives an invalid map", () => {
+    const outer = JSON.stringify({ version: 3, sources: ["a.js"], names: [], mappings: "AAAA" });
+    assert.throws(() => remap(outer, () => "not json"));
+    assert.throws(() => remap(outer, () => ({})), /not a JSON string/);
+  });
 });

@@ -312,3 +312,175 @@ describe("Vite input compatibility with @jridgewell/remapping", () => {
     compareMaps(srcmap, jr, "inner segments at one column");
   });
 });
+
+describe("input edge cases match @jridgewell/remapping", () => {
+  const outerMap = (sources) => ({ version: 3, sources, names: [], mappings: "AAAA,MAAM" });
+  const innerMap = () => ({
+    version: 3,
+    sources: ["original.js"],
+    names: [],
+    mappings: "AAAA,MAAC",
+  });
+  const compareBoth = (input, loader, label) => {
+    compareMaps(srcmapRemapping(input, loader), jrRemapping(input, loader), label);
+  };
+  const throwsLikeJridgewell = (run) => {
+    assert.throws(() => run(jrRemapping));
+    assert.throws(() => run(srcmapRemapping));
+  };
+
+  it("accepts a JSON string map without version", () => {
+    const { version: _version, ...inner } = innerMap();
+    compareBoth([outerMap(["mid.js"]), JSON.stringify(inner)], () => null, "string map");
+  });
+
+  it("ignores a string rangeMappings in a JSON string map", () => {
+    const inner = {
+      version: 3,
+      sources: ["original.js"],
+      names: [],
+      mappings: "AAAA",
+      rangeMappings: "A",
+    };
+    compareBoth([outerMap(["mid.js"]), JSON.stringify(inner)], () => null, "string rangeMappings");
+  });
+
+  it("accepts a loader result as a JSON string without version", () => {
+    const { version: _version, ...inner } = innerMap();
+    const loader = (source) => (source === "mid.js" ? JSON.stringify(inner) : null);
+    compareBoth(outerMap(["mid.js"]), loader, "loader string");
+  });
+
+  it("composes an outer map whose source is empty or null", () => {
+    compareBoth([outerMap([""]), innerMap()], () => null, "empty source");
+    compareBoth([outerMap([null]), innerMap()], () => null, "null source");
+  });
+
+  it("calls the loader for an empty source", () => {
+    compareBoth(outerMap([""]), (source) => (source === "" ? innerMap() : null), "loader empty");
+  });
+
+  it("rejects an outer map with more than one source in a chain", () => {
+    const outer = { ...outerMap(["a.js", "b.js"]), mappings: "AAAA,MCAM" };
+    throwsLikeJridgewell((remapping) => remapping([outer, innerMap()], () => null));
+  });
+
+  it("reports an error that the loader throws", () => {
+    throwsLikeJridgewell((remapping) =>
+      remapping(outerMap(["mid.js"]), () => {
+        throw new Error("loader failed");
+      }),
+    );
+  });
+
+  it("reports a map that is not valid JSON", () => {
+    throwsLikeJridgewell((remapping) => remapping(outerMap(["mid.js"]), () => "{not json"));
+    throwsLikeJridgewell((remapping) => remapping([outerMap(["mid.js"]), "{not json"], () => null));
+  });
+});
+
+describe("source resolution and options match @jridgewell/remapping", () => {
+  const map = (fields) => ({ version: 3, names: [], mappings: "AAAA", ...fields });
+  const sameJson = (run, label) => {
+    assert.equal(JSON.stringify(run(srcmapRemapping)), JSON.stringify(run(jrRemapping)), label);
+  };
+
+  it("normalizes source paths", () => {
+    for (const source of ["a/../b.js", "/abs/./a.js", "a//b.js", "./a.js", "../x.js"]) {
+      sameJson((remapping) => remapping(map({ sources: [source] }), () => null), source);
+    }
+  });
+
+  it("joins sourceRoot and sources with a slash", () => {
+    const cases = [
+      ["root", "a.js"],
+      ["root/", "a.js"],
+      ["http://example.com/src", "a.js"],
+      ["root", "../a.js"],
+      ["a/b/", "../../c.js"],
+      ["root", null],
+    ];
+    for (const [sourceRoot, source] of cases) {
+      sameJson(
+        (remapping) => remapping(map({ sourceRoot, sources: [source] }), () => null),
+        `${sourceRoot} + ${source}`,
+      );
+    }
+  });
+
+  it("resolves the sources of a loaded map against the importer", () => {
+    const outer = map({ sources: ["dist/sub/a.js"] });
+    const inner = map({ sources: ["../src/a.ts"] });
+    const loaded = [];
+    const run = (remapping) =>
+      remapping(outer, (source) => {
+        loaded.push(source);
+        return source === "dist/sub/a.js" ? inner : null;
+      });
+    sameJson(run, "importer-relative sources");
+    assert.deepEqual(loaded.slice(0, loaded.length / 2), loaded.slice(loaded.length / 2));
+  });
+
+  it("gives the same output fields", () => {
+    const withContent = map({ file: "out.js", sources: ["a.js"], sourcesContent: ["x"] });
+    sameJson((remapping) => remapping(withContent, () => null), "with content");
+    sameJson((remapping) => remapping(map({ sources: ["a.js"] }), () => null), "without content");
+  });
+
+  it("applies excludeContent and decodedMappings", () => {
+    const input = map({ sources: ["a.js"], sourcesContent: ["x"], mappings: "AAAA;AACA" });
+    for (const options of [true, false, { excludeContent: true }, { decodedMappings: true }]) {
+      sameJson((remapping) => remapping(input, () => null, options), JSON.stringify(options));
+    }
+  });
+});
+
+describe("loader calls match @jridgewell/remapping", () => {
+  const map = (sources, mappings = "AAAA") => ({ version: 3, sources, names: [], mappings });
+  const compareRuns = (run, label) => {
+    const srcmapCalls = [];
+    const jrCalls = [];
+    const srcmap = JSON.stringify(run(srcmapRemapping, srcmapCalls));
+    const jr = JSON.stringify(run(jrRemapping, jrCalls));
+    assert.equal(srcmap, jr, `${label}: output`);
+    assert.deepEqual(srcmapCalls, jrCalls, `${label}: loader calls`);
+  };
+
+  it("follows the loader through more than one level", () => {
+    const upstream = { "a.js": map(["b.js"]), "b.js": map(["c.js"]) };
+    compareRuns(
+      (remapping, calls) =>
+        remapping(map(["a.js"]), (source) => {
+          calls.push(source);
+          return upstream[source] ?? null;
+        }),
+      "three levels",
+    );
+  });
+
+  it("calls the loader by source index, depth first", () => {
+    compareRuns((remapping, calls) => {
+      const copies = [map(["x.js"]), map(["y.js"])];
+      let next = 0;
+      return remapping(map(["a.js", "b.js"], "ACAA,KDAA"), (source) => {
+        calls.push(source);
+        return copies[next++] ?? null;
+      });
+    }, "stateful loader");
+  });
+
+  it("passes a loader context that can change the source", () => {
+    compareRuns(
+      (remapping, calls) =>
+        remapping(map(["dir/a.js", "dir/b.js"], "AAAA,KCAA"), (source, ctx) => {
+          calls.push({ ...ctx });
+          if (source === "dir/a.js") return map(["c.js"]);
+          ctx.source = "renamed.js";
+          ctx.content = "content";
+          ctx.ignore = true;
+          return null;
+        }),
+      "loader context",
+    );
+  });
+});

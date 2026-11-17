@@ -116,3 +116,20 @@ describe("CJS: decoded input maps", () => {
     assert.deepEqual(result.sources, expected.sources);
   });
 });
+
+describe("CJS: loader tree", () => {
+  it("follows the loader through more than one level, as jridgewell does", () => {
+    const jrRemapping = require("@jridgewell/remapping");
+    const map = (sources) => ({
+      version: 3,
+      sourceRoot: "root",
+      sources,
+      names: [],
+      mappings: "AAAA",
+    });
+    const upstream = { "root/a.js": map(["b.js"]), "root/root/b.js": map(["c.js"]) };
+    const run = (remapping) => remapping(map(["a.js"]), (source) => upstream[source] ?? null);
+    assert.equal(JSON.stringify(run(remapping)), JSON.stringify(run(jrRemapping)));
+    assert.deepEqual(run(remapping).sources, ["root/root/root/c.js"]);
+  });
+});

@@ -1,3 +1,5 @@
+use std::cell::RefCell;
+
 use wasm_bindgen::prelude::*;
 
 #[wasm_bindgen]
@@ -35,21 +37,46 @@ impl ConcatBuilder {
 /// `loader` is a function that receives a source filename and should return
 /// the upstream source map JSON string, or null/undefined if none.
 ///
-/// Returns the remapped source map as a JSON string.
+/// Returns the remapped source map as a JSON string. An error that the loader
+/// throws, a loader result that is not a string, and an upstream map that does
+/// not parse all stop the remap and go back to the caller.
 #[wasm_bindgen]
-pub fn remap(outer_json: &str, loader: &js_sys::Function) -> Result<String, JsError> {
+pub fn remap(outer_json: &str, loader: &js_sys::Function) -> Result<String, JsValue> {
     let outer = srcmap_sourcemap::SourceMap::from_json(outer_json)
         .map_err(|e| JsError::new(&e.to_string()))?;
 
+    let failure: RefCell<Option<JsValue>> = RefCell::new(None);
     let result = srcmap_remapping::remap(&outer, |source| {
-        let source_val = JsValue::from_str(source);
-        let ret = loader.call1(&JsValue::NULL, &source_val).ok()?;
-        if ret.is_null() || ret.is_undefined() {
+        if failure.borrow().is_some() {
             return None;
         }
-        let json = ret.as_string()?;
-        srcmap_sourcemap::SourceMap::from_json(&json).ok()
+        match load_upstream(loader, source) {
+            Ok(upstream) => upstream,
+            Err(error) => {
+                *failure.borrow_mut() = Some(error);
+                None
+            }
+        }
     });
 
-    Ok(result.to_json())
+    match failure.into_inner() {
+        Some(error) => Err(error),
+        None => Ok(result.to_json()),
+    }
+}
+
+fn load_upstream(
+    loader: &js_sys::Function,
+    source: &str,
+) -> Result<Option<srcmap_sourcemap::SourceMap>, JsValue> {
+    let ret = loader.call1(&JsValue::NULL, &JsValue::from_str(source))?;
+    if ret.is_null() || ret.is_undefined() {
+        return Ok(None);
+    }
+    let json = ret.as_string().ok_or_else(|| {
+        JsError::new(&format!("loader result for `{source}` is not a JSON string"))
+    })?;
+    srcmap_sourcemap::SourceMap::from_json(&json)
+        .map(Some)
+        .map_err(|e| JsError::new(&e.to_string()).into())
 }

@@ -41,6 +41,7 @@
     "test:compat": "node --test __tests__/compat.test.mjs"
   },
   "dependencies": {
+    "@jridgewell/resolve-uri": "^3.1.2",
     "@srcmap/remapping-wasm": "0.5.0"
   },
   "devDependencies": {

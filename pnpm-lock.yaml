@@ -98,6 +98,9 @@ importers:
 
   packages/remapping:
     dependencies:
+      '@jridgewell/resolve-uri':
+        specifier: ^3.1.2
+        version: 3.1.2
       '@srcmap/remapping-wasm':
         specifier: 0.5.0
         version: link:../remapping-wasm

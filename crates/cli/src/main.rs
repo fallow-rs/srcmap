@@ -1549,6 +1549,11 @@ fn cmd_remap(
     let skipped_sources: std::cell::RefCell<Vec<String>> = std::cell::RefCell::new(Vec::new());
 
     let result = remap(&outer, |source| {
+        // An empty source has no file name to look up.
+        if source.is_empty() {
+            return None;
+        }
+
         if let Some(sm) = load_explicit_upstream(source, &explicit_maps, &found_upstreams) {
             return Some(sm);
         }
