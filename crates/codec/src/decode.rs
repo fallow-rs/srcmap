@@ -63,7 +63,7 @@ pub fn decode(input: &str) -> Result<SourceMapMappings, DecodeError> {
 
             // Field 1: generated column (always present)
             let (delta, consumed) = vlq_decode(bytes, pos)?;
-            generated_column += delta;
+            generated_column = checked_sum(generated_column, delta, pos)?;
             pos += consumed;
 
             // Build segment with exact allocation (1, 4, or 5 fields)
@@ -90,8 +90,15 @@ fn decode_capacity_hints(bytes: &[u8]) -> (usize, usize) {
     let semicolons = memchr::memchr_iter(b';', bytes).count();
     let commas = memchr::memchr_iter(b',', bytes).count();
     let line_count = semicolons + 1;
-    let approx_segments = commas + line_count;
+    // Each segment holds at least one byte that is not a delimiter.
+    let approx_segments = (commas + line_count).min(bytes.len() - commas - semicolons);
     (line_count, approx_segments / line_count)
+}
+
+/// Add a decoded delta to a running field value, or report the value's offset on overflow.
+#[inline]
+fn checked_sum(acc: i64, delta: i64, offset: usize) -> Result<i64, DecodeError> {
+    acc.checked_add(delta).ok_or(DecodeError::VlqOverflow { offset })
 }
 
 fn decode_sourced_segment(
@@ -101,7 +108,7 @@ fn decode_sourced_segment(
     state: &mut DecodeState,
 ) -> Result<Segment, DecodeError> {
     let (delta, consumed) = vlq_decode(bytes, *pos)?;
-    state.source_index += delta;
+    state.source_index = checked_sum(state.source_index, delta, *pos)?;
     *pos += consumed;
 
     if *pos >= bytes.len() || bytes[*pos] == b',' || bytes[*pos] == b';' {
@@ -109,7 +116,7 @@ fn decode_sourced_segment(
     }
 
     let (delta, consumed) = vlq_decode(bytes, *pos)?;
-    state.original_line += delta;
+    state.original_line = checked_sum(state.original_line, delta, *pos)?;
     *pos += consumed;
 
     if *pos >= bytes.len() || bytes[*pos] == b',' || bytes[*pos] == b';' {
@@ -117,13 +124,16 @@ fn decode_sourced_segment(
     }
 
     let (delta, consumed) = vlq_decode(bytes, *pos)?;
-    state.original_column += delta;
+    state.original_column = checked_sum(state.original_column, delta, *pos)?;
     *pos += consumed;
 
     if *pos < bytes.len() && bytes[*pos] != b',' && bytes[*pos] != b';' {
         let (delta, consumed) = vlq_decode(bytes, *pos)?;
-        state.name_index += delta;
+        state.name_index = checked_sum(state.name_index, delta, *pos)?;
         *pos += consumed;
+        if *pos < bytes.len() && bytes[*pos] != b',' && bytes[*pos] != b';' {
+            return Err(DecodeError::InvalidSegmentLength { fields: 6, offset: *pos });
+        }
         return Ok(Segment::five(
             generated_column,
             state.source_index,
