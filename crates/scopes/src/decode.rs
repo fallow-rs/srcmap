@@ -158,6 +158,8 @@ struct DecodeState<'n> {
     /// The start of each scope of a source, in pre-order. The decoder fills an
     /// entry when a relative call site first needs it.
     scope_starts: Vec<Option<Vec<Position>>>,
+    /// The bytes of `names` that the decoder can still copy into the result.
+    name_bytes_left: usize,
 }
 
 impl<'n> DecodeState<'n> {
@@ -183,6 +185,7 @@ impl<'n> DecodeState<'n> {
             h_var_acc: 0,
             in_generated_ranges: false,
             scope_starts: Vec::new(),
+            name_bytes_left: crate::MAX_NAME_BYTES,
         }
     }
 
@@ -297,13 +300,23 @@ impl<'n> DecodeState<'n> {
         advance_position(line_delta, tok.read_u32()?, &mut self.os_line, &mut self.os_col)?;
 
         let name = if flags & crate::OS_FLAG_HAS_NAME != 0 {
-            relative_name(self.names, &mut self.os_name, tok.read_signed()?)?
+            relative_name(
+                self.names,
+                &mut self.os_name,
+                tok.read_signed()?,
+                &mut self.name_bytes_left,
+            )?
         } else {
             None
         };
 
         let kind = if flags & crate::OS_FLAG_HAS_KIND != 0 {
-            relative_name(self.names, &mut self.os_kind, tok.read_signed()?)?
+            relative_name(
+                self.names,
+                &mut self.os_kind,
+                tok.read_signed()?,
+                &mut self.name_bytes_left,
+            )?
         } else {
             None
         };
@@ -360,7 +373,12 @@ impl<'n> DecodeState<'n> {
         while !tok.at_item_end() {
             // A variable with an index past the end of `names` keeps its place
             // as the empty string. Each binding then stays with its variable.
-            let name = relative_name(self.names, &mut self.os_var, tok.read_signed()?)?;
+            let name = relative_name(
+                self.names,
+                &mut self.os_var,
+                tok.read_signed()?,
+                &mut self.name_bytes_left,
+            )?;
             current.variables.push(name.unwrap_or_default());
         }
         Ok(())
@@ -478,7 +496,9 @@ impl<'n> DecodeState<'n> {
             return Ok(());
         };
         while !tok.at_item_end() {
-            let binding = match binding_expression(self.names, tok.read_unsigned()?) {
+            let expression =
+                binding_expression(self.names, tok.read_unsigned()?, &mut self.name_bytes_left)?;
+            let binding = match expression {
                 Some(expr) => Binding::Expression(expr),
                 None => Binding::Unavailable,
             };
@@ -528,7 +548,7 @@ impl<'n> DecodeState<'n> {
             };
 
             sub_ranges.push(SubRangeBinding {
-                expression: binding_expression(self.names, binding_raw),
+                expression: binding_expression(self.names, binding_raw, &mut self.name_bytes_left)?,
                 from: Position { line, column },
             });
         }
@@ -653,23 +673,41 @@ fn index_to_u32(index: i64) -> Result<u32, ScopesError> {
     u32::try_from(index).map_err(|_| ScopesError::ValueOverflow)
 }
 
+/// Copy a name into the result, and count its bytes against the limit of
+/// [`crate::MAX_NAME_BYTES`].
+fn copy_name(name: Option<&String>, bytes_left: &mut usize) -> Result<Option<String>, ScopesError> {
+    let Some(name) = name else {
+        return Ok(None);
+    };
+    *bytes_left = bytes_left.checked_sub(name.len()).ok_or(ScopesError::NamesTooLarge)?;
+    Ok(Some(name.clone()))
+}
+
 /// Resolve a relative index into `names`. An index past the end of `names`
 /// gives `None`, as the `RelativeName` operation of ECMA-426 specifies.
 fn relative_name(
     names: &[String],
     index: &mut i64,
     delta: i64,
+    bytes_left: &mut usize,
 ) -> Result<Option<String>, ScopesError> {
     accumulate_index(index, delta)?;
-    Ok(usize::try_from(*index).ok().and_then(|i| names.get(i)).cloned())
+    copy_name(usize::try_from(*index).ok().and_then(|i| names.get(i)), bytes_left)
 }
 
 /// Resolve a binding expression. The value 0 is a variable that is not
 /// available, and each other value is an index into `names` plus 1. An index
 /// past the end of `names` also gives `None`.
-fn binding_expression(names: &[String], value: u64) -> Option<String> {
-    let index = usize::try_from(value.checked_sub(1)?).ok()?;
-    names.get(index).cloned()
+fn binding_expression(
+    names: &[String],
+    value: u64,
+    bytes_left: &mut usize,
+) -> Result<Option<String>, ScopesError> {
+    let name = value
+        .checked_sub(1)
+        .and_then(|index| usize::try_from(index).ok())
+        .and_then(|index| names.get(index));
+    copy_name(name, bytes_left)
 }
 
 /// Add the bindings of the sub-range items to the bindings of a range.
@@ -687,7 +725,7 @@ fn merge_bindings(
         let Some(binding) = bindings.get_mut(var_idx) else {
             continue;
         };
-        let initial = match std::mem::replace(binding, Binding::Unavailable) {
+        let mut list = match std::mem::replace(binding, Binding::Unavailable) {
             Binding::Expression(expr) => {
                 vec![SubRangeBinding { expression: Some(expr), from: range_start }]
             }
@@ -695,7 +733,8 @@ fn merge_bindings(
             // A second sub-range item for the same variable adds to the list.
             Binding::SubRanges(existing) => existing,
         };
-        *binding = Binding::SubRanges(initial.into_iter().chain(sub_ranges).collect());
+        list.extend(sub_ranges);
+        *binding = Binding::SubRanges(list);
     }
     bindings
 }

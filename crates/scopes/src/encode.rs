@@ -336,9 +336,8 @@ impl EncodedScopes {
     /// Append the `scopes` and `ranges` fields to a JSON object, each with a
     /// leading comma: `,"scopes":[...],"ranges":[...]`.
     ///
-    /// The function writes each string as it is. The strings of
-    /// [`encode_scopes`] have only base64 characters and commas, which need no
-    /// JSON escape.
+    /// The strings of [`encode_scopes`] have only base64 characters and
+    /// commas, which need no JSON escape. The function escapes any other text.
     pub fn write_json_fields(&self, out: &mut String) {
         out.push_str(r#","scopes":["#);
         for (i, entry) in self.scopes.iter().enumerate() {
@@ -361,9 +360,19 @@ impl EncodedScopes {
     }
 }
 
+/// Append `value` to `out` as a JSON string.
 fn push_json_string(out: &mut String, value: &str) {
-    debug_assert!(value.bytes().all(|byte| byte.is_ascii_alphanumeric() || b"+/,".contains(&byte)));
-    out.push('"');
-    out.push_str(value);
-    out.push('"');
+    let needs_no_escape =
+        value.bytes().all(|byte| byte.is_ascii_alphanumeric() || b"+/,".contains(&byte));
+    if needs_no_escape {
+        out.push('"');
+        out.push_str(value);
+        out.push('"');
+        return;
+    }
+    // The strings of `encode_scopes` never get here. A caller can build an
+    // `EncodedScopes` with any text, and the output must stay valid JSON.
+    let mut quoted = Vec::with_capacity(value.len() + 2);
+    srcmap_codec::json_quote_into(&mut quoted, value);
+    out.push_str(&String::from_utf8_lossy(&quoted));
 }

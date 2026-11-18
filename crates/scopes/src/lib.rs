@@ -235,6 +235,14 @@ impl ScopeInfo {
 /// 2 MiB default stack of a spawned thread, also in a debug build.
 pub const MAX_NESTING_DEPTH: usize = 512;
 
+/// The maximum number of bytes of `names` that [`decode_scopes`] copies into
+/// its result.
+///
+/// Each scope name, variable and binding in the result has its own copy of a
+/// name. Without a limit, a small input that refers to one long name many
+/// times makes the decoder allocate much more memory than the input has.
+pub const MAX_NAME_BYTES: usize = 256 * 1024 * 1024;
+
 /// Errors during scopes decoding.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ScopesError {
@@ -256,6 +264,8 @@ pub enum ScopesError {
     ValueOverflow,
     /// Scopes or ranges nest deeper than [`MAX_NESTING_DEPTH`].
     NestingTooDeep,
+    /// The scopes refer to more than [`MAX_NAME_BYTES`] bytes of names.
+    NamesTooLarge,
 }
 
 impl fmt::Display for ScopesError {
@@ -272,6 +282,9 @@ impl fmt::Display for ScopesError {
             Self::ValueOverflow => write!(f, "scopes position or index is out of range"),
             Self::NestingTooDeep => {
                 write!(f, "scopes nest deeper than {MAX_NESTING_DEPTH} levels")
+            }
+            Self::NamesTooLarge => {
+                write!(f, "scopes refer to more than {MAX_NAME_BYTES} bytes of names")
             }
         }
     }

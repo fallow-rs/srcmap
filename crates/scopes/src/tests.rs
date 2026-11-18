@@ -888,3 +888,57 @@ fn readme_example_strings() {
     encoded.write_json_fields(&mut json);
     assert_eq!(json, r#","scopes":["BCAAA,DC,CFA"],"ranges":["ECAAA,GD,FFA"]"#);
 }
+
+#[test]
+fn many_sub_range_items_for_one_variable_decode_in_linear_time() {
+    // Each `H` item adds one sub-range to variable 0. A copy of the full list
+    // for each item takes minutes for this input.
+    const ITEMS: usize = 200_000;
+    let names = vec!["a".to_string()];
+    let ranges = format!("EAA,GB{},FA", ",HAAAA".repeat(ITEMS));
+
+    let start = std::time::Instant::now();
+    let info = decode_scopes(&[Some("BAAA,DA,CAA")], &[ranges], &names, 1).unwrap();
+    assert!(start.elapsed() < std::time::Duration::from_secs(10), "{:?}", start.elapsed());
+
+    let Binding::SubRanges(sub_ranges) = &info.ranges[0].bindings[0] else {
+        panic!("expected sub-ranges, got {:?}", info.ranges[0].bindings[0]);
+    };
+    assert_eq!(sub_ranges.len(), ITEMS + 1);
+}
+
+#[test]
+fn names_beyond_the_byte_limit_are_an_error() {
+    // Each binding copies the one long name. One more copy than the limit
+    // allows must fail before the decoder allocates it.
+    const NAME_BYTES: usize = 32 * 1024 * 1024;
+    let names = vec!["x".repeat(NAME_BYTES)];
+    let copies = crate::MAX_NAME_BYTES / NAME_BYTES + 1;
+    let ranges = format!("EAA,G{},FA", "B".repeat(copies));
+
+    let err = decode_scopes::<&str, _>(&[], &[ranges], &names, 1).unwrap_err();
+    assert_eq!(err, ScopesError::NamesTooLarge);
+}
+
+#[test]
+fn names_at_the_byte_limit_decode() {
+    const NAME_BYTES: usize = 64 * 1024 * 1024;
+    let names = vec!["x".repeat(NAME_BYTES)];
+    let copies = crate::MAX_NAME_BYTES / NAME_BYTES;
+    let ranges = format!("EAA,G{},FA", "B".repeat(copies));
+
+    let info = decode_scopes::<&str, _>(&[], &[ranges], &names, 1).unwrap();
+    assert_eq!(info.ranges[0].bindings.len(), copies);
+}
+
+#[test]
+fn write_json_fields_escapes_text_that_is_not_base64() {
+    let encoded = EncodedScopes {
+        scopes: vec![Some("a\"b\\c".to_string()), None],
+        ranges: vec!["line\nbreak".to_string()],
+    };
+    let mut json = String::new();
+    encoded.write_json_fields(&mut json);
+
+    assert_eq!(json, r#","scopes":["a\"b\\c",null],"ranges":["line\nbreak"]"#);
+}

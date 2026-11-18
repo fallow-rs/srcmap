@@ -23,6 +23,7 @@
 //! assert_eq!(pos.column, 0);
 //! ```
 
+use std::borrow::Cow;
 use std::cell::{Cell, OnceCell, RefCell};
 use std::collections::{HashMap, HashSet};
 use std::fmt;
@@ -479,14 +480,14 @@ fn check_indices(
 /// `scopes` string is the older layout, which has no `ranges` field.
 fn decode_scopes_field(
     scopes: Option<RawScopes<'_>>,
-    ranges: Option<Vec<&str>>,
+    ranges: Option<Vec<Cow<'_, str>>>,
     names: &[String],
     num_sources: usize,
 ) -> Result<Option<ScopeInfo>, ParseError> {
     let info = match (scopes, ranges) {
         (None, None) => return Ok(None),
         (Some(RawScopes::Legacy(encoded)), _) => {
-            srcmap_scopes::decode_legacy_scopes(encoded, names, num_sources)?
+            srcmap_scopes::decode_legacy_scopes(&encoded, names, num_sources)?
         }
         (Some(RawScopes::PerSource(scopes)), ranges) => {
             srcmap_scopes::decode_scopes(&scopes, &ranges.unwrap_or_default(), names, num_sources)?
@@ -873,18 +874,32 @@ fn append_section_mappings(
     Ok(())
 }
 
-fn merge_section_original_scopes(
-    pending_scopes: &[(ScopeInfo, Vec<u32>, u32, u32)],
-    all_scopes: &mut [Vec<OriginalScope>],
-) {
-    for (section_scopes, source_remap, _, _) in pending_scopes {
-        for (local_idx, local_scopes) in section_scopes.scopes.iter().enumerate() {
-            let global_idx = source_remap[local_idx] as usize;
-            if all_scopes[global_idx].is_empty() {
-                all_scopes[global_idx].clone_from(local_scopes);
-            }
-        }
+/// Add the root scopes of one section to the root scopes of a source, and
+/// return the index that the first scope of the section has in the result.
+///
+/// Sections often repeat the scopes of a source that they share. One copy is
+/// then sufficient. Different scopes of a later section follow the scopes of
+/// the earlier sections, because a source can have several root scopes.
+///
+/// The root scopes of a source must be in source order. When the scopes of
+/// the section start before the end of the scopes that the source already
+/// has, the function does not add them and returns `None`.
+fn append_section_scopes(all: &mut Vec<OriginalScope>, section: &[OriginalScope]) -> Option<u32> {
+    let Some(first) = section.first() else {
+        return Some(0);
+    };
+    if all.as_slice() == section {
+        return Some(0);
     }
+    let follows = all.last().is_none_or(|last| {
+        (last.end.line, last.end.column) <= (first.start.line, first.start.column)
+    });
+    if !follows {
+        return None;
+    }
+    let offset = all.iter().map(count_scope_tree).sum();
+    all.extend_from_slice(section);
+    Some(offset)
 }
 
 fn merge_section_scopes_and_ranges(
@@ -892,15 +907,22 @@ fn merge_section_scopes_and_ranges(
     all_scopes: &mut [Vec<OriginalScope>],
     all_ranges: &mut Vec<GeneratedRange>,
 ) {
-    merge_section_original_scopes(&pending_scopes, all_scopes);
-
     for (section_scopes, source_remap, line_offset, col_offset) in pending_scopes {
-        all_ranges.extend(
-            section_scopes
-                .ranges
-                .iter()
-                .map(|range| remap_generated_range(range, line_offset, col_offset, &source_remap)),
-        );
+        let scope_offsets: Vec<Option<u32>> = section_scopes
+            .scopes
+            .iter()
+            .zip(&source_remap)
+            .map(|(scopes, &source)| {
+                append_section_scopes(&mut all_scopes[source as usize], scopes)
+            })
+            .collect();
+        let remap = SectionRemap {
+            line_offset,
+            col_offset,
+            source_remap: &source_remap,
+            scope_offsets: &scope_offsets,
+        };
+        all_ranges.extend(section_scopes.ranges.iter().map(|range| remap.generated_range(range)));
     }
 }
 
@@ -948,40 +970,51 @@ fn remap_binding(binding: &Binding, line_offset: u32, col_offset: u32) -> Bindin
     }
 }
 
-fn remap_generated_range(
-    range: &GeneratedRange,
+/// The changes that the ranges of one section get in an indexed source map.
+struct SectionRemap<'a> {
     line_offset: u32,
     col_offset: u32,
-    source_remap: &[u32],
-) -> GeneratedRange {
-    GeneratedRange {
-        start: offset_generated_position(range.start, line_offset, col_offset),
-        end: offset_generated_position(range.end, line_offset, col_offset),
-        is_stack_frame: range.is_stack_frame,
-        is_hidden: range.is_hidden,
-        // The scope index stays the same. It counts the scopes of one source.
-        definition: range.definition.and_then(|definition| {
-            source_remap.get(definition.source_index as usize).map(|&source_index| {
-                ScopeDefinition { source_index, scope_index: definition.scope_index }
-            })
-        }),
-        call_site: range.call_site.and_then(|call_site| {
-            source_remap.get(call_site.source_index as usize).map(|&source_index| CallSite {
-                source_index,
-                line: call_site.line,
-                column: call_site.column,
-            })
-        }),
-        bindings: range
-            .bindings
-            .iter()
-            .map(|binding| remap_binding(binding, line_offset, col_offset))
-            .collect(),
-        children: range
-            .children
-            .iter()
-            .map(|child| remap_generated_range(child, line_offset, col_offset, source_remap))
-            .collect(),
+    /// The index in the indexed map of each source of the section.
+    source_remap: &'a [u32],
+    /// The index in the indexed map of the first scope of each source of the
+    /// section, or `None` when the indexed map does not have these scopes. See
+    /// [`append_section_scopes`].
+    scope_offsets: &'a [Option<u32>],
+}
+
+impl SectionRemap<'_> {
+    fn definition(&self, definition: ScopeDefinition) -> Option<ScopeDefinition> {
+        let local_source = definition.source_index as usize;
+        Some(ScopeDefinition {
+            source_index: *self.source_remap.get(local_source)?,
+            scope_index: definition
+                .scope_index
+                .checked_add((*self.scope_offsets.get(local_source)?)?)?,
+        })
+    }
+
+    fn generated_range(&self, range: &GeneratedRange) -> GeneratedRange {
+        let Self { line_offset, col_offset, source_remap, .. } = *self;
+        GeneratedRange {
+            start: offset_generated_position(range.start, line_offset, col_offset),
+            end: offset_generated_position(range.end, line_offset, col_offset),
+            is_stack_frame: range.is_stack_frame,
+            is_hidden: range.is_hidden,
+            definition: range.definition.and_then(|definition| self.definition(definition)),
+            call_site: range.call_site.and_then(|call_site| {
+                source_remap.get(call_site.source_index as usize).map(|&source_index| CallSite {
+                    source_index,
+                    line: call_site.line,
+                    column: call_site.column,
+                })
+            }),
+            bindings: range
+                .bindings
+                .iter()
+                .map(|binding| remap_binding(binding, line_offset, col_offset))
+                .collect(),
+            children: range.children.iter().map(|child| self.generated_range(child)).collect(),
+        }
     }
 }
 
@@ -1049,11 +1082,11 @@ struct RawSourceMap<'a> {
     #[serde(default, rename = "debugId", alias = "debug_id")]
     debug_id: Option<String>,
     /// Original scopes (ECMA-426 scopes proposal).
-    #[serde(default, borrow)]
+    #[serde(default, borrow, deserialize_with = "deserialize_raw_scopes")]
     scopes: Option<RawScopes<'a>>,
     /// Generated ranges (ECMA-426 scopes proposal).
-    #[serde(default, borrow)]
-    ranges: Option<Vec<&'a str>>,
+    #[serde(default, borrow, deserialize_with = "deserialize_raw_ranges")]
+    ranges: Option<Vec<Cow<'a, str>>>,
     /// Range mappings (ECMA-426).
     #[serde(default, borrow, rename = "rangeMappings")]
     range_mappings: Option<&'a str>,
@@ -1066,16 +1099,80 @@ struct RawSourceMap<'a> {
 }
 
 /// The `scopes` field of a source map, before the decode.
-#[derive(Deserialize)]
-#[serde(untagged)]
+///
+/// A string can be borrowed from the JSON text, or owned when the JSON text
+/// has an escape in it.
 pub enum RawScopes<'a> {
     /// The layout of the ECMA-426 draft specification: one entry for each
     /// source. `None` is a source without scopes.
-    #[serde(borrow)]
-    PerSource(Vec<Option<&'a str>>),
+    PerSource(Vec<Option<Cow<'a, str>>>),
     /// The older layout of the scopes proposal: one string for the full map.
     /// This string also has the generated ranges.
-    Legacy(&'a str),
+    Legacy(Cow<'a, str>),
+}
+
+/// A JSON value that is a string, or any other value.
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum StringOrOther<'a> {
+    #[serde(borrow)]
+    String(Cow<'a, str>),
+    Other(serde::de::IgnoredAny),
+}
+
+impl<'a> StringOrOther<'a> {
+    fn into_string(self) -> Option<Cow<'a, str>> {
+        match self {
+            Self::String(string) => Some(string),
+            Self::Other(_) => None,
+        }
+    }
+}
+
+/// A JSON value that is a list, a string, or any other value.
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum ListOrStringOrOther<'a> {
+    #[serde(borrow)]
+    List(Vec<StringOrOther<'a>>),
+    #[serde(borrow)]
+    String(Cow<'a, str>),
+    Other(serde::de::IgnoredAny),
+}
+
+/// Reads the `scopes` field. An entry that is not a string is a source
+/// without scopes, as `GetOptionalListOfStrings` of ECMA-426 specifies. A
+/// field that is not a list and not a string is absent.
+fn deserialize_raw_scopes<'de: 'a, 'a, D>(
+    deserializer: D,
+) -> Result<Option<RawScopes<'a>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    Ok(match ListOrStringOrOther::deserialize(deserializer)? {
+        ListOrStringOrOther::List(entries) => Some(RawScopes::PerSource(
+            entries.into_iter().map(StringOrOther::into_string).collect(),
+        )),
+        ListOrStringOrOther::String(encoded) => Some(RawScopes::Legacy(encoded)),
+        ListOrStringOrOther::Other(_) => None,
+    })
+}
+
+/// Reads the `ranges` field. An entry that is not a string is the empty
+/// string, and a field that is not a list is absent, as
+/// `GetOptionalListOfStrings` of ECMA-426 specifies.
+fn deserialize_raw_ranges<'de: 'a, 'a, D>(
+    deserializer: D,
+) -> Result<Option<Vec<Cow<'a, str>>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    Ok(match ListOrStringOrOther::deserialize(deserializer)? {
+        ListOrStringOrOther::List(entries) => {
+            Some(entries.into_iter().map(|entry| entry.into_string().unwrap_or_default()).collect())
+        }
+        ListOrStringOrOther::String(_) | ListOrStringOrOther::Other(_) => None,
+    })
 }
 
 /// A section in an indexed source map.
@@ -1115,10 +1212,10 @@ pub struct RawSourceMapLite<'a> {
     pub x_google_ignore_list: Option<Vec<u32>>,
     #[serde(default, rename = "debugId", alias = "debug_id")]
     pub debug_id: Option<String>,
-    #[serde(default, borrow)]
+    #[serde(default, borrow, deserialize_with = "deserialize_raw_scopes")]
     pub scopes: Option<RawScopes<'a>>,
-    #[serde(default, borrow)]
-    pub ranges: Option<Vec<&'a str>>,
+    #[serde(default, borrow, deserialize_with = "deserialize_raw_ranges")]
+    pub ranges: Option<Vec<Cow<'a, str>>>,
     #[serde(default, borrow, rename = "rangeMappings")]
     pub range_mappings: Option<&'a str>,
     /// Indexed source maps use `sections` instead of `mappings`.
@@ -1140,7 +1237,7 @@ struct RegularFields<'a> {
     x_google_ignore_list: Option<Vec<u32>>,
     debug_id: Option<String>,
     scopes: Option<RawScopes<'a>>,
-    ranges: Option<Vec<&'a str>>,
+    ranges: Option<Vec<Cow<'a, str>>>,
     range_mappings: Option<&'a str>,
     extensions: HashMap<String, serde_json::Value>,
 }

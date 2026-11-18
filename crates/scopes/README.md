@@ -91,7 +91,16 @@ A relative index that goes below zero becomes zero.
 
 ## Errors
 
-`decode_scopes` returns a `ScopesError` when a string does not match the grammar: an invalid VLQ, a scope or a range without its start or its end, a value that does not fit in a `u32`, nesting deeper than `MAX_NESTING_DEPTH`, or a relative call site without a parent range that has a known scope.
+`decode_scopes` returns a `ScopesError` for these inputs:
+
+- an invalid VLQ
+- a scope or a range without its start or its end
+- a value that does not fit in a `u32`
+- nesting deeper than `MAX_NESTING_DEPTH`
+- a relative call site without a parent range that has a known scope
+- scopes that refer to more than `MAX_NAME_BYTES` bytes of names
+
+The decoder does not check the order of the items in a scope or a range. For example, it accepts a second variables item in one scope, and it adds those variables to the scope.
 
 ## Key types
 
