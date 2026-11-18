@@ -607,7 +607,7 @@ impl SourceMapGenerator {
 
     /// Generate the source map as a JSON string.
     pub fn to_json(&self) -> String {
-        let (scopes_str, names_for_json) = self.scopes_and_names_for_json();
+        let (scopes_fields, names_for_json) = self.scopes_and_names_for_json();
 
         let capacity = self.json_capacity_estimate(names_for_json.as_ref());
         let mut json: Vec<u8> = Vec::with_capacity(capacity);
@@ -652,9 +652,8 @@ impl SourceMapGenerator {
             srcmap_codec::json_quote_into(&mut json, id);
         }
 
-        if let Some(ref s) = scopes_str {
-            json.extend_from_slice(br#","scopes":"#);
-            srcmap_codec::json_quote_into(&mut json, s);
+        if let Some(ref fields) = scopes_fields {
+            json.extend_from_slice(fields.as_bytes());
         }
 
         json.push(b'}');
@@ -664,11 +663,15 @@ impl SourceMapGenerator {
         unsafe { String::from_utf8_unchecked(json) }
     }
 
+    /// Encode the scopes, and return the JSON text of the `scopes` and `ranges`
+    /// fields with a leading comma. The encoder can add names, so the function
+    /// also returns the names for the JSON.
     fn scopes_and_names_for_json(&self) -> (Option<String>, std::borrow::Cow<'_, [String]>) {
         if let Some(ref scopes_info) = self.scopes {
             let mut names = self.names.clone();
-            let scopes = srcmap_scopes::encode_scopes(scopes_info, &mut names);
-            return (Some(scopes), std::borrow::Cow::Owned(names));
+            let mut fields = String::new();
+            srcmap_scopes::encode_scopes(scopes_info, &mut names).write_json_fields(&mut fields);
+            return (Some(fields), std::borrow::Cow::Owned(names));
         }
 
         (None, std::borrow::Cow::Borrowed(&self.names))
@@ -790,7 +793,7 @@ impl SourceMapGenerator {
     /// Streams JSON output to the writer without building the full JSON string
     /// in memory. Useful for writing directly to files or network streams.
     pub fn to_writer(&self, writer: &mut impl io::Write) -> io::Result<()> {
-        let (scopes_str, names_for_json) = self.scopes_and_names_for_json();
+        let (scopes_fields, names_for_json) = self.scopes_and_names_for_json();
 
         writer.write_all(br#"{"version":3"#)?;
 
@@ -830,9 +833,8 @@ impl SourceMapGenerator {
             write_json_quoted(writer, id)?;
         }
 
-        if let Some(ref s) = scopes_str {
-            writer.write_all(br#","scopes":"#)?;
-            write_json_quoted(writer, s)?;
+        if let Some(ref fields) = scopes_fields {
+            writer.write_all(fields.as_bytes())?;
         }
 
         writer.write_all(b"}")?;
@@ -1982,7 +1984,7 @@ mod tests {
 
         // Set scopes
         builder.set_scopes(ScopeInfo {
-            scopes: vec![Some(OriginalScope {
+            scopes: vec![vec![OriginalScope {
                 start: Position { line: 0, column: 0 },
                 end: Position { line: 3, column: 14 },
                 name: None,
@@ -1998,13 +2000,16 @@ mod tests {
                     variables: vec!["name".to_string()],
                     children: vec![],
                 }],
-            })],
+            }]],
             ranges: vec![GeneratedRange {
                 start: Position { line: 0, column: 0 },
                 end: Position { line: 3, column: 14 },
                 is_stack_frame: false,
                 is_hidden: false,
-                definition: Some(0),
+                definition: Some(srcmap_scopes::ScopeDefinition {
+                    source_index: 0,
+                    scope_index: 0,
+                }),
                 call_site: None,
                 bindings: vec![Binding::Expression("hello".to_string())],
                 children: vec![GeneratedRange {
@@ -2012,7 +2017,10 @@ mod tests {
                     end: Position { line: 2, column: 1 },
                     is_stack_frame: true,
                     is_hidden: false,
-                    definition: Some(1),
+                    definition: Some(srcmap_scopes::ScopeDefinition {
+                        source_index: 0,
+                        scope_index: 1,
+                    }),
                     call_site: None,
                     bindings: vec![Binding::Expression("name".to_string())],
                     children: vec![],
@@ -2022,8 +2030,12 @@ mod tests {
 
         let json = builder.to_json();
 
-        // Verify scopes field is present
-        assert!(json.contains(r#""scopes":"#));
+        // The scopes and ranges fields are arrays, as the draft specification has them.
+        assert!(json.contains(r#""scopes":[""#), "{json}");
+        assert!(json.contains(r#""ranges":[""#), "{json}");
+        let mut written = Vec::new();
+        builder.to_writer(&mut written).unwrap();
+        assert_eq!(String::from_utf8(written).unwrap(), json);
 
         // Parse back and verify
         let sm = srcmap_sourcemap::SourceMap::from_json(&json).unwrap();
@@ -2033,7 +2045,7 @@ mod tests {
 
         // Verify original scopes
         assert_eq!(scopes_info.scopes.len(), 1);
-        let root_scope = scopes_info.scopes[0].as_ref().unwrap();
+        let root_scope = &scopes_info.scopes[0][0];
         assert_eq!(root_scope.kind.as_deref(), Some("global"));
         assert_eq!(root_scope.variables, vec!["hello"]);
         assert_eq!(root_scope.children.len(), 1);
@@ -2047,12 +2059,18 @@ mod tests {
         // Verify generated ranges
         assert_eq!(scopes_info.ranges.len(), 1);
         let outer = &scopes_info.ranges[0];
-        assert_eq!(outer.definition, Some(0));
+        assert_eq!(
+            outer.definition,
+            Some(srcmap_scopes::ScopeDefinition { source_index: 0, scope_index: 0 })
+        );
         assert_eq!(outer.bindings, vec![Binding::Expression("hello".to_string())]);
         assert_eq!(outer.children.len(), 1);
 
         let inner = &outer.children[0];
-        assert_eq!(inner.definition, Some(1));
+        assert_eq!(
+            inner.definition,
+            Some(srcmap_scopes::ScopeDefinition { source_index: 0, scope_index: 1 })
+        );
         assert!(inner.is_stack_frame);
         assert_eq!(inner.bindings, vec![Binding::Expression("name".to_string())]);
     }
@@ -2068,7 +2086,7 @@ mod tests {
         builder.add_mapping(0, 0, src, 0, 0);
 
         builder.set_scopes(ScopeInfo {
-            scopes: vec![Some(OriginalScope {
+            scopes: vec![vec![OriginalScope {
                 start: Position { line: 0, column: 0 },
                 end: Position { line: 10, column: 0 },
                 name: None,
@@ -2084,13 +2102,16 @@ mod tests {
                     variables: vec!["msg".to_string()],
                     children: vec![],
                 }],
-            })],
+            }]],
             ranges: vec![GeneratedRange {
                 start: Position { line: 0, column: 0 },
                 end: Position { line: 10, column: 0 },
                 is_stack_frame: false,
                 is_hidden: false,
-                definition: Some(0),
+                definition: Some(srcmap_scopes::ScopeDefinition {
+                    source_index: 0,
+                    scope_index: 0,
+                }),
                 call_site: None,
                 bindings: vec![Binding::Expression("_x".to_string())],
                 children: vec![GeneratedRange {
@@ -2098,7 +2119,10 @@ mod tests {
                     end: Position { line: 8, column: 0 },
                     is_stack_frame: true,
                     is_hidden: false,
-                    definition: Some(1),
+                    definition: Some(srcmap_scopes::ScopeDefinition {
+                        source_index: 0,
+                        scope_index: 1,
+                    }),
                     call_site: Some(CallSite { source_index: 0, line: 8, column: 0 }),
                     bindings: vec![Binding::Expression("\"Hello\"".to_string())],
                     children: vec![],

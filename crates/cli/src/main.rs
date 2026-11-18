@@ -1777,7 +1777,7 @@ fn format_range_tree(range: &srcmap_scopes::GeneratedRange, sources: &[String], 
         range.start.line, range.start.column, range.end.line, range.end.column
     );
     if let Some(def) = range.definition {
-        println!("{pad}  definition: scope #{def}");
+        println!("{pad}  definition: source #{}, scope #{}", def.source_index, def.scope_index);
     }
     if let Some(ref cs) = range.call_site {
         let source = sources.get(cs.source_index as usize).map(|s| s.as_str()).unwrap_or("?");
@@ -1856,7 +1856,10 @@ fn range_to_json(range: &srcmap_scopes::GeneratedRange, sources: &[String]) -> s
         "end": { "line": range.end.line, "column": range.end.column },
         "isStackFrame": range.is_stack_frame,
         "isHidden": range.is_hidden,
-        "definition": range.definition,
+        "definition": range.definition.map(|def| serde_json::json!({
+            "sourceIndex": def.source_index,
+            "scopeIndex": def.scope_index,
+        })),
         "callSite": call_site,
         "bindings": bindings,
         "children": range.children.iter().map(|c| range_to_json(c, sources)).collect::<Vec<_>>(),
@@ -1876,11 +1879,13 @@ fn cmd_scopes(file: &Path, json: bool) -> Result<(), CliError> {
             .scopes
             .iter()
             .enumerate()
-            .filter_map(|(i, s)| {
-                s.as_ref().map(|scope| {
-                    let source = sm.sources.get(i).map(|s| s.as_str()).unwrap_or("?");
+            .flat_map(|(i, roots)| {
+                let source = sm.sources.get(i).map(|s| s.as_str()).unwrap_or("?");
+                // A source can have several root scopes. Each one is an entry.
+                roots.iter().map(move |scope| {
                     serde_json::json!({
                         "source": source,
+                        "sourceIndex": i,
                         "scope": scope_to_json(scope),
                     })
                 })
@@ -1896,13 +1901,16 @@ fn cmd_scopes(file: &Path, json: bool) -> Result<(), CliError> {
         });
         println!("{}", serde_json::to_string_pretty(&obj).unwrap());
     } else {
-        let scope_count: usize = scopes.scopes.iter().filter(|s| s.is_some()).count();
+        let scope_count: usize = scopes.scopes.iter().filter(|roots| !roots.is_empty()).count();
         println!("Original scopes ({scope_count} sources with scopes):");
-        for (i, scope) in scopes.scopes.iter().enumerate() {
-            if let Some(scope) = scope {
-                let source = sm.sources.get(i).map(|s| s.as_str()).unwrap_or("?");
-                println!();
-                println!("  [{i}] {source}:");
+        for (i, roots) in scopes.scopes.iter().enumerate() {
+            if roots.is_empty() {
+                continue;
+            }
+            let source = sm.sources.get(i).map(|s| s.as_str()).unwrap_or("?");
+            println!();
+            println!("  [{i}] {source}:");
+            for scope in roots {
                 format_scope_tree(scope, 2);
             }
         }

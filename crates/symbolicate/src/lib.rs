@@ -585,10 +585,17 @@ mod tests {
         assert_eq!(result.frames[0].function_name.as_deref(), Some("handleClick"));
     }
 
+    /// The `scopes` and `ranges` fields of `info` as JSON, with a leading comma.
+    fn scopes_fields(info: &ScopeInfo, names: &mut Vec<String>) -> String {
+        let mut fields = String::new();
+        srcmap_scopes::encode_scopes(info, names).write_json_fields(&mut fields);
+        fields
+    }
+
     #[test]
     fn symbolicate_uses_scopes_function_name_when_mapping_name_is_absent() {
         let scope_info = ScopeInfo {
-            scopes: vec![Some(OriginalScope {
+            scopes: vec![vec![OriginalScope {
                 start: Position { line: 10, column: 0 },
                 end: Position { line: 20, column: 0 },
                 name: Some("originalFunc".to_string()),
@@ -596,23 +603,26 @@ mod tests {
                 is_stack_frame: true,
                 variables: vec![],
                 children: vec![],
-            })],
+            }]],
             ranges: vec![GeneratedRange {
                 start: Position { line: 0, column: 0 },
                 end: Position { line: 0, column: 10 },
                 is_stack_frame: true,
                 is_hidden: false,
-                definition: Some(0),
+                definition: Some(srcmap_scopes::ScopeDefinition {
+                    source_index: 0,
+                    scope_index: 0,
+                }),
                 call_site: None,
                 bindings: vec![],
                 children: vec![],
             }],
         };
         let mut names = vec![];
-        let scopes_str = srcmap_scopes::encode_scopes(&scope_info, &mut names);
+        let scopes_str = scopes_fields(&scope_info, &mut names);
         let names_json = serde_json::to_string(&names).unwrap();
         let map_json = format!(
-            r#"{{"version":3,"sources":["src/app.ts"],"names":{names_json},"mappings":"AAAA","scopes":"{scopes_str}"}}"#
+            r#"{{"version":3,"sources":["src/app.ts"],"names":{names_json},"mappings":"AAAA"{scopes_str}}}"#
         );
 
         let result = symbolicate("Error: test\n    at foo (bundle.js:1:1)", |file| {
@@ -625,7 +635,7 @@ mod tests {
     #[test]
     fn symbolicate_skips_hidden_scopes_and_uses_outer_stack_frame_name() {
         let scope_info = ScopeInfo {
-            scopes: vec![Some(OriginalScope {
+            scopes: vec![vec![OriginalScope {
                 start: Position { line: 0, column: 0 },
                 end: Position { line: 30, column: 0 },
                 name: Some("outerFunc".to_string()),
@@ -641,13 +651,16 @@ mod tests {
                     variables: vec![],
                     children: vec![],
                 }],
-            })],
+            }]],
             ranges: vec![GeneratedRange {
                 start: Position { line: 0, column: 0 },
                 end: Position { line: 0, column: 20 },
                 is_stack_frame: true,
                 is_hidden: false,
-                definition: Some(0),
+                definition: Some(srcmap_scopes::ScopeDefinition {
+                    source_index: 0,
+                    scope_index: 0,
+                }),
                 call_site: None,
                 bindings: vec![],
                 children: vec![GeneratedRange {
@@ -655,7 +668,10 @@ mod tests {
                     end: Position { line: 0, column: 10 },
                     is_stack_frame: true,
                     is_hidden: true,
-                    definition: Some(1),
+                    definition: Some(srcmap_scopes::ScopeDefinition {
+                        source_index: 0,
+                        scope_index: 1,
+                    }),
                     call_site: None,
                     bindings: vec![],
                     children: vec![],
@@ -663,10 +679,10 @@ mod tests {
             }],
         };
         let mut names = vec![];
-        let scopes_str = srcmap_scopes::encode_scopes(&scope_info, &mut names);
+        let scopes_str = scopes_fields(&scope_info, &mut names);
         let names_json = serde_json::to_string(&names).unwrap();
         let map_json = format!(
-            r#"{{"version":3,"sources":["src/app.ts"],"names":{names_json},"mappings":"AAAA","scopes":"{scopes_str}"}}"#
+            r#"{{"version":3,"sources":["src/app.ts"],"names":{names_json},"mappings":"AAAA"{scopes_str}}}"#
         );
 
         let result = symbolicate("Error: test\n    at foo (bundle.js:1:7)", |file| {
@@ -674,6 +690,48 @@ mod tests {
         });
 
         assert_eq!(result.frames[0].function_name.as_deref(), Some("outerFunc"));
+    }
+
+    #[test]
+    fn symbolicate_uses_the_scope_of_the_source_in_the_definition() {
+        let function = |name: &str| OriginalScope {
+            start: Position { line: 0, column: 0 },
+            end: Position { line: 9, column: 0 },
+            name: Some(name.to_string()),
+            kind: Some("function".to_string()),
+            is_stack_frame: true,
+            variables: vec![],
+            children: vec![],
+        };
+        // The first source has no scopes. The definition is scope 1 of source 2.
+        let scope_info = ScopeInfo {
+            scopes: vec![vec![], vec![function("first")], vec![function("a"), function("second")]],
+            ranges: vec![GeneratedRange {
+                start: Position { line: 0, column: 0 },
+                end: Position { line: 0, column: 10 },
+                is_stack_frame: true,
+                is_hidden: false,
+                definition: Some(srcmap_scopes::ScopeDefinition {
+                    source_index: 2,
+                    scope_index: 1,
+                }),
+                call_site: None,
+                bindings: vec![],
+                children: vec![],
+            }],
+        };
+        let mut names = vec![];
+        let scopes_str = scopes_fields(&scope_info, &mut names);
+        let names_json = serde_json::to_string(&names).unwrap();
+        let map_json = format!(
+            r#"{{"version":3,"sources":["a.ts","b.ts","c.ts"],"names":{names_json},"mappings":"AAAA"{scopes_str}}}"#
+        );
+
+        let result = symbolicate("Error: test\n    at foo (bundle.js:1:1)", |file| {
+            if file == "bundle.js" { SourceMap::from_json(&map_json).ok() } else { None }
+        });
+
+        assert_eq!(result.frames[0].function_name.as_deref(), Some("second"));
     }
 
     #[test]

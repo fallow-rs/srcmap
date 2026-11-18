@@ -35,8 +35,8 @@
 #![allow(clippy::print_stdout, reason = "Examples are intended to print walkthrough output")]
 
 use srcmap_scopes::{
-    Binding, CallSite, GeneratedRange, OriginalScope, Position, ScopeInfo, decode_scopes,
-    encode_scopes,
+    Binding, CallSite, GeneratedRange, OriginalScope, Position, ScopeDefinition, ScopeInfo,
+    decode_scopes, encode_scopes,
 };
 
 fn main() {
@@ -52,9 +52,10 @@ fn main() {
     //   - variables: names declared in this scope (parameters, let/const/var)
     //   - children: nested scopes
     //
-    // Scopes are indexed by a pre-order traversal counter ("definition index"):
-    //   - definition 0: the module scope (root)
-    //   - definition 1: the `add` function scope (first child)
+    // A generated range refers to a scope with a source index and a scope
+    // index. The scope index counts the scopes of one source in pre-order:
+    //   - scope 0 of source 0: the module scope (root)
+    //   - scope 1 of source 0: the `add` function scope (first child)
 
     let add_scope = OriginalScope {
         start: Position { line: 1, column: 0 },
@@ -83,7 +84,7 @@ fn main() {
     // Generated ranges describe regions of the output code and how they map
     // back to original scopes. Key fields:
     //
-    //   - definition: index into the pre-order list of all original scopes,
+    //   - definition: the source index and the pre-order scope index of the original scope,
     //     linking this range to its corresponding original scope
     //   - call_site: if this range is an inlined function body, the location
     //     in original source where the call happened
@@ -97,8 +98,8 @@ fn main() {
         end: Position { line: 3, column: 22 },
         is_stack_frame: true,
         is_hidden: false,
-        // definition=1 points to the `add` function scope (pre-order index 1)
-        definition: Some(1),
+        // The definition is the `add` function scope (scope 1 of source 0)
+        definition: Some(ScopeDefinition { source_index: 0, scope_index: 1 }),
         // The call site is where `add(10, 32)` was called in the original source.
         // The debugger uses this to reconstruct a synthetic call stack:
         //   add @ math.ts:2:2  (current position in the inlined body)
@@ -120,8 +121,8 @@ fn main() {
         end: Position { line: 4, column: 1 },
         is_stack_frame: false,
         is_hidden: false,
-        // definition=0 points to the module scope (pre-order index 0)
-        definition: Some(0),
+        // The definition is the module scope (scope 0 of source 0)
+        definition: Some(ScopeDefinition { source_index: 0, scope_index: 0 }),
         call_site: None,
         // The module scope has variables ["result"], and in the generated code
         // the variable keeps its name, so we bind it to "result".
@@ -137,33 +138,37 @@ fn main() {
     // generated ranges. The `scopes` vec is indexed by source index — None
     // means no scope info for that source file.
 
-    let scope_info = ScopeInfo { scopes: vec![Some(module_scope)], ranges: vec![wrapper_range] };
+    let scope_info = ScopeInfo { scopes: vec![vec![module_scope]], ranges: vec![wrapper_range] };
 
-    // Encoding produces a compact VLQ string (stored in the source map's
-    // "scopes" field) and populates the names array with any new name strings.
+    // The encoder gives one VLQ string for each source (the "scopes" field of
+    // the source map) and a list of VLQ strings for the generated ranges (the
+    // "ranges" field). It adds each new name to the names array.
     let mut names: Vec<String> = vec![];
     let encoded = encode_scopes(&scope_info, &mut names);
 
     println!("=== ECMA-426 Scopes Roundtrip ===\n");
-    println!("Encoded scopes: {encoded:?}");
+    println!("Encoded scopes: {:?}", encoded.scopes);
+    println!("Encoded ranges: {:?}", encoded.ranges);
     println!("Names array:    {names:?}\n");
 
-    assert!(!encoded.is_empty(), "encoded string must not be empty");
+    assert_eq!(encoded.scopes.len(), 1, "one entry for each source");
+    assert_eq!(encoded.ranges.len(), 1, "one string with all generated ranges");
     assert!(!names.is_empty(), "names array must contain scope/variable names");
 
     // -----------------------------------------------------------------------
     // 4. Decode back and verify roundtrip
     // -----------------------------------------------------------------------
     //
-    // decode_scopes takes the encoded string, the names array, and the number
-    // of source files (so it knows how many original scope trees to expect).
+    // decode_scopes takes the "scopes" array, the "ranges" array, the names
+    // array, and the number of source files.
 
-    let decoded = decode_scopes(&encoded, &names, 1).expect("decoding must succeed");
+    let decoded =
+        decode_scopes(&encoded.scopes, &encoded.ranges, &names, 1).expect("decoding must succeed");
 
     // Verify the original scope tree roundtrips correctly
     assert_eq!(decoded.scopes.len(), 1, "must have exactly one source file's scopes");
 
-    let root_scope = decoded.scopes[0].as_ref().expect("source 0 must have scope info");
+    let root_scope = decoded.scopes[0].first().expect("source 0 must have scope info");
 
     assert_eq!(root_scope.kind.as_deref(), Some("module"));
     assert!(!root_scope.is_stack_frame, "module scope is not a stack frame");
@@ -193,7 +198,7 @@ fn main() {
     assert_eq!(decoded.ranges.len(), 1, "must have one top-level generated range");
 
     let wrapper = &decoded.ranges[0];
-    assert_eq!(wrapper.definition, Some(0));
+    assert_eq!(wrapper.definition, Some(ScopeDefinition { source_index: 0, scope_index: 0 }));
     assert!(!wrapper.is_stack_frame);
     assert!(!wrapper.is_hidden);
     assert!(wrapper.call_site.is_none());
@@ -208,7 +213,7 @@ fn main() {
     assert_eq!(wrapper.children.len(), 1, "wrapper has one child range");
 
     let inlined = &wrapper.children[0];
-    assert_eq!(inlined.definition, Some(1));
+    assert_eq!(inlined.definition, Some(ScopeDefinition { source_index: 0, scope_index: 1 }));
     assert!(inlined.is_stack_frame, "inlined range is a stack frame");
     assert!(!inlined.is_hidden);
     assert_eq!(inlined.call_site, Some(CallSite { source_index: 0, line: 5, column: 14 }));
@@ -232,27 +237,33 @@ fn main() {
     println!("\nRoundtrip verified: decoded structure matches original.\n");
 
     // -----------------------------------------------------------------------
-    // 5. Look up original scopes by definition index
+    // 5. Look up original scopes by definition
     // -----------------------------------------------------------------------
     //
     // A debugger hits a breakpoint in generated code and finds a generated
-    // range with definition=1. It needs to find the corresponding original
+    // range with the definition (source 0, scope 1). It needs to find the corresponding original
     // scope to know the function name, parameter names, etc.
 
     println!("--- Definition index lookups ---\n");
 
-    let scope_0 = decoded.original_scope_for_definition(0).expect("definition 0 must exist");
+    let scope_0 = decoded
+        .original_scope_for_definition(ScopeDefinition { source_index: 0, scope_index: 0 })
+        .expect("definition 0 must exist");
     assert_eq!(scope_0.kind.as_deref(), Some("module"));
     println!("  definition 0: kind={:?}, name={:?}", scope_0.kind, scope_0.name);
 
-    let scope_1 = decoded.original_scope_for_definition(1).expect("definition 1 must exist");
+    let scope_1 = decoded
+        .original_scope_for_definition(ScopeDefinition { source_index: 0, scope_index: 1 })
+        .expect("definition 1 must exist");
     assert_eq!(scope_1.name.as_deref(), Some("add"));
     assert_eq!(scope_1.variables, vec!["a", "b"]);
     println!("  definition 1: kind={:?}, name={:?}", scope_1.kind, scope_1.name);
 
-    // Out-of-bounds definition index returns None
+    // A scope index past the last scope of the source returns None
     assert!(
-        decoded.original_scope_for_definition(99).is_none(),
+        decoded
+            .original_scope_for_definition(ScopeDefinition { source_index: 0, scope_index: 99 })
+            .is_none(),
         "non-existent definition must return None"
     );
     println!("  definition 99: None (out of bounds)");
@@ -267,7 +278,7 @@ fn main() {
     println!("\n--- Unavailable binding ---\n");
 
     let optimized_info = ScopeInfo {
-        scopes: vec![Some(OriginalScope {
+        scopes: vec![vec![OriginalScope {
             start: Position { line: 0, column: 0 },
             end: Position { line: 3, column: 1 },
             name: Some("compute".to_string()),
@@ -275,13 +286,13 @@ fn main() {
             is_stack_frame: true,
             variables: vec!["x".to_string(), "y".to_string()],
             children: vec![],
-        })],
+        }]],
         ranges: vec![GeneratedRange {
             start: Position { line: 0, column: 0 },
             end: Position { line: 1, column: 0 },
             is_stack_frame: true,
             is_hidden: false,
-            definition: Some(0),
+            definition: Some(ScopeDefinition { source_index: 0, scope_index: 0 }),
             call_site: None,
             // x is available as "_x", but y was optimized out
             bindings: vec![Binding::Expression("_x".to_string()), Binding::Unavailable],
@@ -291,7 +302,8 @@ fn main() {
 
     let mut opt_names: Vec<String> = vec![];
     let opt_encoded = encode_scopes(&optimized_info, &mut opt_names);
-    let opt_decoded = decode_scopes(&opt_encoded, &opt_names, 1).expect("decoding must succeed");
+    let opt_decoded = decode_scopes(&opt_encoded.scopes, &opt_encoded.ranges, &opt_names, 1)
+        .expect("decoding must succeed");
 
     assert_eq!(opt_decoded, optimized_info);
     println!("  Bindings: {:?}", opt_decoded.ranges[0].bindings);
@@ -306,13 +318,15 @@ fn main() {
 
     println!("\n--- Error handling ---\n");
 
-    // Empty encoded string is valid (no scopes, no ranges)
-    let empty_result = decode_scopes("", &[], 0);
+    // Empty arrays are valid (no scopes, no ranges)
+    let no_scopes: [Option<&str>; 0] = [];
+    let no_ranges: [&str; 0] = [];
+    let empty_result = decode_scopes(&no_scopes, &no_ranges, &[], 0);
     assert!(empty_result.is_ok(), "empty input is valid");
     println!("  Empty input: ok (no scopes, no ranges)");
 
     // Invalid VLQ data: 'z' is not a valid base64 character for VLQ
-    let bad_vlq = decode_scopes("!!!", &[], 1);
+    let bad_vlq = decode_scopes(&[Some("!!!")], &no_ranges, &[], 1);
     assert!(bad_vlq.is_err(), "invalid VLQ must produce an error");
     println!("  Invalid VLQ (\"!!!\"): {}", bad_vlq.unwrap_err());
 

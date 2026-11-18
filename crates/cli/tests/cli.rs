@@ -490,7 +490,7 @@ fn scopes_variable_without_name() {
     let map = dir.path().join("unnamed.js.map");
     std::fs::write(
         &map,
-        r#"{"version":3,"sources":["a.ts"],"names":["x"],"mappings":"AAAA","scopes":"BAAA,DAC,CCA"}"#,
+        r#"{"version":3,"sources":["a.ts"],"names":["x"],"mappings":"AAAA","scopes":["BAAA,DAC,CCA"]}"#,
     )
     .unwrap();
 
@@ -519,11 +519,30 @@ fn scopes_json() {
     assert_eq!(scope["kind"], "module");
     assert!(scope["variables"].as_array().unwrap().contains(&serde_json::json!("result")));
     let range = &v["generatedRanges"][0];
-    assert_eq!(range["definition"], 0);
+    assert_eq!(range["definition"], serde_json::json!({ "sourceIndex": 0, "scopeIndex": 0 }));
     let child = &range["children"][0];
-    assert_eq!(child["definition"], 1);
+    assert_eq!(child["definition"], serde_json::json!({ "sourceIndex": 0, "scopeIndex": 1 }));
     assert!(child["isStackFrame"].as_bool().unwrap());
     assert_eq!(child["callSite"]["source"], "math.ts");
+}
+
+#[test]
+fn scopes_reads_the_older_layout() {
+    // `scoped-legacy.js.map` has the same data with `scopes` as one string.
+    let output = |name: &str, json: bool| {
+        let mut command = srcmap();
+        command.args(["scopes", fixture(name).to_str().unwrap()]);
+        if json {
+            command.arg("--json");
+        }
+        let out = command.output().unwrap();
+        assert!(out.status.success(), "{name}");
+        String::from_utf8(out.stdout).unwrap()
+    };
+    assert_eq!(output("scoped-legacy.js.map", true), output("scoped.js.map", true));
+    let human = output("scoped-legacy.js.map", false);
+    assert_eq!(human, output("scoped.js.map", false));
+    assert!(human.contains("definition: source #0, scope #1"), "{human}");
 }
 
 #[test]

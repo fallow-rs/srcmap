@@ -1,0 +1,3 @@
+BCAAA,DC,BHBAEG,DGC,CCB,CCb
+ECAAA,GC,EHBAAC,GHI,IAFO,FCW,FBB
+module,result,function,add,a,b,_a,_b

@@ -30,7 +30,9 @@ use std::io;
 
 use serde::Deserialize;
 use srcmap_codec::{DecodeError, vlq_encode_unsigned};
-use srcmap_scopes::{Binding, CallSite, GeneratedRange, OriginalScope, Position, ScopeInfo};
+use srcmap_scopes::{
+    Binding, CallSite, GeneratedRange, OriginalScope, Position, ScopeDefinition, ScopeInfo,
+};
 
 mod debug_id;
 pub mod js_identifiers;
@@ -435,13 +437,26 @@ fn check_indices(
     let Some(scopes) = scopes else {
         return Ok(());
     };
-    let total = scopes.scopes.iter().flatten().map(count_scope_tree).sum::<u32>() as usize;
+    // The number of scopes of each source. A definition is a source index and
+    // an index into the scopes of that source.
+    let scope_counts: Vec<usize> = scopes
+        .scopes
+        .iter()
+        .map(|roots| roots.iter().map(count_scope_tree).sum::<u32>() as usize)
+        .collect();
     let mut stack: Vec<&GeneratedRange> = scopes.ranges.iter().collect();
     while let Some(range) = stack.pop() {
-        if let Some(def) = range.definition
-            && def as usize >= total
-        {
-            return Err(index_error(IndexKind::ScopeDefinition, def, total));
+        if let Some(def) = range.definition {
+            let Some(&count) = scope_counts.get(def.source_index as usize) else {
+                return Err(index_error(
+                    IndexKind::ScopeDefinition,
+                    def.source_index,
+                    scope_counts.len(),
+                ));
+            };
+            if def.scope_index as usize >= count {
+                return Err(index_error(IndexKind::ScopeDefinition, def.scope_index, count));
+            }
         }
         if let Some(call_site) = &range.call_site
             && call_site.source_index as usize >= sources_len
@@ -458,15 +473,29 @@ fn check_indices(
     Ok(())
 }
 
+/// Decode the `scopes` and `ranges` fields.
+///
+/// A `scopes` array is the layout of the ECMA-426 draft specification. A
+/// `scopes` string is the older layout, which has no `ranges` field.
 fn decode_scopes_field(
-    scopes: Option<&str>,
+    scopes: Option<RawScopes<'_>>,
+    ranges: Option<Vec<&str>>,
     names: &[String],
     num_sources: usize,
 ) -> Result<Option<ScopeInfo>, ParseError> {
-    match scopes {
-        Some(s) if !s.is_empty() => Ok(Some(srcmap_scopes::decode_scopes(s, names, num_sources)?)),
-        _ => Ok(None),
-    }
+    let info = match (scopes, ranges) {
+        (None, None) => return Ok(None),
+        (Some(RawScopes::Legacy(encoded)), _) => {
+            srcmap_scopes::decode_legacy_scopes(encoded, names, num_sources)?
+        }
+        (Some(RawScopes::PerSource(scopes)), ranges) => {
+            srcmap_scopes::decode_scopes(&scopes, &ranges.unwrap_or_default(), names, num_sources)?
+        }
+        (None, Some(ranges)) => {
+            srcmap_scopes::decode_scopes::<&str, _>(&[], &ranges, names, num_sources)?
+        }
+    };
+    Ok(build_section_scope_info(info.scopes, info.ranges))
 }
 
 /// Mark range mappings in place and report whether any were set.
@@ -524,11 +553,13 @@ fn finish_section_mappings(mappings: &mut [Mapping], max_line: u32) -> Vec<u32> 
     build_mapping_line_offsets(mappings, line_count)
 }
 
+/// Build the scope information of a map, or `None` when the map has no
+/// original scope and no generated range.
 fn build_section_scope_info(
-    scopes: Vec<Option<OriginalScope>>,
+    scopes: Vec<Vec<OriginalScope>>,
     ranges: Vec<GeneratedRange>,
 ) -> Option<ScopeInfo> {
-    if ranges.is_empty() && scopes.iter().all(Option::is_none) {
+    if ranges.is_empty() && scopes.iter().all(Vec::is_empty) {
         return None;
     }
 
@@ -542,7 +573,7 @@ struct SectionMergeState {
     all_mappings: Vec<Mapping>,
     all_ignore_list: Vec<u32>,
     ignore_set: HashSet<u32>,
-    all_scopes: Vec<Option<OriginalScope>>,
+    all_scopes: Vec<Vec<OriginalScope>>,
     all_ranges: Vec<GeneratedRange>,
     pending_scopes: Vec<(ScopeInfo, Vec<u32>, u32, u32)>,
     max_line: u32,
@@ -747,7 +778,7 @@ fn remap_section_sources(
     sources_content: &[Option<String>],
     all_sources: &mut Vec<String>,
     all_sources_content: &mut Vec<Option<String>>,
-    all_scopes: &mut Vec<Option<OriginalScope>>,
+    all_scopes: &mut Vec<Vec<OriginalScope>>,
     source_index_map: &mut HashMap<String, u32>,
 ) -> Vec<u32> {
     sources
@@ -760,7 +791,7 @@ fn remap_section_sources(
                 let idx = all_sources.len() as u32;
                 all_sources.push(source.clone());
                 all_sources_content.push(sources_content.get(i).cloned().unwrap_or(None));
-                all_scopes.push(None);
+                all_scopes.push(Vec::new());
                 source_index_map.insert(source.clone(), idx);
                 idx
             }
@@ -844,56 +875,32 @@ fn append_section_mappings(
 
 fn merge_section_original_scopes(
     pending_scopes: &[(ScopeInfo, Vec<u32>, u32, u32)],
-    all_scopes: &mut [Option<OriginalScope>],
+    all_scopes: &mut [Vec<OriginalScope>],
 ) {
     for (section_scopes, source_remap, _, _) in pending_scopes {
-        for (local_idx, local_scope) in section_scopes.scopes.iter().enumerate() {
+        for (local_idx, local_scopes) in section_scopes.scopes.iter().enumerate() {
             let global_idx = source_remap[local_idx] as usize;
-            if all_scopes[global_idx].is_none() {
-                all_scopes[global_idx] = local_scope.clone();
+            if all_scopes[global_idx].is_empty() {
+                all_scopes[global_idx].clone_from(local_scopes);
             }
         }
     }
 }
 
-fn build_section_definition_remap(
-    section_scopes: &ScopeInfo,
-    source_remap: &[u32],
-    global_bases: &[u32],
-) -> Vec<u32> {
-    let local_bases = definition_bases(&section_scopes.scopes);
-    let total_local_definitions =
-        section_scopes.scopes.iter().flatten().map(count_scope_tree).sum::<u32>() as usize;
-    let mut definition_remap = vec![0; total_local_definitions];
-
-    for (local_idx, local_scope) in section_scopes.scopes.iter().enumerate() {
-        let Some(local_scope) = local_scope else {
-            continue;
-        };
-        let local_base = local_bases[local_idx];
-        let global_base = global_bases[source_remap[local_idx] as usize];
-        for offset in 0..count_scope_tree(local_scope) {
-            definition_remap[(local_base + offset) as usize] = global_base + offset;
-        }
-    }
-
-    definition_remap
-}
-
 fn merge_section_scopes_and_ranges(
     pending_scopes: Vec<(ScopeInfo, Vec<u32>, u32, u32)>,
-    all_scopes: &mut [Option<OriginalScope>],
+    all_scopes: &mut [Vec<OriginalScope>],
     all_ranges: &mut Vec<GeneratedRange>,
 ) {
     merge_section_original_scopes(&pending_scopes, all_scopes);
 
-    let global_bases = definition_bases(all_scopes);
     for (section_scopes, source_remap, line_offset, col_offset) in pending_scopes {
-        let definition_remap =
-            build_section_definition_remap(&section_scopes, &source_remap, &global_bases);
-        all_ranges.extend(section_scopes.ranges.iter().map(|range| {
-            remap_generated_range(range, line_offset, col_offset, &definition_remap, &source_remap)
-        }));
+        all_ranges.extend(
+            section_scopes
+                .ranges
+                .iter()
+                .map(|range| remap_generated_range(range, line_offset, col_offset, &source_remap)),
+        );
     }
 }
 
@@ -916,18 +923,6 @@ fn count_scope_tree(scope: &OriginalScope) -> u32 {
         stack.extend(&node.children);
     }
     count
-}
-
-fn definition_bases(scopes: &[Option<OriginalScope>]) -> Vec<u32> {
-    let mut bases = Vec::with_capacity(scopes.len());
-    let mut next = 0;
-    for scope in scopes {
-        bases.push(next);
-        if let Some(scope) = scope {
-            next += count_scope_tree(scope);
-        }
-    }
-    bases
 }
 
 fn offset_generated_position(pos: Position, line_offset: u32, col_offset: u32) -> Position {
@@ -957,7 +952,6 @@ fn remap_generated_range(
     range: &GeneratedRange,
     line_offset: u32,
     col_offset: u32,
-    definition_remap: &[u32],
     source_remap: &[u32],
 ) -> GeneratedRange {
     GeneratedRange {
@@ -965,7 +959,12 @@ fn remap_generated_range(
         end: offset_generated_position(range.end, line_offset, col_offset),
         is_stack_frame: range.is_stack_frame,
         is_hidden: range.is_hidden,
-        definition: range.definition.and_then(|idx| definition_remap.get(idx as usize).copied()),
+        // The scope index stays the same. It counts the scopes of one source.
+        definition: range.definition.and_then(|definition| {
+            source_remap.get(definition.source_index as usize).map(|&source_index| {
+                ScopeDefinition { source_index, scope_index: definition.scope_index }
+            })
+        }),
         call_site: range.call_site.and_then(|call_site| {
             source_remap.get(call_site.source_index as usize).map(|&source_index| CallSite {
                 source_index,
@@ -981,15 +980,7 @@ fn remap_generated_range(
         children: range
             .children
             .iter()
-            .map(|child| {
-                remap_generated_range(
-                    child,
-                    line_offset,
-                    col_offset,
-                    definition_remap,
-                    source_remap,
-                )
-            })
+            .map(|child| remap_generated_range(child, line_offset, col_offset, source_remap))
             .collect(),
     }
 }
@@ -1057,9 +1048,12 @@ struct RawSourceMap<'a> {
     /// Accepts both `debugId` (spec) and `debug_id` (Sentry compat).
     #[serde(default, rename = "debugId", alias = "debug_id")]
     debug_id: Option<String>,
-    /// Scopes and variables (ECMA-426 scopes proposal).
+    /// Original scopes (ECMA-426 scopes proposal).
     #[serde(default, borrow)]
-    scopes: Option<&'a str>,
+    scopes: Option<RawScopes<'a>>,
+    /// Generated ranges (ECMA-426 scopes proposal).
+    #[serde(default, borrow)]
+    ranges: Option<Vec<&'a str>>,
     /// Range mappings (ECMA-426).
     #[serde(default, borrow, rename = "rangeMappings")]
     range_mappings: Option<&'a str>,
@@ -1069,6 +1063,19 @@ struct RawSourceMap<'a> {
     /// Catch-all for unknown extension fields (x_*).
     #[serde(flatten)]
     extensions: HashMap<String, serde_json::Value>,
+}
+
+/// The `scopes` field of a source map, before the decode.
+#[derive(Deserialize)]
+#[serde(untagged)]
+pub enum RawScopes<'a> {
+    /// The layout of the ECMA-426 draft specification: one entry for each
+    /// source. `None` is a source without scopes.
+    #[serde(borrow)]
+    PerSource(Vec<Option<&'a str>>),
+    /// The older layout of the scopes proposal: one string for the full map.
+    /// This string also has the generated ranges.
+    Legacy(&'a str),
 }
 
 /// A section in an indexed source map.
@@ -1109,7 +1116,9 @@ pub struct RawSourceMapLite<'a> {
     #[serde(default, rename = "debugId", alias = "debug_id")]
     pub debug_id: Option<String>,
     #[serde(default, borrow)]
-    pub scopes: Option<&'a str>,
+    pub scopes: Option<RawScopes<'a>>,
+    #[serde(default, borrow)]
+    pub ranges: Option<Vec<&'a str>>,
     #[serde(default, borrow, rename = "rangeMappings")]
     pub range_mappings: Option<&'a str>,
     /// Indexed source maps use `sections` instead of `mappings`.
@@ -1130,9 +1139,34 @@ struct RegularFields<'a> {
     ignore_list: Option<Vec<u32>>,
     x_google_ignore_list: Option<Vec<u32>>,
     debug_id: Option<String>,
-    scopes: Option<&'a str>,
+    scopes: Option<RawScopes<'a>>,
+    ranges: Option<Vec<&'a str>>,
     range_mappings: Option<&'a str>,
     extensions: HashMap<String, serde_json::Value>,
+}
+
+/// Build a [`RegularFields`] from a raw map. [`RawSourceMap`] and
+/// [`RawSourceMapLite`] have the same fields, except the source content and
+/// the extension fields, which the caller gives.
+macro_rules! regular_fields {
+    ($raw:ident, $sources_content:expr, $extensions:expr) => {{
+        let sources = resolve_sources(&$raw.sources, $raw.source_root.as_deref().unwrap_or(""));
+        RegularFields {
+            file: $raw.file,
+            source_root: $raw.source_root,
+            sources,
+            sources_content: $sources_content,
+            names: $raw.names,
+            mappings: $raw.mappings,
+            ignore_list: $raw.ignore_list,
+            x_google_ignore_list: $raw.x_google_ignore_list,
+            debug_id: $raw.debug_id,
+            scopes: $raw.scopes,
+            ranges: $raw.ranges,
+            range_mappings: $raw.range_mappings,
+            extensions: $extensions,
+        }
+    }};
 }
 
 impl<'a> RegularFields<'a> {
@@ -1158,39 +1192,13 @@ impl<'a> RegularFields<'a> {
     }
 
     fn from_raw(raw: RawSourceMap<'a>) -> Self {
-        let sources = resolve_sources(&raw.sources, raw.source_root.as_deref().unwrap_or(""));
-        Self {
-            file: raw.file,
-            source_root: raw.source_root,
-            sources,
-            sources_content: raw.sources_content.unwrap_or_default(),
-            names: raw.names,
-            mappings: raw.mappings,
-            ignore_list: raw.ignore_list,
-            x_google_ignore_list: raw.x_google_ignore_list,
-            debug_id: raw.debug_id,
-            scopes: raw.scopes,
-            range_mappings: raw.range_mappings,
-            extensions: filter_extensions(raw.extensions),
-        }
+        let sources_content = raw.sources_content.unwrap_or_default();
+        let extensions = filter_extensions(raw.extensions);
+        regular_fields!(raw, sources_content, extensions)
     }
 
     fn from_lite(raw: RawSourceMapLite<'a>) -> Self {
-        let sources = resolve_sources(&raw.sources, raw.source_root.as_deref().unwrap_or(""));
-        Self {
-            file: raw.file,
-            source_root: raw.source_root,
-            sources,
-            sources_content: Vec::new(),
-            names: raw.names,
-            mappings: raw.mappings,
-            ignore_list: raw.ignore_list,
-            x_google_ignore_list: raw.x_google_ignore_list,
-            debug_id: raw.debug_id,
-            scopes: raw.scopes,
-            range_mappings: raw.range_mappings,
-            extensions: HashMap::new(),
-        }
+        regular_fields!(raw, Vec::new(), HashMap::new())
     }
 }
 
@@ -1356,7 +1364,8 @@ impl SourceMap {
         let has_range_mappings =
             decode_range_mappings_field(fields.range_mappings, &mut mappings, &line_offsets)?;
         sort_unsorted_lines(&mut mappings, &line_offsets, &checks);
-        let scopes = decode_scopes_field(fields.scopes, &fields.names, fields.sources.len())?;
+        let scopes =
+            decode_scopes_field(fields.scopes, fields.ranges, &fields.names, fields.sources.len())?;
         // Add the placeholder after the scopes decode, so that scopes cannot refer to it.
         if checks.used_out_of_range_name
             && let OutOfRangeNames::Placeholder(placeholder) = names_mode
@@ -1807,9 +1816,8 @@ impl SourceMap {
         }
 
         // scopes (ECMA-426 scopes proposal)
-        if let Some((ref s, _)) = scopes_encoded {
-            json.push_str(r#","scopes":"#);
-            json_quote_into(&mut json, s);
+        if let Some((ref encoded, _)) = scopes_encoded {
+            encoded.write_json_fields(&mut json);
         }
 
         // Emit extension fields (x_* and x-* keys)
@@ -1845,7 +1853,7 @@ impl SourceMap {
             + self.names.iter().map(quoted_len).sum::<usize>()
     }
 
-    fn encode_scopes_for_json(&self) -> Option<(String, Vec<String>)> {
+    fn encode_scopes_for_json(&self) -> Option<(srcmap_scopes::EncodedScopes, Vec<String>)> {
         let scopes_info = self.scopes.as_ref()?;
         let mut names = self.names.clone();
         let scopes = srcmap_scopes::encode_scopes(scopes_info, &mut names);
@@ -2109,6 +2117,7 @@ impl SourceMap {
             x_google_ignore_list: None,
             debug_id: None,
             scopes: None,
+            ranges: None,
             range_mappings: None,
             extensions: HashMap::new(),
         };
@@ -2507,7 +2516,8 @@ impl LazySourceMap {
         line_info: Vec<LineInfo>,
         fast_scan: bool,
     ) -> Result<Self, ParseError> {
-        let scopes = decode_scopes_field(fields.scopes, &fields.names, fields.sources.len())?;
+        let scopes =
+            decode_scopes_field(fields.scopes, fields.ranges, &fields.names, fields.sources.len())?;
         let ignore_list = resolve_ignore_list(fields.ignore_list, fields.x_google_ignore_list);
         let source_map = build_source_map(&fields.sources);
 
@@ -4300,9 +4310,16 @@ mod tests {
         ));
     }
 
+    /// The `scopes` and `ranges` fields of `info` as JSON, with a leading comma.
+    fn scopes_fields(info: &ScopeInfo, names: &mut Vec<String>) -> String {
+        let mut fields = String::new();
+        srcmap_scopes::encode_scopes(info, names).write_json_fields(&mut fields);
+        fields
+    }
+
     fn one_scope_info(range: GeneratedRange) -> ScopeInfo {
         ScopeInfo {
-            scopes: vec![Some(OriginalScope {
+            scopes: vec![vec![OriginalScope {
                 start: Position { line: 0, column: 0 },
                 end: Position { line: 5, column: 0 },
                 name: None,
@@ -4310,7 +4327,7 @@ mod tests {
                 is_stack_frame: false,
                 variables: vec![],
                 children: vec![],
-            })],
+            }]],
             ranges: vec![range],
         }
     }
@@ -4321,7 +4338,7 @@ mod tests {
             end: Position { line: 5, column: 0 },
             is_stack_frame: false,
             is_hidden: false,
-            definition: Some(0),
+            definition: Some(srcmap_scopes::ScopeDefinition { source_index: 0, scope_index: 0 }),
             call_site: None,
             bindings: vec![],
             children: vec![],
@@ -4329,10 +4346,8 @@ mod tests {
     }
 
     fn scopes_json(info: &ScopeInfo) -> String {
-        let scopes_str = srcmap_scopes::encode_scopes(info, &mut vec![]);
-        format!(
-            r#"{{"version":3,"sources":["a.js"],"names":[],"mappings":"AAAA","scopes":"{scopes_str}"}}"#
-        )
+        let scopes_str = scopes_fields(info, &mut vec![]);
+        format!(r#"{{"version":3,"sources":["a.js"],"names":[],"mappings":"AAAA"{scopes_str}}}"#)
     }
 
     #[test]
@@ -4349,7 +4364,7 @@ mod tests {
         // One original scope per level: `B` opens a scope at (0, 0), `C` closes it.
         let scopes = [vec!["BAAA"; depth], vec!["CAA"; depth]].concat().join(",");
         format!(
-            r#"{{"version":3,"sources":["a.js"],"names":[],"mappings":"AAAA","scopes":"{scopes}"}}"#
+            r#"{{"version":3,"sources":["a.js"],"names":[],"mappings":"AAAA","scopes":["{scopes}"]}}"#
         )
     }
 
@@ -4377,7 +4392,7 @@ mod tests {
     #[test]
     fn rejects_scopes_definition_out_of_range() {
         let mut inner = base_range();
-        inner.definition = Some(1);
+        inner.definition = Some(srcmap_scopes::ScopeDefinition { source_index: 0, scope_index: 1 });
         let mut outer = base_range();
         outer.children = vec![inner];
         assert_index_error(&scopes_json(&one_scope_info(outer)), IndexKind::ScopeDefinition, 1, 1);
@@ -4913,20 +4928,23 @@ mod tests {
         // The placeholder goes into `names` after the scopes decode.
         // A scope name with index 0 and no names: the placeholder must not become that name.
         let mut info = one_scope_info(base_range());
-        if let Some(Some(scope)) = info.scopes.first_mut() {
-            scope.name = Some("f".to_owned());
-        }
+        info.scopes[0][0].name = Some("f".to_owned());
         let mut scope_names = vec![];
-        let scopes_str = srcmap_scopes::encode_scopes(&info, &mut scope_names);
+        let scopes_str = scopes_fields(&info, &mut scope_names);
         assert_eq!(scope_names, ["f"]);
         let json = format!(
-            r#"{{"version":3,"sources":["a.js"],"names":[],"mappings":"AAAAA","scopes":"{scopes_str}"}}"#
+            r#"{{"version":3,"sources":["a.js"],"names":[],"mappings":"AAAAA"{scopes_str}}}"#
         );
         let mode = OutOfRangeNames::Placeholder("?".to_owned());
-        let err = SourceMap::from_json_with_options(&json, &names_options(mode)).unwrap_err();
-        assert!(matches!(err, ParseError::Scopes(_)), "{err:?}");
+        let sm = SourceMap::from_json_with_options(&json, &names_options(mode)).unwrap();
+        assert_eq!(sm.names, ["?"]);
+        // A scope name past the end of `names` is no name, as ECMA-426 specifies.
+        assert_eq!(sm.scopes.unwrap().scopes[0][0].name, None);
         let with_name = json.replace(r#""names":[]"#, r#""names":["f"]"#);
-        assert!(SourceMap::from_json(&with_name).is_ok());
+        let sm =
+            SourceMap::from_json_with_options(&with_name, &names_options(OutOfRangeNames::Unnamed))
+                .unwrap();
+        assert_eq!(sm.scopes.unwrap().scopes[0][0].name.as_deref(), Some("f"));
     }
 
     #[test]
@@ -5057,7 +5075,7 @@ mod tests {
     fn lazy_fast_keeps_scopes() {
         let scopes_str = single_scope_str();
         let json = format!(
-            r#"{{"version":3,"sources":["a.js"],"names":[],"mappings":"AAAA;AACA","scopes":"{scopes_str}"}}"#
+            r#"{{"version":3,"sources":["a.js"],"names":[],"mappings":"AAAA;AACA"{scopes_str}}}"#
         );
         assert!(LazySourceMap::from_json_fast(&json).unwrap().scopes.is_some());
     }
@@ -6728,7 +6746,7 @@ mod tests {
     /// Encoded `scopes` string with one unnamed scope spanning lines 0..5.
     fn single_scope_str() -> String {
         let info = ScopeInfo {
-            scopes: vec![Some(OriginalScope {
+            scopes: vec![vec![OriginalScope {
                 start: Position { line: 0, column: 0 },
                 end: Position { line: 5, column: 0 },
                 name: None,
@@ -6736,17 +6754,17 @@ mod tests {
                 is_stack_frame: false,
                 variables: vec![],
                 children: vec![],
-            })],
+            }]],
             ranges: vec![],
         };
-        srcmap_scopes::encode_scopes(&info, &mut vec![])
+        scopes_fields(&info, &mut vec![])
     }
 
     #[test]
     fn scopes_in_from_json() {
         let scopes_str = single_scope_str();
         let json = format!(
-            r#"{{"version":3,"sources":["a.js"],"names":[],"mappings":"AAAA","scopes":"{scopes_str}"}}"#
+            r#"{{"version":3,"sources":["a.js"],"names":[],"mappings":"AAAA"{scopes_str}}}"#
         );
 
         let sm = SourceMap::from_json(&json).unwrap();
@@ -6757,7 +6775,7 @@ mod tests {
     fn from_json_lines_with_scopes() {
         let scopes_str = single_scope_str();
         let json = format!(
-            r#"{{"version":3,"sources":["a.js"],"names":[],"mappings":"AAAA;AACA","scopes":"{scopes_str}"}}"#
+            r#"{{"version":3,"sources":["a.js"],"names":[],"mappings":"AAAA;AACA"{scopes_str}}}"#
         );
         let sm = SourceMap::from_json_lines(&json, 0, 2).unwrap();
         assert!(sm.scopes.is_some());
@@ -6791,7 +6809,7 @@ mod tests {
     fn lazy_sourcemap_with_scopes() {
         let scopes_str = single_scope_str();
         let json = format!(
-            r#"{{"version":3,"sources":["a.js"],"names":[],"mappings":"AAAA","scopes":"{scopes_str}"}}"#
+            r#"{{"version":3,"sources":["a.js"],"names":[],"mappings":"AAAA"{scopes_str}}}"#
         );
         let sm = LazySourceMap::from_json(&json).unwrap();
         assert!(sm.scopes.is_some());
@@ -6885,22 +6903,154 @@ mod tests {
 
     #[test]
     fn from_json_invalid_scopes_error() {
-        // Invalid scopes string to trigger ParseError::Scopes
-        let json = r#"{"version":3,"sources":["a.js"],"names":[],"mappings":"AAAA","scopes":"!!invalid!!"}"#;
-        let err = SourceMap::from_json(json).unwrap_err();
-        assert!(matches!(err, ParseError::Scopes(_)));
+        // An invalid entry of `scopes`, an invalid entry of `ranges`, and an
+        // invalid string of the older layout all give ParseError::Scopes.
+        for fields in [
+            r#""scopes":["!!invalid!!"]"#,
+            r#""ranges":["!!invalid!!"]"#,
+            r#""scopes":"!!invalid!!""#,
+        ] {
+            let json = format!(
+                r#"{{"version":3,"sources":["a.js"],"names":[],"mappings":"AAAA",{fields}}}"#
+            );
+            let err = SourceMap::from_json(&json).unwrap_err();
+            assert!(matches!(err, ParseError::Scopes(_)), "{fields}: {err:?}");
+        }
+    }
+
+    /// One scope with a function in it, and a range for each of the two.
+    fn two_scope_info() -> ScopeInfo {
+        let function = OriginalScope {
+            start: Position { line: 1, column: 0 },
+            end: Position { line: 3, column: 1 },
+            name: Some("add".to_string()),
+            kind: Some("function".to_string()),
+            is_stack_frame: true,
+            variables: vec!["a".to_string()],
+            children: vec![],
+        };
+        let mut inner = base_range();
+        inner.start = Position { line: 1, column: 0 };
+        inner.end = Position { line: 1, column: 9 };
+        inner.is_stack_frame = true;
+        inner.definition = Some(ScopeDefinition { source_index: 0, scope_index: 1 });
+        inner.bindings = vec![Binding::Expression("_a".to_string())];
+        let mut outer = base_range();
+        outer.children = vec![inner];
+        let mut info = one_scope_info(outer);
+        info.scopes[0][0].children = vec![function];
+        info
+    }
+
+    #[test]
+    fn to_json_writes_scopes_and_ranges_arrays() {
+        let info = two_scope_info();
+        let json = format!(
+            r#"{{"version":3,"sources":["a.js","b.js"],"names":["add","function","a","_a"],"mappings":"AAAA"{}}}"#,
+            scopes_fields(&info, &mut vec![])
+        );
+        let sm = SourceMap::from_json(&json).unwrap();
+        // The parser gives each source an entry.
+        let mut expected = info;
+        expected.scopes.push(vec![]);
+        assert_eq!(sm.scopes.as_ref(), Some(&expected));
+
+        let value: serde_json::Value = serde_json::from_str(&sm.to_json()).unwrap();
+        assert_eq!(value["scopes"], serde_json::json!(["BAAA,BHBAAC,DE,CCB,CCA", null]));
+        assert_eq!(value["ranges"], serde_json::json!(["ECAAA,EHBAAC,GE,FJ,FEA"]));
+        assert_eq!(SourceMap::from_json(&sm.to_json()).unwrap().scopes, Some(expected));
+    }
+
+    #[test]
+    fn from_json_reads_the_older_scopes_layout() {
+        // The `scopes` string that srcmap 0.6.0 wrote for `two_scope_info`.
+        let json = r#"{"version":3,"sources":["a.js"],"names":["add","function","a","_a"],"mappings":"AAAA","scopes":"BAAA,BHBAAC,DE,CCB,CCA,ECAA,EHBAC,GE,FJ,FEA"}"#;
+        let expected = Some(two_scope_info());
+        assert_eq!(SourceMap::from_json(json).unwrap().scopes, expected);
+        assert_eq!(LazySourceMap::from_json(json).unwrap().scopes, expected);
+        // The output has the draft layout.
+        let sm = SourceMap::from_json(json).unwrap();
+        let value: serde_json::Value = serde_json::from_str(&sm.to_json()).unwrap();
+        assert!(value["scopes"].is_array());
+        assert!(value["ranges"].is_array());
+    }
+
+    #[test]
+    fn from_json_without_scope_data_has_no_scopes() {
+        for fields in [
+            r#""scopes":[]"#,
+            r#""scopes":[null]"#,
+            r#""scopes":[""],"ranges":[]"#,
+            r#""ranges":[""]"#,
+            r#""scopes":"""#,
+        ] {
+            let json = format!(
+                r#"{{"version":3,"sources":["a.js"],"names":[],"mappings":"AAAA",{fields}}}"#
+            );
+            assert_eq!(SourceMap::from_json(&json).unwrap().scopes, None, "{fields}");
+        }
+    }
+
+    #[test]
+    fn from_json_reads_ranges_without_scopes() {
+        let json = r#"{"version":3,"sources":["a.js"],"names":[],"mappings":"AAAA","ranges":["EAA,FC","EAK,FC"]}"#;
+        let info = SourceMap::from_json(json).unwrap().scopes.unwrap();
+        assert_eq!(info.scopes, vec![vec![]]);
+        let starts: Vec<u32> = info.ranges.iter().map(|range| range.start.column).collect();
+        assert_eq!(starts, [0, 10]);
+    }
+
+    #[test]
+    fn indexed_map_moves_each_definition_to_the_merged_source() {
+        // Each section has one source with one scope, and a range for it.
+        let section = |source: &str, line: u32| {
+            let info = one_scope_info(base_range());
+            format!(
+                r#"{{"offset":{{"line":{line},"column":0}},"map":{{"version":3,"sources":["{source}"],"names":[],"mappings":"AAAA"{}}}}}"#,
+                scopes_fields(&info, &mut vec![])
+            )
+        };
+        let json = format!(
+            r#"{{"version":3,"sections":[{},{},{}]}}"#,
+            section("a.js", 0),
+            section("b.js", 10),
+            section("a.js", 20)
+        );
+        let sm = SourceMap::from_json(&json).unwrap();
+        let info = sm.scopes.as_ref().unwrap();
+        assert_eq!(sm.sources, ["a.js", "b.js"]);
+        assert_eq!(info.scopes.iter().map(Vec::len).collect::<Vec<_>>(), [1, 1]);
+        let definitions: Vec<(u32, Option<ScopeDefinition>)> =
+            info.ranges.iter().map(|range| (range.start.line, range.definition)).collect();
+        assert_eq!(
+            definitions,
+            [
+                (0, Some(ScopeDefinition { source_index: 0, scope_index: 0 })),
+                (10, Some(ScopeDefinition { source_index: 1, scope_index: 0 })),
+                (20, Some(ScopeDefinition { source_index: 0, scope_index: 0 })),
+            ]
+        );
+        // The merged map writes the ranges of all sections and reads them again.
+        assert_eq!(SourceMap::from_json(&sm.to_json()).unwrap().scopes.as_ref(), Some(info));
+    }
+
+    #[test]
+    fn rejects_scopes_definition_source_out_of_range() {
+        let mut outer = base_range();
+        outer.definition = Some(ScopeDefinition { source_index: 1, scope_index: 0 });
+        assert_index_error(&scopes_json(&one_scope_info(outer)), IndexKind::ScopeDefinition, 1, 1);
     }
 
     #[test]
     fn lazy_from_json_invalid_scopes_error() {
-        let json = r#"{"version":3,"sources":["a.js"],"names":[],"mappings":"AAAA","scopes":"!!invalid!!"}"#;
+        let json = r#"{"version":3,"sources":["a.js"],"names":[],"mappings":"AAAA","scopes":["!!invalid!!"]}"#;
         let err = LazySourceMap::from_json(json).unwrap_err();
         assert!(matches!(err, ParseError::Scopes(_)));
     }
 
     #[test]
     fn from_json_lines_invalid_scopes_error() {
-        let json = r#"{"version":3,"sources":["a.js"],"names":[],"mappings":"AAAA","scopes":"!!invalid!!"}"#;
+        let json = r#"{"version":3,"sources":["a.js"],"names":[],"mappings":"AAAA","ranges":["!!invalid!!"]}"#;
         let err = SourceMap::from_json_lines(json, 0, 1).unwrap_err();
         assert!(matches!(err, ParseError::Scopes(_)));
     }
@@ -7363,7 +7513,7 @@ mod tests {
     #[test]
     fn indexed_map_preserves_debug_id_extensions_and_scopes() {
         let info = ScopeInfo {
-            scopes: vec![Some(OriginalScope {
+            scopes: vec![vec![OriginalScope {
                 start: Position { line: 0, column: 0 },
                 end: Position { line: 2, column: 0 },
                 name: None,
@@ -7371,23 +7521,26 @@ mod tests {
                 is_stack_frame: true,
                 variables: vec![],
                 children: vec![],
-            })],
+            }]],
             ranges: vec![GeneratedRange {
                 start: Position { line: 0, column: 0 },
                 end: Position { line: 0, column: 4 },
                 is_stack_frame: true,
                 is_hidden: false,
-                definition: Some(0),
+                definition: Some(srcmap_scopes::ScopeDefinition {
+                    source_index: 0,
+                    scope_index: 0,
+                }),
                 call_site: Some(CallSite { source_index: 0, line: 7, column: 2 }),
                 bindings: vec![Binding::Unavailable],
                 children: vec![],
             }],
         };
         let mut names = vec![];
-        let scopes_str = srcmap_scopes::encode_scopes(&info, &mut names);
+        let scopes_str = scopes_fields(&info, &mut names);
         let names_json = serde_json::to_string(&names).unwrap();
         let json = format!(
-            r#"{{"version":3,"debugId":"indexed-debug","x_custom":{{"enabled":true}},"sections":[{{"offset":{{"line":2,"column":3}},"map":{{"version":3,"sources":["a.js"],"names":{names_json},"mappings":"AAAA","scopes":"{scopes_str}"}}}}]}}"#
+            r#"{{"version":3,"debugId":"indexed-debug","x_custom":{{"enabled":true}},"sections":[{{"offset":{{"line":2,"column":3}},"map":{{"version":3,"sources":["a.js"],"names":{names_json},"mappings":"AAAA"{scopes_str}}}}}]}}"#
         );
 
         let sm = SourceMap::from_json(&json).unwrap();
@@ -7397,13 +7550,16 @@ mod tests {
 
         let scopes = sm.scopes.as_ref().unwrap();
         assert_eq!(scopes.scopes.len(), 1);
-        assert!(scopes.scopes[0].is_some());
+        assert_eq!(scopes.scopes[0].len(), 1);
         assert_eq!(scopes.ranges.len(), 1);
         assert_eq!(scopes.ranges[0].start.line, 2);
         assert_eq!(scopes.ranges[0].start.column, 3);
         assert_eq!(scopes.ranges[0].end.line, 2);
         assert_eq!(scopes.ranges[0].end.column, 7);
-        assert_eq!(scopes.ranges[0].definition, Some(0));
+        assert_eq!(
+            scopes.ranges[0].definition,
+            Some(srcmap_scopes::ScopeDefinition { source_index: 0, scope_index: 0 })
+        );
         assert_eq!(
             scopes.ranges[0].call_site,
             Some(CallSite { source_index: 0, line: 7, column: 2 })

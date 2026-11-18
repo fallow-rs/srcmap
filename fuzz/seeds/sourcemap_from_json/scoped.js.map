@@ -4,5 +4,6 @@
   "sources": ["math.ts"],
   "names": ["module", "result", "function", "add", "a", "b", "_a", "_b"],
   "mappings": "AAAA;AACA;AACA;AACA;AACA",
-  "scopes": "BCAAA,DC,BHBAEG,DGC,CCB,CCb,ECAA,GC,EHBAC,GHI,IAFO,FCW,FBB"
+  "scopes": ["BCAAA,DC,BHBAEG,DGC,CCB,CCb"],
+  "ranges": ["ECAAA,GC,EHBAAC,GHI,IAFO,FCW,FBB"]
 }
