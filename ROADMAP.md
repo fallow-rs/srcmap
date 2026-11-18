@@ -16,9 +16,9 @@ Speed in JavaScript is not a goal. Measurements in November 2026 gave these resu
 
 ### 1. Measure before more performance work
 
-No benchmark compares srcmap with the other Rust crates, and no measurement shows where a JavaScript tool spends much time on source maps. These two measurements decide if the performance items under [Later](#later) are worth the work.
+[benchmarks/rust-compare](benchmarks/rust-compare/README.md) compares srcmap with `oxc_sourcemap` and the Sentry `sourcemap` crate. Parse is equal to `oxc_sourcemap`. JSON output and a lookup are 1.1 to 1.4 times slower, and composition is 2 to 3.5 times slower. No measurement yet shows where a JavaScript tool spends much time on source maps. That measurement decides if the performance items under [Later](#later) are worth the work.
 
-- [ ] Benchmark parse, compose and lookup against `oxc_sourcemap` and the Sentry `sourcemap` crate
+- [x] Benchmark parse, compose and lookup against `oxc_sourcemap` and the Sentry `sourcemap` crate
 - [ ] Measure the share of source map work in a Vitest coverage run
 
 ### 2. Scopes (Stage 3)
@@ -62,11 +62,13 @@ The scopes proposal supersedes this field for function names. Most source maps h
 
 ### Rust performance
 
-These items wait for the benchmark against the other Rust crates.
+The benchmark against the other Rust crates gives the order of these items.
 
 | Item | Affects |
 |------|---------|
 | Serialization cost | Rspack. Profile against rspack-sources before any change. |
+| A composition mode without the `@jridgewell/remapping` rules | Rust users that compose maps and do not need that output |
+| Lookup between two segments | All Rust users. `oxc_sourcemap` is 1.3 to 1.4 times faster. |
 | SIMD VLQ decoding | All Rust users, most on maps of 1 MB and larger |
 
 VLQ decoding takes 34% to 73% of the parse time on real maps (Preact 34%, Chart.js 73%, PDF.js 61%). The scalar decoder already has a single-character fast path and is fully inlined (see [perf_findings.md](https://github.com/fallow-rs/srcmap/commit/ebcac6a)). A SIMD decoder for base64 and VLQ can reduce that part.

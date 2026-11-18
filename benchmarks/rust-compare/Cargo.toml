@@ -1,0 +1,21 @@
+[package]
+name = "srcmap-rust-compare"
+version = "0.0.0"
+publish = false
+edition = "2024"
+description = "Compares srcmap with oxc_sourcemap and the Sentry sourcemap crate"
+
+[dependencies]
+srcmap-sourcemap = { path = "../../crates/sourcemap" }
+srcmap-remapping = { path = "../../crates/remapping" }
+oxc_sourcemap = "=10.0.0"
+sourcemap = "=9.3.2"
+
+# A separate workspace keeps the other source map crates out of the root
+# workspace, its lock file and its dependency checks.
+[workspace]
+members = ["."]
+
+[profile.release]
+lto = true
+codegen-units = 1
