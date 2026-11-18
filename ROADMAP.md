@@ -25,11 +25,16 @@ No benchmark compares srcmap with the other Rust crates, and no measurement show
 
 `srcmap-scopes` decodes and encodes the [scopes proposal](https://github.com/tc39/ecma426/blob/main/proposals/scopes.md). `srcmap-symbolicate` finds the original function name for a position, and it skips a hidden scope in that search.
 
-- [ ] Accept a null variable name. The specification allows it since [tc39/ecma426#244](https://github.com/tc39/ecma426/pull/244), and `variables` is a `Vec<String>` today.
+- [x] Keep a variable whose index is past the end of `names`. [tc39/ecma426#244](https://github.com/tc39/ecma426/pull/244) gives it the empty string, and `variables` stays a `Vec<String>`. The decoder returned `InvalidNameIndex` before.
+- [ ] Move to the wire layout of the [draft specification](https://tc39.es/ecma426/branch/proposal-scopes/). srcmap reads and writes the older layout of the proposal text, with one `scopes` string. The draft has these differences:
+  - `scopes` is an array with one string for each source, and `ranges` is a second array of strings
+  - a range definition is a source index and a scope index
+  - tag `V` is the vendor extension item
+  - tag `J` is a call site relative to a parent range
 - [ ] `SymbolizeStackTrace`: translate a generated stack trace, expand inlined frames, and collapse outlined frames across bundles ([tc39/ecma426#219](https://github.com/tc39/ecma426/pull/219), open)
 - [ ] `BuildScopeChain`: map the original variables at a position to concrete values, for a debugger
 - [ ] Validate generated range boundaries against JavaScript syntax ([tc39/ecma426#249](https://github.com/tc39/ecma426/pull/249), open)
-- [ ] Test against the Chrome DevTools codec ([@chrome-devtools/source-map-scopes-codec](https://jsr.io/@chrome-devtools/source-map-scopes-codec))
+- [ ] Test against the Chrome DevTools codec ([@chrome-devtools/source-map-scopes-codec](https://jsr.io/@chrome-devtools/source-map-scopes-codec)). Versions 1.0.0 and later use the layout of the draft specification, so this test needs the move to that layout first.
 
 ### 3. Debug ID (Stage 2)
 

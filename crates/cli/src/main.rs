@@ -1662,6 +1662,10 @@ fn cmd_symbolicate(
     Ok(())
 }
 
+/// The text that the human output shows for a variable with the empty name.
+/// The scopes decoder gives the empty name for an index past the end of `names`.
+const NO_VARIABLE_NAME: &str = "<no name>";
+
 fn format_scope_tree(scope: &srcmap_scopes::OriginalScope, indent: usize) {
     let pad = "  ".repeat(indent);
     let kind = scope.kind.as_deref().unwrap_or("?");
@@ -1672,7 +1676,12 @@ fn format_scope_tree(scope: &srcmap_scopes::OriginalScope, indent: usize) {
         scope.start.line, scope.start.column, scope.end.line, scope.end.column
     );
     if !scope.variables.is_empty() {
-        println!("{pad}  vars: {}", scope.variables.join(", "));
+        let vars: Vec<&str> = scope
+            .variables
+            .iter()
+            .map(|v| if v.is_empty() { NO_VARIABLE_NAME } else { v.as_str() })
+            .collect();
+        println!("{pad}  vars: {}", vars.join(", "));
     }
     for child in &scope.children {
         format_scope_tree(child, indent + 1);

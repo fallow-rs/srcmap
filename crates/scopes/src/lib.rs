@@ -101,6 +101,10 @@ pub struct OriginalScope {
     /// Whether this scope is a stack frame (function boundary).
     pub is_stack_frame: bool,
     /// Variables declared in this scope.
+    ///
+    /// An empty string is a variable with no known name. The decoder gives it
+    /// for an index past the end of `names`, as ECMA-426 specifies, so that
+    /// each binding of a generated range keeps its variable.
     pub variables: Vec<String>,
     /// Child scopes nested within this one.
     pub children: Vec<OriginalScope>,
@@ -266,6 +270,16 @@ fn resolve_name(names: &[String], index: i64) -> Result<String, ScopesError> {
         .and_then(|i| names.get(i))
         .cloned()
         .ok_or(ScopesError::InvalidNameIndex(index))
+}
+
+/// Resolve a variable name from the names array by absolute index.
+///
+/// ECMA-426 (`OriginalScopeVariables`) keeps an index past the end of `names`
+/// as the empty string. A variable that the decoder drops moves each later
+/// binding to the wrong variable.
+fn resolve_variable(names: &[String], index: i64) -> Result<String, ScopesError> {
+    let index = usize::try_from(index).map_err(|_| ScopesError::InvalidNameIndex(index))?;
+    Ok(names.get(index).cloned().unwrap_or_default())
 }
 
 /// Resolve a 1-based binding name (0 = unavailable).
@@ -537,6 +551,70 @@ mod tests {
         // Now decode with empty names - should fail with InvalidNameIndex
         let err = decode_scopes(&encoded, &[], 1).unwrap_err();
         assert!(matches!(err, ScopesError::InvalidNameIndex(_)));
+    }
+
+    /// One scope with the variables `a`, `b`, `c` and a range that binds them.
+    fn three_variable_info() -> ScopeInfo {
+        ScopeInfo {
+            scopes: vec![Some(OriginalScope {
+                start: Position { line: 0, column: 0 },
+                end: Position { line: 5, column: 0 },
+                name: None,
+                kind: None,
+                is_stack_frame: false,
+                variables: vec!["a".to_string(), "b".to_string(), "c".to_string()],
+                children: vec![],
+            })],
+            ranges: vec![GeneratedRange {
+                start: Position { line: 0, column: 0 },
+                end: Position { line: 5, column: 0 },
+                is_stack_frame: false,
+                is_hidden: false,
+                definition: Some(0),
+                call_site: None,
+                bindings: vec![
+                    Binding::Expression("_a".to_string()),
+                    Binding::Expression("_b".to_string()),
+                    Binding::Expression("_c".to_string()),
+                ],
+                children: vec![],
+            }],
+        }
+    }
+
+    #[test]
+    fn variable_index_out_of_bounds_decodes_as_empty_name() {
+        let info = three_variable_info();
+        // Put the binding expressions first, so that only the variable `c`
+        // points past the end of the shortened names array.
+        let mut names: Vec<String> =
+            ["_a", "_b", "_c", "a", "b"].iter().map(ToString::to_string).collect();
+        let encoded = encode_scopes(&info, &mut names);
+        assert_eq!(names.len(), 6, "the encoder adds only `c`");
+
+        let decoded = decode_scopes(&encoded, &names[..5], 1).unwrap();
+        let scope = decoded.scopes[0].as_ref().unwrap();
+        assert_eq!(scope.variables, vec!["a", "b", ""]);
+        // Each binding stays with its variable.
+        assert_eq!(decoded.ranges[0].bindings, info.ranges[0].bindings);
+    }
+
+    #[test]
+    fn empty_variable_name_roundtrip() {
+        let mut info = three_variable_info();
+        info.scopes[0].as_mut().unwrap().variables[1] = String::new();
+
+        let mut names = vec![];
+        let encoded = encode_scopes(&info, &mut names);
+        let decoded = decode_scopes(&encoded, &names, 1).unwrap();
+        assert_eq!(decoded, info);
+    }
+
+    #[test]
+    fn negative_variable_index_error() {
+        // B flags=0 line=0 column=0, D variable=-1, C line=0 column=0
+        let err = decode_scopes("BAAA,DD,CAA", &["a".to_string()], 1).unwrap_err();
+        assert!(matches!(err, ScopesError::InvalidNameIndex(-1)));
     }
 
     #[test]

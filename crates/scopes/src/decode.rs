@@ -9,7 +9,7 @@ use crate::{
     ScopesError, SubRangeBinding, TAG_GENERATED_RANGE_BINDINGS, TAG_GENERATED_RANGE_CALL_SITE,
     TAG_GENERATED_RANGE_END, TAG_GENERATED_RANGE_START, TAG_GENERATED_RANGE_SUB_RANGE_BINDINGS,
     TAG_ORIGINAL_SCOPE_END, TAG_ORIGINAL_SCOPE_START, TAG_ORIGINAL_SCOPE_VARIABLES,
-    resolve_binding, resolve_name,
+    resolve_binding, resolve_name, resolve_variable,
 };
 
 // ── Tokenizer ────────────────────────────────────────────────────
@@ -253,7 +253,7 @@ impl DecodeState {
             while !tok.at_item_end() {
                 let d = tok.read_signed()?;
                 self.os_var = checked_add_i64(self.os_var, d)?;
-                current.variables.push(resolve_name(names, self.os_var)?);
+                current.variables.push(resolve_variable(names, self.os_var)?);
             }
         } else {
             while !tok.at_item_end() {
@@ -450,8 +450,11 @@ fn checked_add_i64(value: i64, delta: i64) -> Result<i64, ScopesError> {
 ///
 /// - `input`: the VLQ-encoded scopes string from the source map
 /// - `names`: the `names` array from the source map (for resolving indices).
-///   Must contain all names referenced by the encoded string, or
-///   `ScopesError::InvalidNameIndex` will be returned.
+///   Must contain each scope name, scope kind and binding expression that the
+///   encoded string references, or the function returns
+///   `ScopesError::InvalidNameIndex`. A variable index past the end of `names`
+///   is not an error: the variable gets the empty name, and it keeps its
+///   position in the list.
 /// - `num_sources`: number of source files (length of `sources` array)
 pub fn decode_scopes(
     input: &str,
