@@ -1,36 +1,91 @@
 use serde::Deserialize;
 use wasm_bindgen::prelude::*;
 
-/// Decode a scopes string into structured scope information.
-///
-/// `scopes_str` is the VLQ-encoded scopes string from a source map.
-/// `names` is the names array from the source map (as a JS string array).
-/// `num_sources` is the number of source files in the source map.
-///
-/// Returns a JS object with `scopes` and `ranges` arrays.
-#[wasm_bindgen(js_name = "decodeScopes")]
-pub fn decode_scopes(
-    scopes_str: &str,
-    names: Vec<JsValue>,
-    num_sources: u32,
-) -> Result<JsValue, JsError> {
-    let names_vec: Vec<String> = names.iter().map(|v| v.as_string().unwrap_or_default()).collect();
+#[wasm_bindgen(typescript_custom_section)]
+const TYPES: &str = r#"
+/** A 0-based position. */
+export interface Position {
+  line: number;
+  column: number;
+}
 
-    let info = srcmap_scopes::decode_scopes(scopes_str, &names_vec, num_sources as usize)
-        .map_err(|e| JsError::new(&e.to_string()))?;
+/** An original scope of a source. */
+export interface OriginalScope {
+  start: Position;
+  end: Position;
+  name: string | null;
+  kind: string | null;
+  isStackFrame: boolean;
+  /** The empty string is a variable with no known name. */
+  variables: string[];
+  children: OriginalScope[];
+}
 
+/** A reference from a generated range to an original scope. */
+export interface ScopeDefinition {
+  /** Index of the source in `sources`. */
+  sourceIndex: number;
+  /** Index of the scope in the pre-order list of the scopes of that source. */
+  scopeIndex: number;
+}
+
+export interface CallSite {
+  sourceIndex: number;
+  line: number;
+  column: number;
+}
+
+export interface SubRangeBinding {
+  /** `null` is a variable that is not available. */
+  expression: string | null;
+  from: Position;
+}
+
+export type Binding =
+  | { type: "expression"; expression: string }
+  | { type: "unavailable" }
+  | { type: "subRanges"; subRanges: SubRangeBinding[] };
+
+export interface GeneratedRange {
+  start: Position;
+  end: Position;
+  isStackFrame: boolean;
+  isHidden: boolean;
+  definition: ScopeDefinition | null;
+  callSite: CallSite | null;
+  bindings: Binding[];
+  children: GeneratedRange[];
+}
+
+export interface ScopeInfo {
+  /** The root scopes of each source. An empty list is a source without scopes. */
+  scopes: OriginalScope[][];
+  ranges: GeneratedRange[];
+}
+
+/** The `scopes` and `ranges` fields of a source map, and the `names` array. */
+export interface EncodedScopes {
+  /** One entry for each source. `null` is a source without scopes. */
+  scopes: (string | null)[];
+  ranges: string[];
+  names: string[];
+}
+"#;
+
+fn js_strings(values: &[JsValue]) -> Vec<String> {
+    values.iter().map(|v| v.as_string().unwrap_or_default()).collect()
+}
+
+fn scope_info_to_js(info: &srcmap_scopes::ScopeInfo) -> JsValue {
     let result = js_sys::Object::new();
 
     let scopes_arr = js_sys::Array::new();
-    for scope in &info.scopes {
-        match scope {
-            Some(s) => {
-                scopes_arr.push(&encode_original_scope(s));
-            }
-            None => {
-                scopes_arr.push(&JsValue::NULL);
-            }
+    for roots in &info.scopes {
+        let roots_arr = js_sys::Array::new();
+        for scope in roots {
+            roots_arr.push(&encode_original_scope(scope));
         }
+        scopes_arr.push(&roots_arr);
     }
     js_sys::Reflect::set(&result, &"scopes".into(), &scopes_arr).unwrap_or(false);
 
@@ -40,29 +95,92 @@ pub fn decode_scopes(
     }
     js_sys::Reflect::set(&result, &"ranges".into(), &ranges_arr).unwrap_or(false);
 
-    Ok(result.into())
+    result.into()
 }
 
-/// Encode structured scope information into a VLQ-encoded scopes string.
+/// Decode the `scopes` and `ranges` fields of a source map into structured
+/// scope information. The fields have the layout of the ECMA-426 draft
+/// specification.
 ///
-/// `scopes_json` is a JSON string representing the scope info structure.
+/// `scopes` is the `scopes` array of the source map: one string for each
+/// source, or `null` for a source without scopes.
+/// `ranges` is the `ranges` array of the source map.
+/// `names` is the `names` array of the source map.
+/// `num_sources` is the number of source files in the source map.
+///
+/// Returns a JS object with `scopes` and `ranges` arrays.
+#[wasm_bindgen(js_name = "decodeScopes", unchecked_return_type = "ScopeInfo")]
+pub fn decode_scopes(
+    #[wasm_bindgen(unchecked_param_type = "(string | null)[]")] scopes: Vec<JsValue>,
+    #[wasm_bindgen(unchecked_param_type = "string[]")] ranges: Vec<JsValue>,
+    #[wasm_bindgen(unchecked_param_type = "string[]")] names: Vec<JsValue>,
+    num_sources: u32,
+) -> Result<JsValue, JsError> {
+    let scopes: Vec<Option<String>> = scopes.iter().map(JsValue::as_string).collect();
+
+    let info = srcmap_scopes::decode_scopes(
+        &scopes,
+        &js_strings(&ranges),
+        &js_strings(&names),
+        num_sources as usize,
+    )
+    .map_err(|e| JsError::new(&e.to_string()))?;
+
+    Ok(scope_info_to_js(&info))
+}
+
+/// Decode a `scopes` string of the older layout of the scopes proposal, which
+/// has one string for the full map.
+///
+/// Returns the same JS object as `decodeScopes`.
+#[wasm_bindgen(js_name = "decodeLegacyScopes", unchecked_return_type = "ScopeInfo")]
+pub fn decode_legacy_scopes(
+    scopes_str: &str,
+    #[wasm_bindgen(unchecked_param_type = "string[]")] names: Vec<JsValue>,
+    num_sources: u32,
+) -> Result<JsValue, JsError> {
+    let info =
+        srcmap_scopes::decode_legacy_scopes(scopes_str, &js_strings(&names), num_sources as usize)
+            .map_err(|e| JsError::new(&e.to_string()))?;
+
+    Ok(scope_info_to_js(&info))
+}
+
+/// Encode structured scope information into the `scopes` and `ranges` fields
+/// of a source map, in the layout of the ECMA-426 draft specification.
+///
+/// `scopes_json` is a JSON string of a `ScopeInfo` object.
 /// `names` is the current names array (may be extended with new names).
 ///
-/// Returns a JS object with `encoded` (the VLQ string) and `names` (updated names array).
-#[wasm_bindgen(js_name = "encodeScopes")]
-pub fn encode_scopes(scopes_json: &str, names: Vec<JsValue>) -> Result<JsValue, JsError> {
+/// Returns a JS object with `scopes` (one string or `null` for each source),
+/// `ranges` (an array of strings) and `names` (the updated names array).
+#[wasm_bindgen(js_name = "encodeScopes", unchecked_return_type = "EncodedScopes")]
+pub fn encode_scopes(
+    scopes_json: &str,
+    #[wasm_bindgen(unchecked_param_type = "string[]")] names: Vec<JsValue>,
+) -> Result<JsValue, JsError> {
     let info: ScopeInfoJson =
         serde_json::from_str(scopes_json).map_err(|e| JsError::new(&e.to_string()))?;
 
     let scope_info = info.into_scope_info();
 
-    let mut names_vec: Vec<String> =
-        names.iter().map(|v| v.as_string().unwrap_or_default()).collect();
+    let mut names_vec = js_strings(&names);
 
     let encoded = srcmap_scopes::encode_scopes(&scope_info, &mut names_vec);
 
     let result = js_sys::Object::new();
-    js_sys::Reflect::set(&result, &"encoded".into(), &encoded.into()).unwrap_or(false);
+
+    let scopes_arr = js_sys::Array::new();
+    for entry in &encoded.scopes {
+        scopes_arr.push(&entry.as_deref().map_or(JsValue::NULL, JsValue::from_str));
+    }
+    js_sys::Reflect::set(&result, &"scopes".into(), &scopes_arr).unwrap_or(false);
+
+    let ranges_arr = js_sys::Array::new();
+    for entry in &encoded.ranges {
+        ranges_arr.push(&JsValue::from_str(entry));
+    }
+    js_sys::Reflect::set(&result, &"ranges".into(), &ranges_arr).unwrap_or(false);
 
     let names_arr = js_sys::Array::new();
     for name in &names_vec {
@@ -134,7 +252,14 @@ fn encode_generated_range(range: &srcmap_scopes::GeneratedRange) -> JsValue {
     js_sys::Reflect::set(&obj, &"isHidden".into(), &range.is_hidden.into()).unwrap_or(false);
 
     let def_val: JsValue = match range.definition {
-        Some(d) => d.into(),
+        Some(d) => {
+            let def_obj = js_sys::Object::new();
+            js_sys::Reflect::set(&def_obj, &"sourceIndex".into(), &d.source_index.into())
+                .unwrap_or(false);
+            js_sys::Reflect::set(&def_obj, &"scopeIndex".into(), &d.scope_index.into())
+                .unwrap_or(false);
+            def_obj.into()
+        }
         None => JsValue::NULL,
     };
     js_sys::Reflect::set(&obj, &"definition".into(), &def_val).unwrap_or(false);
@@ -204,7 +329,7 @@ fn encode_binding(binding: &srcmap_scopes::Binding) -> JsValue {
 #[derive(Deserialize)]
 struct ScopeInfoJson {
     #[serde(default)]
-    scopes: Vec<Option<OriginalScopeJson>>,
+    scopes: Vec<Option<Vec<OriginalScopeJson>>>,
     #[serde(default)]
     ranges: Vec<GeneratedRangeJson>,
 }
@@ -234,7 +359,7 @@ struct GeneratedRangeJson {
     #[serde(default, rename = "isHidden")]
     is_hidden: bool,
     #[serde(default)]
-    definition: Option<u32>,
+    definition: Option<DefinitionJson>,
     #[serde(default, rename = "callSite")]
     call_site: Option<CallSiteJson>,
     #[serde(default)]
@@ -247,6 +372,14 @@ struct GeneratedRangeJson {
 struct PositionJson {
     line: u32,
     column: u32,
+}
+
+#[derive(Deserialize)]
+struct DefinitionJson {
+    #[serde(rename = "sourceIndex")]
+    source_index: u32,
+    #[serde(rename = "scopeIndex")]
+    scope_index: u32,
 }
 
 #[derive(Deserialize)]
@@ -286,7 +419,12 @@ impl From<PositionJson> for srcmap_scopes::Position {
 impl ScopeInfoJson {
     fn into_scope_info(self) -> srcmap_scopes::ScopeInfo {
         srcmap_scopes::ScopeInfo {
-            scopes: self.scopes.into_iter().map(|s| s.map(|s| s.into())).collect(),
+            scopes: self
+                .scopes
+                .into_iter()
+                // `null` is a source without scopes, as an empty list is.
+                .map(|roots| roots.unwrap_or_default().into_iter().map(Into::into).collect())
+                .collect(),
             ranges: self.ranges.into_iter().map(|r| r.into()).collect(),
         }
     }
@@ -313,7 +451,10 @@ impl From<GeneratedRangeJson> for srcmap_scopes::GeneratedRange {
             end: r.end.into(),
             is_stack_frame: r.is_stack_frame,
             is_hidden: r.is_hidden,
-            definition: r.definition,
+            definition: r.definition.map(|d| srcmap_scopes::ScopeDefinition {
+                source_index: d.source_index,
+                scope_index: d.scope_index,
+            }),
             call_site: r.call_site.map(|cs| srcmap_scopes::CallSite {
                 source_index: cs.source_index,
                 line: cs.line,

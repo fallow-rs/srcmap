@@ -37,7 +37,7 @@ srcmap-remapping = "0.6"    # if you compose/concatenate source maps
 ## Where srcmap fits
 
 - **A Rust tool that needs more than parse and lookup.** srcmap composes maps through a transform chain, concatenates them, reads indexed maps, and symbolicates stack traces.
-- **Debug metadata from the draft proposals.** `srcmap-scopes` reads and writes the ECMA-426 scopes proposal. The parser and generator handle `rangeMappings` and `debugId`.
+- **Debug metadata from the draft proposals.** `srcmap-scopes` reads and writes the ECMA-426 scopes proposal, in the `scopes` and `ranges` layout of the draft specification. The parser and generator handle `rangeMappings` and `debugId`.
 - **React Native.** `srcmap-hermes` reads the Hermes extensions, and `srcmap-ram-bundle` reads RAM bundles.
 - **Many lookups on one map.** A symbolication or coverage service can send positions in batches (see [Performance](#performance)).
 - **Inspection from the shell.** The CLI validates, decodes, composes and symbolicates, with JSON output.
@@ -158,7 +158,7 @@ Stable [ECMA-426](https://tc39.es/ecma426/) core support:
 Draft proposal support:
 
 - `debugId` (ECMA-426 draft proposal, not part of the published core standard), in the source map and in the `//# debugId=<UUID>` comment of a generated file
-- Scopes & variables via [`srcmap-scopes`](https://crates.io/crates/srcmap-scopes) (the [ECMA-426 scopes proposal](https://github.com/tc39/ecma426/blob/main/proposals/scopes.md))
+- Scopes & variables via [`srcmap-scopes`](https://crates.io/crates/srcmap-scopes) (the ECMA-426 scopes proposal, in the layout of the [draft specification](https://tc39.es/ecma426/branch/proposal-scopes/))
 - `rangeMappings` (ECMA-426 Stage 2 proposal)
 
 ## Performance

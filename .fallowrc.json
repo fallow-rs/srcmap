@@ -19,6 +19,7 @@
     "@srcmap/generator-wasm",
     "@srcmap/sourcemap-wasm",
     "@srcmap/remapping-wasm",
+    "@chrome-devtools/source-map-scopes-codec",
     "vite"
   ],
   "ignoreUnresolvedImports": [

@@ -335,7 +335,7 @@ fn conformance_scopes_roundtrip_via_to_json() {
     use srcmap_scopes::{GeneratedRange, OriginalScope, Position, ScopeInfo};
 
     let scopes_info = ScopeInfo {
-        scopes: vec![Some(OriginalScope {
+        scopes: vec![vec![OriginalScope {
             start: Position { line: 0, column: 0 },
             end: Position { line: 10, column: 0 },
             name: Some("global".to_string()),
@@ -343,46 +343,51 @@ fn conformance_scopes_roundtrip_via_to_json() {
             is_stack_frame: false,
             variables: vec!["x".to_string()],
             children: vec![],
-        })],
+        }]],
         ranges: vec![GeneratedRange {
             start: Position { line: 0, column: 0 },
             end: Position { line: 5, column: 0 },
             is_stack_frame: false,
             is_hidden: false,
-            definition: Some(0),
+            definition: Some(srcmap_scopes::ScopeDefinition { source_index: 0, scope_index: 0 }),
             call_site: None,
             bindings: vec![],
             children: vec![],
         }],
     };
 
-    // Encode scopes to a VLQ string
+    // Encode the scopes to the `scopes` and `ranges` fields
     let mut names = vec!["global".to_string(), "x".to_string()];
-    let scopes_str = srcmap_scopes::encode_scopes(&scopes_info, &mut names);
+    let mut scopes_fields = String::new();
+    srcmap_scopes::encode_scopes(&scopes_info, &mut names).write_json_fields(&mut scopes_fields);
 
-    // Build JSON with the scopes string
+    // Build JSON with the two fields
     let names_json: Vec<String> = names.iter().map(|n| format!(r#""{n}""#)).collect();
     let json = format!(
-        r#"{{"version":3,"sources":["a.js"],"names":[{}],"mappings":"AAAA","scopes":"{}"}}"#,
+        r#"{{"version":3,"sources":["a.js"],"names":[{}],"mappings":"AAAA"{}}}"#,
         names_json.join(","),
-        scopes_str
+        scopes_fields
     );
 
     let sm = SourceMap::from_json(&json).unwrap();
     assert!(sm.scopes.is_some());
 
     let output = sm.to_json();
-    assert!(output.contains(r#""scopes":"#), "to_json must emit scopes field");
+    assert!(output.contains(r#""scopes":["#), "to_json must emit the scopes field");
+    assert!(output.contains(r#""ranges":["#), "to_json must emit the ranges field");
 
     let sm2 = SourceMap::from_json(&output).unwrap();
     assert!(sm2.scopes.is_some());
 
     let scopes2 = sm2.scopes.unwrap();
     assert_eq!(scopes2.scopes.len(), 1);
-    let scope = scopes2.scopes[0].as_ref().unwrap();
+    let scope = &scopes2.scopes[0][0];
     assert_eq!(scope.name.as_deref(), Some("global"));
     assert_eq!(scopes2.ranges.len(), 1);
-    assert_eq!(scopes2.ranges[0].definition, Some(0));
+    assert_eq!(
+        scopes2.ranges[0].definition,
+        Some(srcmap_scopes::ScopeDefinition { source_index: 0, scope_index: 0 })
+    );
 }
 
 // ── Roundtrip tests ──────────────────────────────────────────────
@@ -412,6 +417,129 @@ fn conformance_roundtrip() {
             }
             (None, None) => {}
             _ => panic!("roundtrip mismatch at {}:{}", m.generated_line, m.generated_column),
+        }
+    }
+}
+
+// ── Scopes decoding cases of tc39/source-map-tests ───────────────
+
+mod scopes_decoding {
+    use std::path::{Path, PathBuf};
+
+    use serde_json::{Value, json};
+    use srcmap_scopes::{Binding, GeneratedRange, OriginalScope, Position};
+    use srcmap_sourcemap::SourceMap;
+
+    fn position(pos: Position) -> Value {
+        json!({ "line": pos.line, "column": pos.column })
+    }
+
+    /// An Original Scope Record, as the golden files have it.
+    fn scope_record(scope: &OriginalScope) -> Value {
+        json!({
+            "start": position(scope.start),
+            "end": position(scope.end),
+            "name": scope.name,
+            "kind": scope.kind,
+            "isStackFrame": scope.is_stack_frame,
+            "variables": scope.variables,
+            "children": scope.children.iter().map(scope_record).collect::<Vec<_>>(),
+        })
+    }
+
+    /// The Binding Records of one variable. A binding for the full range is
+    /// one record at the start of the range.
+    fn binding_records(binding: &Binding, start: Position) -> Value {
+        let record = |expression: Option<&str>, from: Position| json!({ "binding": expression, "from": position(from) });
+        match binding {
+            Binding::Expression(expression) => json!([record(Some(expression), start)]),
+            Binding::Unavailable => json!([record(None, start)]),
+            Binding::SubRanges(subs) => Value::Array(
+                subs.iter().map(|sub| record(sub.expression.as_deref(), sub.from)).collect(),
+            ),
+        }
+    }
+
+    /// A Generated Range Record, as the golden files have it.
+    fn range_record(range: &GeneratedRange) -> Value {
+        let stack_frame_type = match (range.is_stack_frame, range.is_hidden) {
+            (true, true) => "hidden",
+            (true, false) => "original",
+            (false, _) => "none",
+        };
+        json!({
+            "start": position(range.start),
+            "end": position(range.end),
+            "definition": range.definition.map(|definition| json!({
+                "source": definition.source_index,
+                "scope": definition.scope_index,
+            })),
+            "stackFrameType": stack_frame_type,
+            "callSite": range.call_site.map(|call_site| json!({
+                "sourceIndex": call_site.source_index,
+                "line": call_site.line,
+                "column": call_site.column,
+            })),
+            "bindings": range
+                .bindings
+                .iter()
+                .map(|binding| binding_records(binding, range.start))
+                .collect::<Vec<_>>(),
+            "children": range.children.iter().map(range_record).collect::<Vec<_>>(),
+        })
+    }
+
+    fn fixture_maps() -> Vec<PathBuf> {
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/scopes");
+        let mut maps: Vec<PathBuf> = std::fs::read_dir(dir)
+            .unwrap()
+            .map(|entry| entry.unwrap().path())
+            .filter(|path| path.extension().is_some_and(|extension| extension == "map"))
+            .collect();
+        maps.sort();
+        maps
+    }
+
+    #[test]
+    fn scopes_cases_decode_to_the_golden_records() {
+        let maps = fixture_maps();
+        assert!(maps.len() >= 15, "the scopes cases are missing: {maps:?}");
+
+        for map in maps {
+            let name = map.file_name().unwrap().to_string_lossy().into_owned();
+            let sm = SourceMap::from_json(&std::fs::read_to_string(&map).unwrap())
+                .unwrap_or_else(|err| panic!("{name}: {err}"));
+            let golden: Value = serde_json::from_str(
+                &std::fs::read_to_string(map.with_extension("map.golden")).unwrap(),
+            )
+            .unwrap();
+
+            let empty = Vec::new();
+            let (scopes, ranges) = match &sm.scopes {
+                Some(info) => (&info.scopes, &info.ranges),
+                None => (&empty, &Vec::new()),
+            };
+
+            let golden_sources = golden["sources"].as_array().unwrap();
+            assert_eq!(sm.sources.len(), golden_sources.len(), "{name}: sources");
+            for (index, golden_source) in golden_sources.iter().enumerate() {
+                let roots: Vec<Value> = scopes
+                    .get(index)
+                    .map(|roots| roots.iter().map(scope_record).collect())
+                    .unwrap_or_default();
+                assert_eq!(
+                    Value::Array(roots),
+                    golden_source["rootScopes"],
+                    "{name}: root scopes of source {index}"
+                );
+            }
+
+            let ranges: Vec<Value> = ranges.iter().map(range_record).collect();
+            assert_eq!(Value::Array(ranges), golden["ranges"], "{name}: ranges");
+
+            // The output of srcmap decodes to the same records.
+            let again = SourceMap::from_json(&sm.to_json()).unwrap();
+            assert_eq!(again.scopes, sm.scopes, "{name}: roundtrip");
         }
     }
 }

@@ -60,7 +60,7 @@ fn build_range_generator(lines: u32, cols_per_line: u32) -> SourceMapGenerator {
 fn build_scoped_generator(lines: u32, cols_per_line: u32) -> SourceMapGenerator {
     let mut builder = build_generator(lines, cols_per_line, true);
     builder.set_scopes(ScopeInfo {
-        scopes: vec![Some(OriginalScope {
+        scopes: vec![vec![OriginalScope {
             start: Position { line: 0, column: 0 },
             end: Position { line: lines, column: 0 },
             name: None,
@@ -76,13 +76,13 @@ fn build_scoped_generator(lines: u32, cols_per_line: u32) -> SourceMapGenerator 
                 variables: vec!["props".to_string(), "result".to_string()],
                 children: Vec::new(),
             }],
-        })],
+        }]],
         ranges: vec![GeneratedRange {
             start: Position { line: 0, column: 0 },
             end: Position { line: lines, column: 0 },
             is_stack_frame: false,
             is_hidden: false,
-            definition: Some(0),
+            definition: Some(srcmap_scopes::ScopeDefinition { source_index: 0, scope_index: 0 }),
             call_site: None,
             bindings: vec![
                 Binding::Expression("entry".to_string()),
@@ -93,7 +93,10 @@ fn build_scoped_generator(lines: u32, cols_per_line: u32) -> SourceMapGenerator 
                 end: Position { line: lines.saturating_sub(1), column: 0 },
                 is_stack_frame: true,
                 is_hidden: false,
-                definition: Some(1),
+                definition: Some(srcmap_scopes::ScopeDefinition {
+                    source_index: 0,
+                    scope_index: 1,
+                }),
                 call_site: None,
                 bindings: vec![
                     Binding::Expression("props".to_string()),
