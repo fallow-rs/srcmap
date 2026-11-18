@@ -47,6 +47,16 @@ let decoded = decode_scopes(&encoded, &names, 1).unwrap();
 assert_eq!(decoded.scopes.len(), 1);
 ```
 
+## Variable names
+
+`OriginalScope::variables` is a `Vec<String>`. The decoder gives the empty string for a variable index past the end of `names`, as [tc39/ecma426#244](https://github.com/tc39/ecma426/pull/244) specifies. The variable keeps its position, so each binding of a generated range stays with its variable. Treat an empty string as a variable with no known name.
+
+`decode_scopes` returns `ScopesError::InvalidNameIndex` for a negative variable index, and for a scope name, a scope kind or a binding expression that is not in `names`.
+
+## Wire layout
+
+This crate reads and writes the layout of the [proposal text](https://github.com/tc39/ecma426/blob/main/proposals/scopes.md): one `scopes` string for the full map. The [draft specification](https://tc39.es/ecma426/branch/proposal-scopes/) now uses a `scopes` array with one string for each source and a `ranges` array. This crate does not read or write that layout yet.
+
 ## Key types
 
 | Type | Description |

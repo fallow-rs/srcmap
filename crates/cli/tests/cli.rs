@@ -484,6 +484,28 @@ fn scopes_human() {
 }
 
 #[test]
+fn scopes_variable_without_name() {
+    // The variable index 1 points past the end of `names`.
+    let dir = tempfile::tempdir().unwrap();
+    let map = dir.path().join("unnamed.js.map");
+    std::fs::write(
+        &map,
+        r#"{"version":3,"sources":["a.ts"],"names":["x"],"mappings":"AAAA","scopes":"BAAA,DAC,CCA"}"#,
+    )
+    .unwrap();
+
+    let out = srcmap().args(["scopes", map.to_str().unwrap()]).output().unwrap();
+    assert!(out.status.success());
+    let stdout = String::from_utf8(out.stdout).unwrap();
+    assert!(stdout.contains("vars: x, <no name>\n"), "{stdout}");
+
+    let out = srcmap().args(["scopes", map.to_str().unwrap(), "--json"]).output().unwrap();
+    assert!(out.status.success());
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(v["originalScopes"][0]["scope"]["variables"], serde_json::json!(["x", ""]));
+}
+
+#[test]
 fn scopes_json() {
     let out = srcmap()
         .args(["scopes", fixture("scoped.js.map").to_str().unwrap(), "--json"])
