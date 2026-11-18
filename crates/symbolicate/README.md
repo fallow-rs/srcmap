@@ -63,7 +63,7 @@ let result = symbolicate_with_debug_ids(
     // The debug ID of the generated file of a frame.
     |file| extract_debug_id(&std::fs::read_to_string(file).ok()?),
     // The source map for that debug ID.
-    |debug_id| index.get(debug_id).cloned(),
+    |debug_id| index.get(debug_id),
     // The source map for a file that has no debug ID.
     |file| SourceMap::from_json(&std::fs::read_to_string(format!("{file}.map")).ok()?).ok(),
 );

@@ -92,7 +92,7 @@ srcmap schema
 - **Structured JSON output.** Most commands take `--json`.
 - **Agent introspection.** `srcmap schema` describes all commands, arguments, types and flags as JSON.
 - **stdin support.** Pass `-` as the file argument to read from stdin.
-- **Debug ID check.** `srcmap validate --generated <PATH>` compares the `debugId` comment of the generated file with the `debugId` of the source map. The command exits with 1 when the IDs differ, or when only one side has an ID.
+- **Debug ID check.** `srcmap validate --generated <PATH>` compares the `debugId` comment of the generated file with the `debugId` of the source map. The command exits with 1 when the IDs differ, or when only one side has an ID. A file with the extension `.css` has the CSS comment form.
 - **Dry run.** `concat` and `remap` take `--dry-run`, which validates the input and writes nothing.
 - **Input hardening.** The CLI rejects control characters, path traversals and percent-encoding in source names.
 - **Output sandboxing.** The CLI writes only inside the current working directory.

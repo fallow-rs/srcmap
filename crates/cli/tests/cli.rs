@@ -1873,3 +1873,60 @@ fn schema_lists_the_generated_flag_of_validate() {
         v["commands"].as_array().unwrap().iter().find(|c| c["name"] == "validate").unwrap();
     assert_eq!(validate["flags"]["--generated"]["type"], "path");
 }
+
+/// Writes a map with `DEBUG_ID` in upper case and a generated file with the
+/// given name and bytes, then runs `validate --generated --json` on them.
+fn validate_generated_bytes(file_name: &str, generated: &[u8]) -> (Output, serde_json::Value) {
+    let dir = tempfile::tempdir().unwrap();
+    let map = dir.path().join("app.map");
+    let generated_path = dir.path().join(file_name);
+    let map_id = DEBUG_ID.to_ascii_uppercase();
+    fs::write(
+        &map,
+        format!(
+            r#"{{"version":3,"sources":["a"],"names":[],"mappings":"AAAA","debugId":"{map_id}"}}"#
+        ),
+    )
+    .unwrap();
+    fs::write(&generated_path, generated).unwrap();
+
+    let out = srcmap()
+        .args(["validate", map.to_str().unwrap(), "--json", "--generated"])
+        .arg(&generated_path)
+        .output()
+        .unwrap();
+    let json = serde_json::from_slice(&out.stdout).unwrap();
+    (out, json)
+}
+
+#[test]
+fn validate_debug_id_reports_both_ids_in_lower_case() {
+    let (out, v) = validate_generated_bytes("app.js", format!("//# debugId={DEBUG_ID}").as_bytes());
+    assert_eq!(out.status.code(), Some(0));
+    assert_eq!(v["debugId"]["status"], "match");
+    assert_eq!(v["debugId"]["map"], DEBUG_ID);
+    assert_eq!(v["debugId"]["generated"], DEBUG_ID);
+}
+
+#[test]
+fn validate_debug_id_reads_a_generated_file_that_is_not_utf8() {
+    let mut generated = b"var a = \"\xff\xfe\";\n".to_vec();
+    generated.extend_from_slice(format!("//# debugId={DEBUG_ID}\n").as_bytes());
+
+    let (out, v) = validate_generated_bytes("app.js", &generated);
+    assert_eq!(out.status.code(), Some(0));
+    assert_eq!(v["debugId"]["status"], "match");
+}
+
+#[test]
+fn validate_debug_id_uses_the_css_comment_for_a_css_file() {
+    let css_comment = format!("a{{}}\n/*# debugId={DEBUG_ID} */\n");
+
+    let (out, v) = validate_generated_bytes("app.CSS", css_comment.as_bytes());
+    assert_eq!(out.status.code(), Some(0));
+    assert_eq!(v["debugId"]["status"], "match");
+
+    let (out, v) = validate_generated_bytes("app.js", css_comment.as_bytes());
+    assert_eq!(out.status.code(), Some(1));
+    assert_eq!(v["debugId"]["status"], "missing-in-generated");
+}

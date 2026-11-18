@@ -1,6 +1,6 @@
 //! Tests for the `debugId` comment of the ECMA-426 debug ID proposal.
 
-use srcmap_sourcemap::extract_debug_id;
+use srcmap_sourcemap::{extract_css_debug_id, extract_debug_id};
 
 const ID: &str = "85314830-023f-4cf1-a267-535f4e37bb17";
 
@@ -19,10 +19,47 @@ fn reads_the_comment_before_a_final_line_end() {
 #[test]
 fn reads_the_css_comment() {
     let source = format!("body{{color:red}}\n/*# debugId={ID} */\n");
-    assert_eq!(extract_debug_id(&source).as_deref(), Some(ID));
+    assert_eq!(extract_css_debug_id(&source).as_deref(), Some(ID));
 
     let no_space = format!("body{{color:red}}\n/*# debugId={ID}*/");
-    assert_eq!(extract_debug_id(&no_space).as_deref(), Some(ID));
+    assert_eq!(extract_css_debug_id(&no_space).as_deref(), Some(ID));
+
+    let tab = format!("body{{color:red}}\n/*# debugId={ID}\t */");
+    assert_eq!(extract_css_debug_id(&tab).as_deref(), Some(ID));
+}
+
+#[test]
+fn each_comment_form_belongs_to_its_file_type() {
+    let css_form = format!("var a;\n/*# debugId={ID} */\n");
+    assert_eq!(extract_debug_id(&css_form), None);
+
+    let js_form = format!("body{{color:red}}\n//# debugId={ID}\n");
+    assert_eq!(extract_css_debug_id(&js_form), None);
+}
+
+#[test]
+fn each_javascript_line_terminator_ends_a_line() {
+    for terminator in ["\n", "\r", "\r\n", "\u{2028}", "\u{2029}"] {
+        let after = format!("var a;{terminator}//# debugId={ID}");
+        assert_eq!(extract_debug_id(&after).as_deref(), Some(ID), "after {terminator:?}");
+
+        let before = format!("var a;\n//# debugId={ID}{terminator}");
+        assert_eq!(extract_debug_id(&before).as_deref(), Some(ID), "before {terminator:?}");
+
+        let css = format!("a{{}}{terminator}/*# debugId={ID} */{terminator}");
+        assert_eq!(extract_css_debug_id(&css).as_deref(), Some(ID), "CSS {terminator:?}");
+    }
+}
+
+#[test]
+fn each_javascript_line_terminator_counts_as_one_line() {
+    for terminator in ["\n", "\r", "\r\n", "\u{2028}", "\u{2029}"] {
+        let fifth = format!("//# debugId={ID}{t}1;{t}2;{t}3;{t}4;{t}", t = terminator);
+        assert_eq!(extract_debug_id(&fifth).as_deref(), Some(ID), "fifth with {terminator:?}");
+
+        let sixth = format!("//# debugId={ID}{t}1;{t}2;{t}3;{t}4;{t}5;{t}", t = terminator);
+        assert_eq!(extract_debug_id(&sixth), None, "sixth with {terminator:?}");
+    }
 }
 
 #[test]

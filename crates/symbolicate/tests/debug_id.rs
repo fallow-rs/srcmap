@@ -70,8 +70,8 @@ fn symbolicate_uses_the_debug_id_of_the_file() {
     let result = symbolicate_with_debug_ids(
         STACK,
         |file| (file == "https://cdn.example.com/app.min.js").then(|| ID.to_string()),
-        |debug_id| index.get(debug_id).cloned(),
-        |_| None,
+        |debug_id| index.get(debug_id),
+        |_| None::<SourceMap>,
     );
 
     assert!(result.frames[0].symbolicated);
@@ -85,7 +85,7 @@ fn symbolicate_prefers_the_debug_id_map_to_the_file_map() {
     let result = symbolicate_with_debug_ids(
         STACK,
         |_| Some(ID.to_string()),
-        |debug_id| index.get(debug_id).cloned(),
+        |debug_id| index.get(debug_id),
         |_| Some(map("by-file.ts", None)),
     );
 
@@ -97,7 +97,7 @@ fn symbolicate_uses_the_file_loader_without_a_debug_id() {
     let result = symbolicate_with_debug_ids(
         STACK,
         |_| None,
-        |_| panic!("no debug ID to resolve"),
+        |_| -> Option<SourceMap> { panic!("no debug ID to resolve") },
         |_| Some(map("by-file.ts", None)),
     );
 
@@ -111,7 +111,7 @@ fn symbolicate_uses_the_file_loader_when_no_map_has_the_debug_id() {
     let result = symbolicate_with_debug_ids(
         STACK,
         |_| Some(ID.to_string()),
-        |debug_id| index.get(debug_id).cloned(),
+        |debug_id| index.get(debug_id),
         |_| Some(map("by-file.ts", None)),
     );
 
@@ -120,9 +120,43 @@ fn symbolicate_uses_the_file_loader_when_no_map_has_the_debug_id() {
 
 #[test]
 fn symbolicate_keeps_the_frame_when_no_map_is_found() {
-    let result = symbolicate_with_debug_ids(STACK, |_| Some(ID.to_string()), |_| None, |_| None);
+    let result = symbolicate_with_debug_ids(
+        STACK,
+        |_| Some(ID.to_string()),
+        |_| None::<SourceMap>,
+        |_| None::<SourceMap>,
+    );
 
     assert!(!result.frames[0].symbolicated);
     assert_eq!(result.frames[0].file, "https://cdn.example.com/app.min.js");
     assert_eq!(result.message.as_deref(), Some("Error: test"));
+}
+
+#[test]
+fn resolve_by_debug_id_ignores_the_case_of_the_hex_digits() {
+    let mut maps = std::collections::HashMap::new();
+    maps.insert("app.js".to_string(), map("src/app.ts", Some(ID)));
+
+    let found = srcmap_symbolicate::resolve_by_debug_id(&ID.to_ascii_uppercase(), &maps);
+    assert_eq!(found.map(|sm| sm.source(0)), Some("src/app.ts"));
+}
+
+#[test]
+fn symbolicate_asks_for_the_debug_id_of_a_file_one_time() {
+    let index = index_of(map("src/app.ts", Some(ID)));
+    let calls = std::cell::Cell::new(0);
+    let stack = format!("{STACK}\n    at g (https://cdn.example.com/app.min.js:1:1)");
+
+    let result = symbolicate_with_debug_ids(
+        &stack,
+        |_| {
+            calls.set(calls.get() + 1);
+            Some(ID.to_string())
+        },
+        |debug_id| index.get(debug_id),
+        |_| None::<SourceMap>,
+    );
+
+    assert_eq!(result.frames.len(), 2);
+    assert_eq!(calls.get(), 1);
 }

@@ -19,8 +19,8 @@ use srcmap_codec::{decode, encode};
 use srcmap_remapping::{ConcatBuilder, remap};
 use srcmap_sourcemap::utils::resolve_source_map_url;
 use srcmap_sourcemap::{
-    Bias, Mapping, OriginalLocation, SourceMap, SourceMappingUrl, extract_debug_id,
-    parse_source_mapping_url,
+    Bias, Mapping, OriginalLocation, SourceMap, SourceMappingUrl, extract_css_debug_id,
+    extract_debug_id, parse_source_mapping_url,
 };
 use url::Url;
 
@@ -968,14 +968,26 @@ struct DebugIdCheck {
 }
 
 impl DebugIdCheck {
-    fn new(sm: &SourceMap, generated_source: &str) -> Self {
-        Self { map: sm.debug_id.clone(), generated: extract_debug_id(generated_source) }
+    /// Reads the generated file and compares its debug ID with the debug ID of `sm`.
+    ///
+    /// A file with the extension `.css` has the CSS comment form. The comment
+    /// is ASCII, so bytes that are not UTF-8 in the file do not prevent the read.
+    fn new(sm: &SourceMap, generated: &Path) -> Result<Self, CliError> {
+        let bytes = fs::read(generated)
+            .map_err(|e| CliError::io(format!("failed to read {}: {e}", generated.display())))?;
+        let source = String::from_utf8_lossy(&bytes);
+        let is_css = generated.extension().is_some_and(|ext| ext.eq_ignore_ascii_case("css"));
+        let extract = if is_css { extract_css_debug_id } else { extract_debug_id };
+        Ok(Self {
+            map: sm.debug_id.as_deref().map(str::to_ascii_lowercase),
+            generated: extract(&source),
+        })
     }
 
     /// The `status` value of the JSON output.
     fn status(&self) -> &'static str {
         match (&self.map, &self.generated) {
-            (Some(map), Some(generated)) if map.eq_ignore_ascii_case(generated) => "match",
+            (Some(map), Some(generated)) if map == generated => "match",
             (Some(_), Some(_)) => "mismatch",
             (Some(_), None) => "missing-in-generated",
             (None, Some(_)) => "missing-in-map",
@@ -1018,15 +1030,9 @@ impl DebugIdCheck {
 
 fn cmd_validate(file: &Path, generated: Option<&Path>, json: bool) -> Result<bool, CliError> {
     let raw = read_file_or_stdin(file)?;
-    let generated_source = generated
-        .map(|path| {
-            fs::read_to_string(path)
-                .map_err(|e| CliError::io(format!("failed to read {}: {e}", path.display())))
-        })
-        .transpose()?;
     match SourceMap::from_json(&raw) {
         Ok(sm) => {
-            let debug_id = generated_source.as_deref().map(|source| DebugIdCheck::new(&sm, source));
+            let debug_id = generated.map(|path| DebugIdCheck::new(&sm, path)).transpose()?;
             if json {
                 let mut obj = serde_json::json!({
                     "valid": true,

@@ -40,7 +40,7 @@ Speed in JavaScript is not a goal. Measurements in November 2026 gave these resu
 
 srcmap reads and writes `debugId` in the source map JSON. It also reads the `//# debugId=<UUID>` comment from the last 5 lines of a generated file, as the [debug ID proposal](https://github.com/tc39/ecma426/blob/main/proposals/debug-id.md) describes. The proposal specifies the comment only for JavaScript. The CSS form `/*# debugId=<UUID> */` is an srcmap extension.
 
-- [x] `extract_debug_id(source: &str) -> Option<String>` in `srcmap-sourcemap`, for the JavaScript and the CSS comment form
+- [x] `extract_debug_id(source: &str) -> Option<String>` in `srcmap-sourcemap` for the JavaScript comment, and `extract_css_debug_id` for the CSS comment
 - [x] `srcmap validate --generated <PATH>` compares the debug ID of a generated file with the debug ID of its map
 - [x] `srcmap-symbolicate` finds a source map by debug ID (`DebugIdIndex`, `symbolicate_with_debug_ids`)
 

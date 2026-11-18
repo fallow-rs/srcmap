@@ -188,7 +188,8 @@ the `OriginalPositionLookup` trait.
 | Function | Description |
 |----------|-------------|
 | `parse_source_mapping_url(source) -> Option<SourceMappingUrl>` | Extract and parse a `sourceMappingURL` comment from source code |
-| `extract_debug_id(source) -> Option<String>` | Read the `//# debugId=<UUID>` or `/*# debugId=<UUID> */` comment in the last 5 lines of a generated file. Returns the UUID in lower case |
+| `extract_debug_id(source) -> Option<String>` | Read the `//# debugId=<UUID>` comment in the last 5 lines of a generated JavaScript file. Returns the UUID in lower case |
+| `extract_css_debug_id(source) -> Option<String>` | Read the `/*# debugId=<UUID> */` comment in the last 5 lines of a generated CSS file |
 | `validate_deep(sm) -> Vec<String>` | Deep structural validation with bounds and ordering checks |
 
 ### Fields

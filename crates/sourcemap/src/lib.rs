@@ -38,7 +38,7 @@ pub mod offset_lookup;
 pub mod source_view;
 pub mod utils;
 
-pub use debug_id::extract_debug_id;
+pub use debug_id::{extract_css_debug_id, extract_debug_id};
 pub use offset_lookup::{GeneratedOffsetLookup, OriginalPositionLookup};
 pub use source_view::SourceView;
 

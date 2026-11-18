@@ -14,6 +14,7 @@
 //! assert_eq!(frames[0].function_name.as_deref(), Some("foo"));
 //! ```
 
+use std::borrow::Borrow;
 use std::collections::HashMap;
 use std::fmt;
 
@@ -233,6 +234,9 @@ where
 /// 3. If there is no debug ID, or no source map has it, it calls
 ///    `map_for_file` with the file of the frame, as [`symbolicate`] does.
 ///
+/// Each of the two map loaders can return an owned [`SourceMap`] or a
+/// reference, so a [`DebugIdIndex`] gives its maps without a copy.
+///
 /// # Examples
 ///
 /// ```
@@ -252,36 +256,56 @@ where
 /// let result = symbolicate_with_debug_ids(
 ///     stack,
 ///     |_file| extract_debug_id(generated),
-///     |debug_id| index.get(debug_id).cloned(),
-///     |_file| None,
+///     |debug_id| index.get(debug_id),
+///     |_file| None::<SourceMap>,
 /// );
 ///
 /// assert_eq!(result.frames[0].file, "src/app.ts");
 /// ```
-pub fn symbolicate_with_debug_ids<D, M, F>(
+pub fn symbolicate_with_debug_ids<SI, SF, D, M, F>(
     stack: &str,
     debug_id_for_file: D,
     map_for_debug_id: M,
     map_for_file: F,
 ) -> SymbolicatedStack
 where
+    SI: Borrow<SourceMap>,
+    SF: Borrow<SourceMap>,
     D: Fn(&str) -> Option<String>,
-    M: Fn(&str) -> Option<SourceMap>,
-    F: Fn(&str) -> Option<SourceMap>,
+    M: Fn(&str) -> Option<SI>,
+    F: Fn(&str) -> Option<SF>,
 {
     symbolicate_frames(stack, |file| {
         debug_id_for_file(file)
             .and_then(|debug_id| map_for_debug_id(&debug_id))
-            .or_else(|| map_for_file(file))
+            .map(LoadedMap::ByDebugId)
+            .or_else(|| map_for_file(file).map(LoadedMap::ByFile))
     })
 }
 
-fn symbolicate_frames<F>(stack: &str, loader: F) -> SymbolicatedStack
+/// A source map from one of the two loaders of [`symbolicate_with_debug_ids`].
+/// Each loader can return an owned map or a reference.
+enum LoadedMap<SI, SF> {
+    ByDebugId(SI),
+    ByFile(SF),
+}
+
+impl<SI: Borrow<SourceMap>, SF: Borrow<SourceMap>> Borrow<SourceMap> for LoadedMap<SI, SF> {
+    fn borrow(&self) -> &SourceMap {
+        match self {
+            Self::ByDebugId(map) => map.borrow(),
+            Self::ByFile(map) => map.borrow(),
+        }
+    }
+}
+
+fn symbolicate_frames<S, F>(stack: &str, loader: F) -> SymbolicatedStack
 where
-    F: Fn(&str) -> Option<SourceMap>,
+    S: Borrow<SourceMap>,
+    F: Fn(&str) -> Option<S>,
 {
     let parsed = parse_stack_trace_full(stack);
-    let mut cache: HashMap<String, Option<SourceMap>> = HashMap::new();
+    let mut cache: HashMap<String, Option<S>> = HashMap::new();
     let mut frames = Vec::with_capacity(parsed.frames.len());
 
     for frame in &parsed.frames {
@@ -291,7 +315,7 @@ where
         let line = frame.line.saturating_sub(1);
         let column = frame.column.saturating_sub(1);
 
-        let resolved = sm.as_ref().and_then(|sm| {
+        let resolved = sm.as_ref().map(Borrow::borrow).and_then(|sm: &SourceMap| {
             let loc = sm.original_position_for(line, column)?;
             Some(SymbolicatedFrame {
                 function_name: loc
