@@ -157,7 +157,7 @@ Stable [ECMA-426](https://tc39.es/ecma426/) core support:
 
 Draft proposal support:
 
-- `debugId` (ECMA-426 draft proposal, not part of the published core standard)
+- `debugId` (ECMA-426 draft proposal, not part of the published core standard), in the source map and in the `//# debugId=<UUID>` comment of a generated file
 - Scopes & variables via [`srcmap-scopes`](https://crates.io/crates/srcmap-scopes) (the [ECMA-426 scopes proposal](https://github.com/tc39/ecma426/blob/main/proposals/scopes.md))
 - `rangeMappings` (ECMA-426 Stage 2 proposal)
 
@@ -248,6 +248,7 @@ cargo install srcmap-cli
 
 srcmap info bundle.js.map --json            # Inspect metadata and statistics
 srcmap validate bundle.js.map --json        # Validate a source map
+srcmap validate bundle.js.map --generated bundle.js   # Also compare the debug IDs
 srcmap lookup bundle.js.map 42 10 --context 5 --json  # Original position with source context
 srcmap resolve bundle.js.map --source src/app.ts 10 0 --json  # Reverse lookup
 srcmap mappings bundle.js.map --limit 100 --json              # List mappings

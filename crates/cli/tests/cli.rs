@@ -1690,3 +1690,186 @@ fn decode_from_stdin() {
     let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
     assert_eq!(v[0][0], serde_json::json!([0, 0, 0, 0]));
 }
+
+const DEBUG_ID: &str = "85314830-023f-4cf1-a267-535f4e37bb17";
+const OTHER_DEBUG_ID: &str = "00000000-0000-4000-8000-000000000000";
+
+/// Writes `app.js` and `app.js.map`, then runs `validate --generated` on them.
+fn validate_debug_id(
+    generated_id: Option<&str>,
+    map_id: Option<&str>,
+    extra_args: &[&str],
+) -> Output {
+    let dir = tempfile::tempdir().unwrap();
+    let map = dir.path().join("app.js.map");
+    let generated = dir.path().join("app.js");
+
+    let map_field = map_id.map(|id| format!(r#","debugId":"{id}""#)).unwrap_or_default();
+    fs::write(
+        &map,
+        format!(r#"{{"version":3,"sources":["a.js"],"names":[],"mappings":"AAAA"{map_field}}}"#),
+    )
+    .unwrap();
+
+    let comment = generated_id.map(|id| format!("//# debugId={id}\n")).unwrap_or_default();
+    fs::write(&generated, format!("var a;\n{comment}//# sourceMappingURL=app.js.map\n")).unwrap();
+
+    srcmap()
+        .args(["validate", map.to_str().unwrap(), "--generated", generated.to_str().unwrap()])
+        .args(extra_args)
+        .output()
+        .unwrap()
+}
+
+fn debug_id_json(out: &Output) -> serde_json::Value {
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    v["debugId"].clone()
+}
+
+#[test]
+fn validate_debug_id_match() {
+    let out = validate_debug_id(Some(DEBUG_ID), Some(DEBUG_ID), &[]);
+    assert!(out.status.success());
+    let stdout = String::from_utf8(out.stdout).unwrap();
+    assert!(stdout.contains("Valid source map v3"), "{stdout}");
+    assert!(stdout.contains(&format!("Debug ID: match ({DEBUG_ID})")), "{stdout}");
+}
+
+#[test]
+fn validate_debug_id_match_json() {
+    let out = validate_debug_id(Some(DEBUG_ID), Some(DEBUG_ID), &["--json"]);
+    assert!(out.status.success());
+    let debug_id = debug_id_json(&out);
+    assert_eq!(debug_id["status"], "match");
+    assert_eq!(debug_id["map"], DEBUG_ID);
+    assert_eq!(debug_id["generated"], DEBUG_ID);
+}
+
+#[test]
+fn validate_debug_id_match_ignores_hex_case() {
+    let upper = DEBUG_ID.to_ascii_uppercase();
+    let out = validate_debug_id(Some(DEBUG_ID), Some(&upper), &["--json"]);
+    assert!(out.status.success());
+    assert_eq!(debug_id_json(&out)["status"], "match");
+}
+
+#[test]
+fn validate_debug_id_mismatch() {
+    let out = validate_debug_id(Some(DEBUG_ID), Some(OTHER_DEBUG_ID), &[]);
+    assert_eq!(out.status.code(), Some(1));
+    let stderr = String::from_utf8(out.stderr).unwrap();
+    assert!(stderr.contains("Debug ID mismatch"), "{stderr}");
+    assert!(stderr.contains(DEBUG_ID), "{stderr}");
+    assert!(stderr.contains(OTHER_DEBUG_ID), "{stderr}");
+}
+
+#[test]
+fn validate_debug_id_mismatch_json() {
+    let out = validate_debug_id(Some(DEBUG_ID), Some(OTHER_DEBUG_ID), &["--json"]);
+    assert_eq!(out.status.code(), Some(1));
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(v["valid"], true);
+    assert_eq!(v["debugId"]["status"], "mismatch");
+    assert_eq!(v["debugId"]["map"], OTHER_DEBUG_ID);
+    assert_eq!(v["debugId"]["generated"], DEBUG_ID);
+}
+
+#[test]
+fn validate_debug_id_missing_in_generated() {
+    let out = validate_debug_id(None, Some(DEBUG_ID), &[]);
+    assert_eq!(out.status.code(), Some(1));
+    let stderr = String::from_utf8(out.stderr).unwrap();
+    assert!(stderr.contains("the generated file has no debug ID"), "{stderr}");
+
+    let out = validate_debug_id(None, Some(DEBUG_ID), &["--json"]);
+    assert_eq!(out.status.code(), Some(1));
+    let debug_id = debug_id_json(&out);
+    assert_eq!(debug_id["status"], "missing-in-generated");
+    assert_eq!(debug_id["map"], DEBUG_ID);
+    assert!(debug_id["generated"].is_null());
+}
+
+#[test]
+fn validate_debug_id_missing_in_map() {
+    let out = validate_debug_id(Some(DEBUG_ID), None, &[]);
+    assert_eq!(out.status.code(), Some(1));
+    let stderr = String::from_utf8(out.stderr).unwrap();
+    assert!(stderr.contains("the source map has no debug ID"), "{stderr}");
+
+    let out = validate_debug_id(Some(DEBUG_ID), None, &["--json"]);
+    assert_eq!(out.status.code(), Some(1));
+    let debug_id = debug_id_json(&out);
+    assert_eq!(debug_id["status"], "missing-in-map");
+    assert!(debug_id["map"].is_null());
+    assert_eq!(debug_id["generated"], DEBUG_ID);
+}
+
+#[test]
+fn validate_debug_id_absent_on_both_sides() {
+    let out = validate_debug_id(None, None, &[]);
+    assert!(out.status.success());
+    let stdout = String::from_utf8(out.stdout).unwrap();
+    assert!(stdout.contains("Debug ID: none"), "{stdout}");
+
+    let out = validate_debug_id(None, None, &["--json"]);
+    assert!(out.status.success());
+    assert_eq!(debug_id_json(&out)["status"], "absent");
+}
+
+#[test]
+fn validate_without_generated_has_no_debug_id_report() {
+    let out = srcmap()
+        .args(["validate", fixture("simple.js.map").to_str().unwrap(), "--json"])
+        .output()
+        .unwrap();
+    assert!(out.status.success());
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert!(v.get("debugId").is_none());
+}
+
+#[test]
+fn validate_generated_file_not_found() {
+    let out = srcmap()
+        .args([
+            "validate",
+            fixture("simple.js.map").to_str().unwrap(),
+            "--generated",
+            "does-not-exist.js",
+            "--json",
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(1));
+    let v: serde_json::Value = serde_json::from_slice(&out.stderr).unwrap();
+    assert_eq!(v["code"], "IO_ERROR");
+}
+
+#[test]
+fn validate_invalid_map_with_generated_stays_invalid() {
+    let dir = tempfile::tempdir().unwrap();
+    let generated = dir.path().join("app.js");
+    fs::write(&generated, format!("var a;\n//# debugId={DEBUG_ID}\n")).unwrap();
+    let out = srcmap()
+        .args([
+            "validate",
+            fixture("invalid.js.map").to_str().unwrap(),
+            "--generated",
+            generated.to_str().unwrap(),
+            "--json",
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(1));
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(v["valid"], false);
+    assert!(v.get("debugId").is_none());
+}
+
+#[test]
+fn schema_lists_the_generated_flag_of_validate() {
+    let out = srcmap().arg("schema").output().unwrap();
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    let validate =
+        v["commands"].as_array().unwrap().iter().find(|c| c["name"] == "validate").unwrap();
+    assert_eq!(validate["flags"]["--generated"]["type"], "path");
+}
