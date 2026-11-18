@@ -6,6 +6,7 @@ packages:
   - packages/generator-wasm
   - packages/remapping
   - packages/remapping-wasm
+  - packages/scopes-wasm
   - packages/source-map
   - packages/sourcemap
   - packages/sourcemap/npm/*

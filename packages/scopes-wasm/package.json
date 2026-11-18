@@ -1,0 +1,21 @@
+{
+  "name": "@srcmap/scopes-wasm",
+  "version": "0.6.0",
+  "private": true,
+  "description": "Experimental unpublished WebAssembly bindings for srcmap-scopes",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/fallow-rs/srcmap.git"
+  },
+  "type": "module",
+  "main": "pkg/srcmap_scopes_wasm.js",
+  "types": "pkg/srcmap_scopes_wasm.d.ts",
+  "scripts": {
+    "build": "wasm-pack build --target nodejs --out-dir pkg",
+    "test": "node --test __tests__/scopes-wasm.test.mjs __tests__/codec-compat.test.mjs"
+  },
+  "devDependencies": {
+    "@chrome-devtools/source-map-scopes-codec": "jsr:^2.0.0"
+  }
+}

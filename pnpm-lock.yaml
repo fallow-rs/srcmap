@@ -114,6 +114,12 @@ importers:
 
   packages/remapping-wasm: {}
 
+  packages/scopes-wasm:
+    devDependencies:
+      '@chrome-devtools/source-map-scopes-codec':
+        specifier: jsr:^2.0.0
+        version: '@jsr/chrome-devtools__source-map-scopes-codec@2.0.0'
+
   packages/source-map:
     dependencies:
       '@srcmap/generator-wasm':
@@ -410,6 +416,9 @@ packages:
 
   '@jridgewell/trace-mapping@0.3.31':
     resolution: {integrity: sha512-zzNR+SdQSDJzc8joaeP8QQoCQr8NuYx2dIIytl1QeBEZHJ9uW6hebsrYgbz8hJwUQao3TWCMtmfV8Nu1twOLAw==}
+
+  '@jsr/chrome-devtools__source-map-scopes-codec@2.0.0':
+    resolution: {integrity: sha512-Q2KmtAMw6Tqfa9gsVwShH9dSztlXqEITnpE5h/suPoDIlQMs983NwaiDJ55LsnFUBHJ7GSWjo+xgREKfhW5pxQ==, tarball: https://npm.jsr.io/~/11/@jsr/chrome-devtools__source-map-scopes-codec/2.0.0.tgz}
 
   '@napi-rs/cli@3.10.9':
     resolution: {integrity: sha512-RpzJrTDlSxUi2Deo+dh4bmDTKklAVe295aSQjZspwbZyUBG7twbXbiKskL2w/bL4kNg3DdkrwbI/iQwI9kgQaQ==}
@@ -1515,6 +1524,8 @@ snapshots:
     dependencies:
       '@jridgewell/resolve-uri': 3.1.2
       '@jridgewell/sourcemap-codec': 1.6.0
+
+  '@jsr/chrome-devtools__source-map-scopes-codec@2.0.0': {}
 
   '@napi-rs/cli@3.10.9(@emnapi/core@1.11.2)(@emnapi/runtime@1.11.2)':
     dependencies:

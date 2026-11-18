@@ -135,7 +135,7 @@ describe("Generated artifact policy", () => {
     );
     assert.equal(
       packageJson.scripts["build:test-artifacts:wasm"],
-      "pnpm --filter @srcmap/sourcemap-wasm build:all && pnpm --filter @srcmap/generator-wasm build:all && pnpm --filter @srcmap/remapping-wasm build:all && pnpm --filter @srcmap/symbolicate-wasm build:all",
+      "pnpm --filter @srcmap/sourcemap-wasm build:all && pnpm --filter @srcmap/generator-wasm build:all && pnpm --filter @srcmap/remapping-wasm build:all && pnpm --filter @srcmap/symbolicate-wasm build:all && pnpm --filter @srcmap/scopes-wasm build",
     );
 
     const workflow = await readFile(CI_WORKFLOW_URL, "utf8");
