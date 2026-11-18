@@ -294,3 +294,5 @@ jobs:
       - uses: Swatinem/rust-cache@eedcf2fb1c22f010a0eb66b92f378c110977f266 # v2
       - name: Compile benchmarks
         run: cargo bench --workspace --no-run
+      - name: Compile the comparison with other Rust crates
+        run: cargo build --locked --manifest-path benchmarks/rust-compare/Cargo.toml

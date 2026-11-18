@@ -165,6 +165,8 @@ Draft proposal support:
 
 In Rust, a lookup is a binary search in a flat array, with no call into another runtime. `cargo bench -p srcmap-sourcemap` prints the parse and lookup times on your machine.
 
+[benchmarks/rust-compare](benchmarks/rust-compare/README.md) compares srcmap with `oxc_sourcemap` and the Sentry `sourcemap` crate on the same three maps. srcmap parses as fast as `oxc_sourcemap`. It is 1.1 to 1.4 times slower on JSON output and on a lookup, and 2 to 3.5 times slower on composition, because it applies the rules of `@jridgewell/remapping` to each segment. It is faster than the Sentry crate on each operation that both crates have.
+
 In Node.js, every lookup is a call into WASM or NAPI. The repository benchmarks compare the bindings with [`@jridgewell/trace-mapping`](https://github.com/jridgewell/trace-mapping) and [`source-map-js`](https://github.com/7rulnik/source-map-js) on the source maps of Preact, Chart.js and PDF.js:
 
 | Operation | Result |
