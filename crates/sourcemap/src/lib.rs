@@ -32,11 +32,13 @@ use serde::Deserialize;
 use srcmap_codec::{DecodeError, vlq_encode_unsigned};
 use srcmap_scopes::{Binding, CallSite, GeneratedRange, OriginalScope, Position, ScopeInfo};
 
+mod debug_id;
 pub mod js_identifiers;
 pub mod offset_lookup;
 pub mod source_view;
 pub mod utils;
 
+pub use debug_id::{extract_css_debug_id, extract_debug_id};
 pub use offset_lookup::{GeneratedOffsetLookup, OriginalPositionLookup};
 pub use source_view::SourceView;
 

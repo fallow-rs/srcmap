@@ -37,8 +37,41 @@ println!("{result}"); // Pretty-printed symbolicated stack
 | `parse_stack_trace_full(input)` | Parse into `ParsedStack` (message + frames) |
 | `symbolicate(stack, loader)` | Parse and resolve through source maps |
 | `symbolicate_batch(stacks, maps)` | Batch symbolication with pre-loaded maps |
-| `resolve_by_debug_id(id, maps)` | Find a source map by its `debugId` proposal field |
+| `symbolicate_with_debug_ids(stack, debug_id_for_file, map_for_debug_id, map_for_file)` | Parse and resolve. Find each source map by debug ID first, then by file |
+| `DebugIdIndex` | A set of source maps that a caller finds by debug ID (`insert`, `insert_with_id`, `get`) |
+| `resolve_by_debug_id(id, maps)` | Find a source map by its `debugId` proposal field in a map that has file keys |
 | `to_json(stack)` | Serialize a `SymbolicatedStack` to JSON |
+
+## Source maps by debug ID
+
+The [debug ID proposal](https://github.com/tc39/ecma426/blob/main/proposals/debug-id.md) puts the same UUID in a generated file (`//# debugId=<UUID>`) and in its source map (`debugId`). A debug ID stays correct when the URL of a file changes.
+
+```rust
+use srcmap_sourcemap::{SourceMap, extract_debug_id};
+use srcmap_symbolicate::{DebugIdIndex, symbolicate_with_debug_ids};
+
+// Put each source map that has a `debugId` field in the index.
+let index: DebugIdIndex = std::fs::read_dir("maps")
+    .unwrap()
+    .filter_map(|entry| std::fs::read_to_string(entry.ok()?.path()).ok())
+    .filter_map(|json| SourceMap::from_json(&json).ok())
+    .collect();
+
+let stack = "Error: oops\n    at foo (dist/bundle.js:10:5)";
+let result = symbolicate_with_debug_ids(
+    stack,
+    // The debug ID of the generated file of a frame.
+    |file| extract_debug_id(&std::fs::read_to_string(file).ok()?),
+    // The source map for that debug ID.
+    |debug_id| index.get(debug_id),
+    // The source map for a file that has no debug ID.
+    |file| SourceMap::from_json(&std::fs::read_to_string(format!("{file}.map")).ok()?).ok(),
+);
+
+println!("{result}");
+```
+
+The index ignores the case of the hex digits in a debug ID.
 
 ## Supported stack trace formats
 

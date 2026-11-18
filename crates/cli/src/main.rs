@@ -19,7 +19,8 @@ use srcmap_codec::{decode, encode};
 use srcmap_remapping::{ConcatBuilder, remap};
 use srcmap_sourcemap::utils::resolve_source_map_url;
 use srcmap_sourcemap::{
-    Bias, Mapping, OriginalLocation, SourceMap, SourceMappingUrl, parse_source_mapping_url,
+    Bias, Mapping, OriginalLocation, SourceMap, SourceMappingUrl, extract_css_debug_id,
+    extract_debug_id, parse_source_mapping_url,
 };
 use url::Url;
 
@@ -53,6 +54,10 @@ enum Command {
     Validate {
         /// Source map file (use `-` for stdin)
         file: PathBuf,
+
+        /// Generated file. Compares its `debugId` comment with the `debugId` of the source map
+        #[arg(long, value_name = "PATH")]
+        generated: Option<PathBuf>,
 
         /// Output as JSON
         #[arg(long)]
@@ -955,12 +960,81 @@ fn cmd_info(file: &Path, json: bool) -> Result<(), CliError> {
     Ok(())
 }
 
-fn cmd_validate(file: &Path, json: bool) -> Result<bool, CliError> {
+/// The result of a comparison between the debug ID of a generated file and
+/// the debug ID of its source map.
+struct DebugIdCheck {
+    map: Option<String>,
+    generated: Option<String>,
+}
+
+impl DebugIdCheck {
+    /// Reads the generated file and compares its debug ID with the debug ID of `sm`.
+    ///
+    /// A file with the extension `.css` has the CSS comment form. The comment
+    /// is ASCII, so bytes that are not UTF-8 in the file do not prevent the read.
+    fn new(sm: &SourceMap, generated: &Path) -> Result<Self, CliError> {
+        let bytes = fs::read(generated)
+            .map_err(|e| CliError::io(format!("failed to read {}: {e}", generated.display())))?;
+        let source = String::from_utf8_lossy(&bytes);
+        let is_css = generated.extension().is_some_and(|ext| ext.eq_ignore_ascii_case("css"));
+        let extract = if is_css { extract_css_debug_id } else { extract_debug_id };
+        Ok(Self {
+            map: sm.debug_id.as_deref().map(str::to_ascii_lowercase),
+            generated: extract(&source),
+        })
+    }
+
+    /// The `status` value of the JSON output.
+    fn status(&self) -> &'static str {
+        match (&self.map, &self.generated) {
+            (Some(map), Some(generated)) if map == generated => "match",
+            (Some(_), Some(_)) => "mismatch",
+            (Some(_), None) => "missing-in-generated",
+            (None, Some(_)) => "missing-in-map",
+            (None, None) => "absent",
+        }
+    }
+
+    /// A debug ID is optional. The check fails only when one side has an ID
+    /// that the other side does not have.
+    fn passed(&self) -> bool {
+        matches!(self.status(), "match" | "absent")
+    }
+
+    fn to_json(&self) -> serde_json::Value {
+        serde_json::json!({
+            "status": self.status(),
+            "map": self.map,
+            "generated": self.generated,
+        })
+    }
+
+    fn print(&self) {
+        match (&self.map, &self.generated) {
+            (Some(_), Some(generated)) if self.passed() => {
+                println!("  Debug ID: match ({generated})");
+            }
+            (Some(map), Some(generated)) => eprintln!(
+                "Debug ID mismatch: the generated file has {generated}, the source map has {map}"
+            ),
+            (Some(map), None) => eprintln!(
+                "Debug ID missing: the generated file has no debug ID, the source map has {map}"
+            ),
+            (None, Some(generated)) => eprintln!(
+                "Debug ID missing: the generated file has {generated}, the source map has no debug ID"
+            ),
+            (None, None) => println!("  Debug ID: none in the generated file and the source map"),
+        }
+    }
+}
+
+fn cmd_validate(file: &Path, generated: Option<&Path>, json: bool) -> Result<bool, CliError> {
     let raw = read_file_or_stdin(file)?;
     match SourceMap::from_json(&raw) {
         Ok(sm) => {
+            let debug_id = generated.map(|path| DebugIdCheck::new(&sm, path)).transpose()?;
             if json {
-                let obj = serde_json::json!({
+                let mut obj = serde_json::json!({
                     "valid": true,
                     "version": 3,
                     "sources": sm.sources.len(),
@@ -968,6 +1042,9 @@ fn cmd_validate(file: &Path, json: bool) -> Result<bool, CliError> {
                     "mappings": sm.mapping_count(),
                     "lines": sm.line_count(),
                 });
+                if let Some(check) = &debug_id {
+                    obj["debugId"] = check.to_json();
+                }
                 println!("{}", serde_json::to_string_pretty(&obj).unwrap());
             } else {
                 println!("Valid source map v3");
@@ -978,8 +1055,11 @@ fn cmd_validate(file: &Path, json: bool) -> Result<bool, CliError> {
                     sm.mapping_count(),
                     sm.line_count()
                 );
+                if let Some(check) = &debug_id {
+                    check.print();
+                }
             }
-            Ok(true)
+            Ok(debug_id.is_none_or(|check| check.passed()))
         }
         Err(e) => {
             if json {
@@ -2235,9 +2315,10 @@ fn schema_validate_command() -> serde_json::Value {
             {"name": "file", "type": "path", "required": true, "description": "Source map file (use `-` for stdin)"}
         ],
         "flags": {
+            "--generated": {"type": "path", "description": "Generated file. Compares its debugId comment with the debugId of the source map"},
             "--json": {"type": "bool", "default": false, "description": "Output as JSON"}
         },
-        "exitCodes": {"0": "valid", "1": "invalid or error"}
+        "exitCodes": {"0": "valid", "1": "invalid, error, or a debug ID that only one side has or that differs"}
     })
 }
 
@@ -2453,11 +2534,13 @@ fn main() -> ExitCode {
 
     let result = match &cli.command {
         Command::Info { file, json } => cmd_info(file, *json),
-        Command::Validate { file, json } => match cmd_validate(file, *json) {
-            Ok(true) => Ok(()),
-            Ok(false) => return ExitCode::FAILURE,
-            Err(e) => Err(e),
-        },
+        Command::Validate { file, generated, json } => {
+            match cmd_validate(file, generated.as_deref(), *json) {
+                Ok(true) => Ok(()),
+                Ok(false) => return ExitCode::FAILURE,
+                Err(e) => Err(e),
+            }
+        }
         Command::Lookup { file, line, column, bias, context, json } => {
             cmd_lookup(file, *line, *column, bias, *context, *json)
         }
