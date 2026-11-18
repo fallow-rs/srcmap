@@ -216,6 +216,70 @@ pub fn symbolicate<F>(stack: &str, loader: F) -> SymbolicatedStack
 where
     F: Fn(&str) -> Option<SourceMap>,
 {
+    symbolicate_frames(stack, loader)
+}
+
+/// Symbolicate a stack trace, and find each source map by debug ID first.
+///
+/// For each unique generated file in the stack trace, the function does these
+/// steps:
+///
+/// 1. It calls `debug_id_for_file` with the file of the frame. The caller
+///    returns the debug ID of that file, for example from
+///    [`srcmap_sourcemap::extract_debug_id`] or from a table that the runtime
+///    sent with the error.
+/// 2. If there is a debug ID, it calls `map_for_debug_id` with that ID. A
+///    [`DebugIdIndex`] can answer this call.
+/// 3. If there is no debug ID, or no source map has it, it calls
+///    `map_for_file` with the file of the frame, as [`symbolicate`] does.
+///
+/// # Examples
+///
+/// ```
+/// use srcmap_sourcemap::{SourceMap, extract_debug_id};
+/// use srcmap_symbolicate::{DebugIdIndex, symbolicate_with_debug_ids};
+///
+/// let generated = "f();\n//# debugId=85314830-023f-4cf1-a267-535f4e37bb17\n";
+/// let map = SourceMap::from_json(
+///     r#"{"version":3,"sources":["src/app.ts"],"names":[],"mappings":"AAAA",
+///         "debugId":"85314830-023f-4cf1-a267-535f4e37bb17"}"#,
+/// )
+/// .unwrap();
+/// let mut index = DebugIdIndex::new();
+/// index.insert(map);
+///
+/// let stack = "Error: oops\n    at f (https://cdn.example.com/app.min.js:1:1)";
+/// let result = symbolicate_with_debug_ids(
+///     stack,
+///     |_file| extract_debug_id(generated),
+///     |debug_id| index.get(debug_id).cloned(),
+///     |_file| None,
+/// );
+///
+/// assert_eq!(result.frames[0].file, "src/app.ts");
+/// ```
+pub fn symbolicate_with_debug_ids<D, M, F>(
+    stack: &str,
+    debug_id_for_file: D,
+    map_for_debug_id: M,
+    map_for_file: F,
+) -> SymbolicatedStack
+where
+    D: Fn(&str) -> Option<String>,
+    M: Fn(&str) -> Option<SourceMap>,
+    F: Fn(&str) -> Option<SourceMap>,
+{
+    symbolicate_frames(stack, |file| {
+        debug_id_for_file(file)
+            .and_then(|debug_id| map_for_debug_id(&debug_id))
+            .or_else(|| map_for_file(file))
+    })
+}
+
+fn symbolicate_frames<F>(stack: &str, loader: F) -> SymbolicatedStack
+where
+    F: Fn(&str) -> Option<SourceMap>,
+{
     let parsed = parse_stack_trace_full(stack);
     let mut cache: HashMap<String, Option<SourceMap>> = HashMap::new();
     let mut frames = Vec::with_capacity(parsed.frames.len());
@@ -319,11 +383,103 @@ pub fn symbolicate_batch(
 ///
 /// Useful for error monitoring systems where source maps are identified by
 /// their debug ID rather than by filename.
+///
+/// The function examines each map, and it ignores the case of the hex digits.
+/// For many lookups, use a [`DebugIdIndex`].
 pub fn resolve_by_debug_id<'a>(
     debug_id: &str,
     maps: &'a HashMap<String, SourceMap>,
 ) -> Option<&'a SourceMap> {
-    maps.values().find(|sm| sm.debug_id.as_deref() == Some(debug_id))
+    maps.values()
+        .find(|sm| sm.debug_id.as_deref().is_some_and(|id| id.eq_ignore_ascii_case(debug_id)))
+}
+
+/// A set of source maps that a caller finds by debug ID.
+///
+/// The index ignores the case of the hex digits in a debug ID, because the
+/// debug ID proposal permits upper-case and lower-case digits.
+///
+/// # Examples
+///
+/// ```
+/// use srcmap_sourcemap::SourceMap;
+/// use srcmap_symbolicate::DebugIdIndex;
+///
+/// let map = SourceMap::from_json(
+///     r#"{"version":3,"sources":["src/app.ts"],"names":[],"mappings":"AAAA",
+///         "debugId":"85314830-023f-4cf1-a267-535f4e37bb17"}"#,
+/// )
+/// .unwrap();
+///
+/// let mut index = DebugIdIndex::new();
+/// assert!(index.insert(map));
+/// assert!(index.get("85314830-023F-4CF1-A267-535F4E37BB17").is_some());
+/// assert!(index.get("00000000-0000-4000-8000-000000000000").is_none());
+/// ```
+#[derive(Debug, Clone, Default)]
+pub struct DebugIdIndex {
+    maps: HashMap<String, SourceMap>,
+}
+
+impl DebugIdIndex {
+    /// Create an empty index.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Add a source map under its own `debugId` field.
+    ///
+    /// Returns `false`, and does not add the map, when the map has no
+    /// `debugId` field. A map replaces an earlier map with the same debug ID.
+    pub fn insert(&mut self, map: SourceMap) -> bool {
+        let Some(debug_id) = map.debug_id.clone() else {
+            return false;
+        };
+        self.insert_with_id(&debug_id, map);
+        true
+    }
+
+    /// Add a source map under a debug ID that the caller gives.
+    ///
+    /// Use this function when the debug ID comes from a different place than
+    /// the map, for example from the name of an uploaded file. A map replaces
+    /// an earlier map with the same debug ID.
+    pub fn insert_with_id(&mut self, debug_id: &str, map: SourceMap) {
+        self.maps.insert(debug_id.to_ascii_lowercase(), map);
+    }
+
+    /// Find the source map for a debug ID.
+    pub fn get(&self, debug_id: &str) -> Option<&SourceMap> {
+        self.maps.get(&debug_id.to_ascii_lowercase())
+    }
+
+    /// The number of source maps in the index.
+    pub fn len(&self) -> usize {
+        self.maps.len()
+    }
+
+    /// Returns `true` when the index has no source maps.
+    pub fn is_empty(&self) -> bool {
+        self.maps.is_empty()
+    }
+}
+
+impl Extend<SourceMap> for DebugIdIndex {
+    /// Add each source map that has a `debugId` field.
+    fn extend<I: IntoIterator<Item = SourceMap>>(&mut self, maps: I) {
+        for map in maps {
+            self.insert(map);
+        }
+    }
+}
+
+impl FromIterator<SourceMap> for DebugIdIndex {
+    /// Collect each source map that has a `debugId` field.
+    fn from_iter<I: IntoIterator<Item = SourceMap>>(maps: I) -> Self {
+        let mut index = Self::new();
+        index.extend(maps);
+        index
+    }
 }
 
 /// Serialize a symbolicated stack to JSON.
