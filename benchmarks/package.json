@@ -18,7 +18,7 @@
     "bench": "node codec.mjs && node sourcemap.mjs && node sourcemap-wasm.mjs && node fallow-cloud-coverage.mjs"
   },
   "dependencies": {
-    "@codspeed/tinybench-plugin": "^6.1.0",
+    "@codspeed/tinybench-plugin": "^6.1.1",
     "@jridgewell/remapping": "^2.3.5",
     "@jridgewell/sourcemap-codec": "^1.6.0",
     "@jridgewell/trace-mapping": "^0.3.31",

@@ -21,8 +21,8 @@ importers:
   benchmarks:
     dependencies:
       '@codspeed/tinybench-plugin':
-        specifier: ^6.1.0
-        version: 6.1.0(tinybench@6.2.2)
+        specifier: ^6.1.1
+        version: 6.1.1(tinybench@6.2.2)
       '@jridgewell/remapping':
         specifier: ^2.3.5
         version: 2.3.5
@@ -197,11 +197,11 @@ importers:
 
 packages:
 
-  '@codspeed/core@6.1.0':
-    resolution: {integrity: sha512-lxFkexeuf6iOWUZmgCeuGSVgk0fKBbtnCVd3w3UWi3627/4t55FhA046LhFLzedCQUi6183s99DnM3/6TRjzHQ==}
+  '@codspeed/core@6.1.1':
+    resolution: {integrity: sha512-Lz9xqyeoHI2T7QoLjcJGFrKzyOJKzJM8/2kNRiCcMsqeLzntFpMXHj1No4efraWmdAG+6+7DZmKodrjh+9H6ng==}
 
-  '@codspeed/tinybench-plugin@6.1.0':
-    resolution: {integrity: sha512-R34+lpwSyCll2CpHSFaVDJq7uHWexlUpSq+FheiaI9qzKb5BNN3z/WNGwFPMcEXO5xpUfjg7qepO83aGuwcSyg==}
+  '@codspeed/tinybench-plugin@6.1.1':
+    resolution: {integrity: sha512-CigpPDyMLQ8eOm2SVn8Z6/52PxcEwTy2stDNiATzeXU5UN+VnIdF573X3gatgCmfSq2T0mTJYSAuqBIdlqYv8w==}
     peerDependencies:
       tinybench: '>=4.0.1'
 
@@ -1095,8 +1095,8 @@ packages:
   asynckit@0.4.0:
     resolution: {integrity: sha512-Oei9OH4tRh0YqU3GxhX79dM/mwVgvbZJaSNaRk+bshkj0S5cfHcgYakreBjrHwatXKbz+IoIdYLxrKim2MjW0Q==}
 
-  axios@1.21.0:
-    resolution: {integrity: sha512-YCzXMB53Q9PZBsh7yN7wtapit4WepwcHS2fP8QhGsBxSz5YtgYobV7GGlWlAJi+RxfU77GQTQi2DSLUma42EYA==}
+  axios@1.21.1:
+    resolution: {integrity: sha512-6eI5Q/Y4u/Um9dDlsRoq5pY2rxnUTv+L4PpLitnbk/i4jb3MxLZ5CsN5Ih3IysbeRYK4pR+P7qfMsOQl9fwwFQ==}
 
   before-after-hook@4.0.0:
     resolution: {integrity: sha512-q6tR3RPqIB1pMiTRMFcZwuG5T8vwp+vUvEG0vuI6B+Rikh5BfPp2fQ82c925FOs+b0lcFQ8CFrL+KbilfZFhOQ==}
@@ -1182,8 +1182,8 @@ packages:
   fast-wrap-ansi@0.2.2:
     resolution: {integrity: sha512-7F2Fl+TjRSenLqlU3UjSH0iyqopqoZIu7eZVpEirP2g1GtWa2G/ecEmBdgz31+Mxr+ELclgg6sokpSFIQiZ02Q==}
 
-  follow-redirects@1.16.2:
-    resolution: {integrity: sha512-/kVP2U8z596Ia0gwFrwyIeo74ta5aVmSeU1FfAUMAmcEP5EP7zydmag3SLiN64NaRKef3lxsq7i/g7ltJQDGow==}
+  follow-redirects@1.16.3:
+    resolution: {integrity: sha512-toOSoqN6d51Wjf1aOFJYcoVv1aND9rj/CwjLU0Vz40oDuSpWDayCeKe4JpL5NL0WdFvoOOCI3BRo69HahjbR1A==}
     engines: {node: '>=4.0'}
     peerDependencies:
       debug: '*'
@@ -1341,9 +1341,9 @@ packages:
 
 snapshots:
 
-  '@codspeed/core@6.1.0':
+  '@codspeed/core@6.1.1':
     dependencies:
-      axios: 1.21.0
+      axios: 1.21.1
       form-data: 4.0.6
       node-gyp-build: 4.8.4
       stack-trace: 1.0.0-pre2
@@ -1351,9 +1351,9 @@ snapshots:
       - debug
       - supports-color
 
-  '@codspeed/tinybench-plugin@6.1.0(tinybench@6.2.2)':
+  '@codspeed/tinybench-plugin@6.1.1(tinybench@6.2.2)':
     dependencies:
-      '@codspeed/core': 6.1.0
+      '@codspeed/core': 6.1.1
       tinybench: 6.2.2
     transitivePeerDependencies:
       - debug
@@ -1983,9 +1983,9 @@ snapshots:
 
   asynckit@0.4.0: {}
 
-  axios@1.21.0:
+  axios@1.21.1:
     dependencies:
-      follow-redirects: 1.16.2
+      follow-redirects: 1.16.3
       form-data: 4.0.6
       https-proxy-agent: 5.0.1
       proxy-from-env: 2.1.0
@@ -2070,7 +2070,7 @@ snapshots:
     dependencies:
       fast-string-width: 3.0.2
 
-  follow-redirects@1.16.2: {}
+  follow-redirects@1.16.3: {}
 
   form-data@4.0.6:
     dependencies:
